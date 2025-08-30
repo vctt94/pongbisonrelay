@@ -486,3 +486,407 @@ var PongGame_ServiceDesc = grpc.ServiceDesc{
 	},
 	Metadata: "pong.proto",
 }
+
+// PongRefereeClient is the client API for PongReferee service.
+//
+// For semantics around ctx use and closing/ending streaming RPCs, please refer to https://pkg.go.dev/google.golang.org/grpc/?tab=doc#ClientConn.NewStream.
+type PongRefereeClient interface {
+	CreateMatch(ctx context.Context, in *CreateMatchRequest, opts ...grpc.CallOption) (*CreateMatchResponse, error)
+	SubmitFunding(ctx context.Context, in *SubmitFundingRequest, opts ...grpc.CallOption) (*SubmitFundingResponse, error)
+	RevealAdaptors(ctx context.Context, in *RevealAdaptorsRequest, opts ...grpc.CallOption) (*RevealAdaptorsResponse, error)
+	// New endpoints for server-managed deposits and settlement
+	AllocateEscrow(ctx context.Context, in *AllocateEscrowRequest, opts ...grpc.CallOption) (*AllocateEscrowResponse, error)
+	FinalizeWinner(ctx context.Context, in *FinalizeWinnerRequest, opts ...grpc.CallOption) (*FinalizeWinnerResponse, error)
+	// v0-min POC minimal API
+	AllocateMatch(ctx context.Context, in *AllocateMatchRequest, opts ...grpc.CallOption) (*AllocateMatchResponse, error)
+	WaitFunding(ctx context.Context, in *WaitFundingRequest, opts ...grpc.CallOption) (PongReferee_WaitFundingClient, error)
+	// Phase 1 streaming settlement
+	SettlementStream(ctx context.Context, opts ...grpc.CallOption) (PongReferee_SettlementStreamClient, error)
+}
+
+type pongRefereeClient struct {
+	cc grpc.ClientConnInterface
+}
+
+func NewPongRefereeClient(cc grpc.ClientConnInterface) PongRefereeClient {
+	return &pongRefereeClient{cc}
+}
+
+func (c *pongRefereeClient) CreateMatch(ctx context.Context, in *CreateMatchRequest, opts ...grpc.CallOption) (*CreateMatchResponse, error) {
+	out := new(CreateMatchResponse)
+	err := c.cc.Invoke(ctx, "/pong.PongReferee/CreateMatch", in, out, opts...)
+	if err != nil {
+		return nil, err
+	}
+	return out, nil
+}
+
+func (c *pongRefereeClient) SubmitFunding(ctx context.Context, in *SubmitFundingRequest, opts ...grpc.CallOption) (*SubmitFundingResponse, error) {
+	out := new(SubmitFundingResponse)
+	err := c.cc.Invoke(ctx, "/pong.PongReferee/SubmitFunding", in, out, opts...)
+	if err != nil {
+		return nil, err
+	}
+	return out, nil
+}
+
+func (c *pongRefereeClient) RevealAdaptors(ctx context.Context, in *RevealAdaptorsRequest, opts ...grpc.CallOption) (*RevealAdaptorsResponse, error) {
+	out := new(RevealAdaptorsResponse)
+	err := c.cc.Invoke(ctx, "/pong.PongReferee/RevealAdaptors", in, out, opts...)
+	if err != nil {
+		return nil, err
+	}
+	return out, nil
+}
+
+func (c *pongRefereeClient) AllocateEscrow(ctx context.Context, in *AllocateEscrowRequest, opts ...grpc.CallOption) (*AllocateEscrowResponse, error) {
+	out := new(AllocateEscrowResponse)
+	err := c.cc.Invoke(ctx, "/pong.PongReferee/AllocateEscrow", in, out, opts...)
+	if err != nil {
+		return nil, err
+	}
+	return out, nil
+}
+
+func (c *pongRefereeClient) FinalizeWinner(ctx context.Context, in *FinalizeWinnerRequest, opts ...grpc.CallOption) (*FinalizeWinnerResponse, error) {
+	out := new(FinalizeWinnerResponse)
+	err := c.cc.Invoke(ctx, "/pong.PongReferee/FinalizeWinner", in, out, opts...)
+	if err != nil {
+		return nil, err
+	}
+	return out, nil
+}
+
+func (c *pongRefereeClient) AllocateMatch(ctx context.Context, in *AllocateMatchRequest, opts ...grpc.CallOption) (*AllocateMatchResponse, error) {
+	out := new(AllocateMatchResponse)
+	err := c.cc.Invoke(ctx, "/pong.PongReferee/AllocateMatch", in, out, opts...)
+	if err != nil {
+		return nil, err
+	}
+	return out, nil
+}
+
+func (c *pongRefereeClient) WaitFunding(ctx context.Context, in *WaitFundingRequest, opts ...grpc.CallOption) (PongReferee_WaitFundingClient, error) {
+	stream, err := c.cc.NewStream(ctx, &PongReferee_ServiceDesc.Streams[0], "/pong.PongReferee/WaitFunding", opts...)
+	if err != nil {
+		return nil, err
+	}
+	x := &pongRefereeWaitFundingClient{stream}
+	if err := x.ClientStream.SendMsg(in); err != nil {
+		return nil, err
+	}
+	if err := x.ClientStream.CloseSend(); err != nil {
+		return nil, err
+	}
+	return x, nil
+}
+
+type PongReferee_WaitFundingClient interface {
+	Recv() (*WaitFundingResponse, error)
+	grpc.ClientStream
+}
+
+type pongRefereeWaitFundingClient struct {
+	grpc.ClientStream
+}
+
+func (x *pongRefereeWaitFundingClient) Recv() (*WaitFundingResponse, error) {
+	m := new(WaitFundingResponse)
+	if err := x.ClientStream.RecvMsg(m); err != nil {
+		return nil, err
+	}
+	return m, nil
+}
+
+func (c *pongRefereeClient) SettlementStream(ctx context.Context, opts ...grpc.CallOption) (PongReferee_SettlementStreamClient, error) {
+	stream, err := c.cc.NewStream(ctx, &PongReferee_ServiceDesc.Streams[1], "/pong.PongReferee/SettlementStream", opts...)
+	if err != nil {
+		return nil, err
+	}
+	x := &pongRefereeSettlementStreamClient{stream}
+	return x, nil
+}
+
+type PongReferee_SettlementStreamClient interface {
+	Send(*ClientMsg) error
+	Recv() (*ServerMsg, error)
+	grpc.ClientStream
+}
+
+type pongRefereeSettlementStreamClient struct {
+	grpc.ClientStream
+}
+
+func (x *pongRefereeSettlementStreamClient) Send(m *ClientMsg) error {
+	return x.ClientStream.SendMsg(m)
+}
+
+func (x *pongRefereeSettlementStreamClient) Recv() (*ServerMsg, error) {
+	m := new(ServerMsg)
+	if err := x.ClientStream.RecvMsg(m); err != nil {
+		return nil, err
+	}
+	return m, nil
+}
+
+// PongRefereeServer is the server API for PongReferee service.
+// All implementations must embed UnimplementedPongRefereeServer
+// for forward compatibility
+type PongRefereeServer interface {
+	CreateMatch(context.Context, *CreateMatchRequest) (*CreateMatchResponse, error)
+	SubmitFunding(context.Context, *SubmitFundingRequest) (*SubmitFundingResponse, error)
+	RevealAdaptors(context.Context, *RevealAdaptorsRequest) (*RevealAdaptorsResponse, error)
+	// New endpoints for server-managed deposits and settlement
+	AllocateEscrow(context.Context, *AllocateEscrowRequest) (*AllocateEscrowResponse, error)
+	FinalizeWinner(context.Context, *FinalizeWinnerRequest) (*FinalizeWinnerResponse, error)
+	// v0-min POC minimal API
+	AllocateMatch(context.Context, *AllocateMatchRequest) (*AllocateMatchResponse, error)
+	WaitFunding(*WaitFundingRequest, PongReferee_WaitFundingServer) error
+	// Phase 1 streaming settlement
+	SettlementStream(PongReferee_SettlementStreamServer) error
+	mustEmbedUnimplementedPongRefereeServer()
+}
+
+// UnimplementedPongRefereeServer must be embedded to have forward compatible implementations.
+type UnimplementedPongRefereeServer struct {
+}
+
+func (UnimplementedPongRefereeServer) CreateMatch(context.Context, *CreateMatchRequest) (*CreateMatchResponse, error) {
+	return nil, status.Errorf(codes.Unimplemented, "method CreateMatch not implemented")
+}
+func (UnimplementedPongRefereeServer) SubmitFunding(context.Context, *SubmitFundingRequest) (*SubmitFundingResponse, error) {
+	return nil, status.Errorf(codes.Unimplemented, "method SubmitFunding not implemented")
+}
+func (UnimplementedPongRefereeServer) RevealAdaptors(context.Context, *RevealAdaptorsRequest) (*RevealAdaptorsResponse, error) {
+	return nil, status.Errorf(codes.Unimplemented, "method RevealAdaptors not implemented")
+}
+func (UnimplementedPongRefereeServer) AllocateEscrow(context.Context, *AllocateEscrowRequest) (*AllocateEscrowResponse, error) {
+	return nil, status.Errorf(codes.Unimplemented, "method AllocateEscrow not implemented")
+}
+func (UnimplementedPongRefereeServer) FinalizeWinner(context.Context, *FinalizeWinnerRequest) (*FinalizeWinnerResponse, error) {
+	return nil, status.Errorf(codes.Unimplemented, "method FinalizeWinner not implemented")
+}
+func (UnimplementedPongRefereeServer) AllocateMatch(context.Context, *AllocateMatchRequest) (*AllocateMatchResponse, error) {
+	return nil, status.Errorf(codes.Unimplemented, "method AllocateMatch not implemented")
+}
+func (UnimplementedPongRefereeServer) WaitFunding(*WaitFundingRequest, PongReferee_WaitFundingServer) error {
+	return status.Errorf(codes.Unimplemented, "method WaitFunding not implemented")
+}
+func (UnimplementedPongRefereeServer) SettlementStream(PongReferee_SettlementStreamServer) error {
+	return status.Errorf(codes.Unimplemented, "method SettlementStream not implemented")
+}
+func (UnimplementedPongRefereeServer) mustEmbedUnimplementedPongRefereeServer() {}
+
+// UnsafePongRefereeServer may be embedded to opt out of forward compatibility for this service.
+// Use of this interface is not recommended, as added methods to PongRefereeServer will
+// result in compilation errors.
+type UnsafePongRefereeServer interface {
+	mustEmbedUnimplementedPongRefereeServer()
+}
+
+func RegisterPongRefereeServer(s grpc.ServiceRegistrar, srv PongRefereeServer) {
+	s.RegisterService(&PongReferee_ServiceDesc, srv)
+}
+
+func _PongReferee_CreateMatch_Handler(srv interface{}, ctx context.Context, dec func(interface{}) error, interceptor grpc.UnaryServerInterceptor) (interface{}, error) {
+	in := new(CreateMatchRequest)
+	if err := dec(in); err != nil {
+		return nil, err
+	}
+	if interceptor == nil {
+		return srv.(PongRefereeServer).CreateMatch(ctx, in)
+	}
+	info := &grpc.UnaryServerInfo{
+		Server:     srv,
+		FullMethod: "/pong.PongReferee/CreateMatch",
+	}
+	handler := func(ctx context.Context, req interface{}) (interface{}, error) {
+		return srv.(PongRefereeServer).CreateMatch(ctx, req.(*CreateMatchRequest))
+	}
+	return interceptor(ctx, in, info, handler)
+}
+
+func _PongReferee_SubmitFunding_Handler(srv interface{}, ctx context.Context, dec func(interface{}) error, interceptor grpc.UnaryServerInterceptor) (interface{}, error) {
+	in := new(SubmitFundingRequest)
+	if err := dec(in); err != nil {
+		return nil, err
+	}
+	if interceptor == nil {
+		return srv.(PongRefereeServer).SubmitFunding(ctx, in)
+	}
+	info := &grpc.UnaryServerInfo{
+		Server:     srv,
+		FullMethod: "/pong.PongReferee/SubmitFunding",
+	}
+	handler := func(ctx context.Context, req interface{}) (interface{}, error) {
+		return srv.(PongRefereeServer).SubmitFunding(ctx, req.(*SubmitFundingRequest))
+	}
+	return interceptor(ctx, in, info, handler)
+}
+
+func _PongReferee_RevealAdaptors_Handler(srv interface{}, ctx context.Context, dec func(interface{}) error, interceptor grpc.UnaryServerInterceptor) (interface{}, error) {
+	in := new(RevealAdaptorsRequest)
+	if err := dec(in); err != nil {
+		return nil, err
+	}
+	if interceptor == nil {
+		return srv.(PongRefereeServer).RevealAdaptors(ctx, in)
+	}
+	info := &grpc.UnaryServerInfo{
+		Server:     srv,
+		FullMethod: "/pong.PongReferee/RevealAdaptors",
+	}
+	handler := func(ctx context.Context, req interface{}) (interface{}, error) {
+		return srv.(PongRefereeServer).RevealAdaptors(ctx, req.(*RevealAdaptorsRequest))
+	}
+	return interceptor(ctx, in, info, handler)
+}
+
+func _PongReferee_AllocateEscrow_Handler(srv interface{}, ctx context.Context, dec func(interface{}) error, interceptor grpc.UnaryServerInterceptor) (interface{}, error) {
+	in := new(AllocateEscrowRequest)
+	if err := dec(in); err != nil {
+		return nil, err
+	}
+	if interceptor == nil {
+		return srv.(PongRefereeServer).AllocateEscrow(ctx, in)
+	}
+	info := &grpc.UnaryServerInfo{
+		Server:     srv,
+		FullMethod: "/pong.PongReferee/AllocateEscrow",
+	}
+	handler := func(ctx context.Context, req interface{}) (interface{}, error) {
+		return srv.(PongRefereeServer).AllocateEscrow(ctx, req.(*AllocateEscrowRequest))
+	}
+	return interceptor(ctx, in, info, handler)
+}
+
+func _PongReferee_FinalizeWinner_Handler(srv interface{}, ctx context.Context, dec func(interface{}) error, interceptor grpc.UnaryServerInterceptor) (interface{}, error) {
+	in := new(FinalizeWinnerRequest)
+	if err := dec(in); err != nil {
+		return nil, err
+	}
+	if interceptor == nil {
+		return srv.(PongRefereeServer).FinalizeWinner(ctx, in)
+	}
+	info := &grpc.UnaryServerInfo{
+		Server:     srv,
+		FullMethod: "/pong.PongReferee/FinalizeWinner",
+	}
+	handler := func(ctx context.Context, req interface{}) (interface{}, error) {
+		return srv.(PongRefereeServer).FinalizeWinner(ctx, req.(*FinalizeWinnerRequest))
+	}
+	return interceptor(ctx, in, info, handler)
+}
+
+func _PongReferee_AllocateMatch_Handler(srv interface{}, ctx context.Context, dec func(interface{}) error, interceptor grpc.UnaryServerInterceptor) (interface{}, error) {
+	in := new(AllocateMatchRequest)
+	if err := dec(in); err != nil {
+		return nil, err
+	}
+	if interceptor == nil {
+		return srv.(PongRefereeServer).AllocateMatch(ctx, in)
+	}
+	info := &grpc.UnaryServerInfo{
+		Server:     srv,
+		FullMethod: "/pong.PongReferee/AllocateMatch",
+	}
+	handler := func(ctx context.Context, req interface{}) (interface{}, error) {
+		return srv.(PongRefereeServer).AllocateMatch(ctx, req.(*AllocateMatchRequest))
+	}
+	return interceptor(ctx, in, info, handler)
+}
+
+func _PongReferee_WaitFunding_Handler(srv interface{}, stream grpc.ServerStream) error {
+	m := new(WaitFundingRequest)
+	if err := stream.RecvMsg(m); err != nil {
+		return err
+	}
+	return srv.(PongRefereeServer).WaitFunding(m, &pongRefereeWaitFundingServer{stream})
+}
+
+type PongReferee_WaitFundingServer interface {
+	Send(*WaitFundingResponse) error
+	grpc.ServerStream
+}
+
+type pongRefereeWaitFundingServer struct {
+	grpc.ServerStream
+}
+
+func (x *pongRefereeWaitFundingServer) Send(m *WaitFundingResponse) error {
+	return x.ServerStream.SendMsg(m)
+}
+
+func _PongReferee_SettlementStream_Handler(srv interface{}, stream grpc.ServerStream) error {
+	return srv.(PongRefereeServer).SettlementStream(&pongRefereeSettlementStreamServer{stream})
+}
+
+type PongReferee_SettlementStreamServer interface {
+	Send(*ServerMsg) error
+	Recv() (*ClientMsg, error)
+	grpc.ServerStream
+}
+
+type pongRefereeSettlementStreamServer struct {
+	grpc.ServerStream
+}
+
+func (x *pongRefereeSettlementStreamServer) Send(m *ServerMsg) error {
+	return x.ServerStream.SendMsg(m)
+}
+
+func (x *pongRefereeSettlementStreamServer) Recv() (*ClientMsg, error) {
+	m := new(ClientMsg)
+	if err := x.ServerStream.RecvMsg(m); err != nil {
+		return nil, err
+	}
+	return m, nil
+}
+
+// PongReferee_ServiceDesc is the grpc.ServiceDesc for PongReferee service.
+// It's only intended for direct use with grpc.RegisterService,
+// and not to be introspected or modified (even as a copy)
+var PongReferee_ServiceDesc = grpc.ServiceDesc{
+	ServiceName: "pong.PongReferee",
+	HandlerType: (*PongRefereeServer)(nil),
+	Methods: []grpc.MethodDesc{
+		{
+			MethodName: "CreateMatch",
+			Handler:    _PongReferee_CreateMatch_Handler,
+		},
+		{
+			MethodName: "SubmitFunding",
+			Handler:    _PongReferee_SubmitFunding_Handler,
+		},
+		{
+			MethodName: "RevealAdaptors",
+			Handler:    _PongReferee_RevealAdaptors_Handler,
+		},
+		{
+			MethodName: "AllocateEscrow",
+			Handler:    _PongReferee_AllocateEscrow_Handler,
+		},
+		{
+			MethodName: "FinalizeWinner",
+			Handler:    _PongReferee_FinalizeWinner_Handler,
+		},
+		{
+			MethodName: "AllocateMatch",
+			Handler:    _PongReferee_AllocateMatch_Handler,
+		},
+	},
+	Streams: []grpc.StreamDesc{
+		{
+			StreamName:    "WaitFunding",
+			Handler:       _PongReferee_WaitFunding_Handler,
+			ServerStreams: true,
+		},
+		{
+			StreamName:    "SettlementStream",
+			Handler:       _PongReferee_SettlementStream_Handler,
+			ServerStreams: true,
+			ClientStreams: true,
+		},
+	},
+	Metadata: "pong.proto",
+}

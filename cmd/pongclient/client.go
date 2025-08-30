@@ -3,6 +3,7 @@ package main
 import (
 	"context"
 	"encoding/hex"
+	"encoding/json"
 	"flag"
 	"fmt"
 	"math"
@@ -16,6 +17,8 @@ import (
 	"github.com/vctt94/pong-bisonrelay/pongrpc/grpc/pong"
 	"golang.org/x/sync/errgroup"
 	"google.golang.org/protobuf/proto"
+
+	"github.com/decred/dcrd/dcrec/secp256k1/v4"
 
 	"github.com/charmbracelet/bubbles/viewport"
 	tea "github.com/charmbracelet/bubbletea"
@@ -32,7 +35,7 @@ type ID = zkidentity.ShortID
 
 type appMode int
 
-var isF2p = true
+var isF2p = false
 
 const (
 	gameIdle appMode = iota
@@ -41,6 +44,7 @@ const (
 	createRoom
 	joinRoom
 	viewLogs
+	settlementMode
 )
 
 var (
@@ -54,17 +58,30 @@ var (
 	rpcUser            = flag.String("rpcuser", "", "RPC user for basic authentication")
 	rpcPass            = flag.String("rpcpass", "", "RPC password for basic authentication")
 	grpcServerCert     = flag.String("grpcservercert", "", "Path to grpc server.cert file")
+	refHTTP            = flag.String("refhttp", "", "Referee HTTP base URL, e.g. http://localhost:8080")
 )
+
+// cachedInput stores per-input data for both branches returned by the server.
+type cachedInput struct {
+	owner           string
+	redeemScriptHex string
+	mAwins          string
+	tAwins          string
+	mBwins          string
+	tBwins          string
+}
 
 type appstate struct {
 	sync.Mutex
-	mode              appMode
-	gameState         *pong.GameUpdate
-	currentGameId     string
-	ctx               context.Context
-	err               error
-	cancel            context.CancelFunc
-	pc                *client.PongClient
+	mode          appMode
+	gameState     *pong.GameUpdate
+	currentGameId string
+	ctx           context.Context
+	err           error
+	cancel        context.CancelFunc
+	pc            *client.PongClient
+	dataDir       string
+
 	selectedRoomIndex int
 	msgCh             chan tea.Msg
 	viewport          viewport.Model
@@ -96,6 +113,33 @@ type appstate struct {
 	keyReleaseDelay time.Duration
 	upKeyTimer      *time.Timer
 	downKeyTimer    *time.Timer
+
+	// Settlement (Referee) state
+	settle struct {
+		matchID    string
+		aCompHex   string
+		bCompHex   string
+		branch     pong.Branch
+		escrowPath string
+		preSigPath string
+		lastJSON   string
+		betAtoms   uint64
+		csvBlocks  uint32
+		xA         string // winner A payout pubkey (compressed hex)
+		xB         string // winner B payout pubkey (compressed hex)
+
+		// Drafts and per-input cache for both branches
+		draftAHex string
+		draftBHex string
+		inputs    map[string]cachedInput
+	}
+
+	// In-memory generated key (optional helper)
+	genPrivHex string
+	genPubHex  string
+
+	// Funding status stream management
+	fundingCancel context.CancelFunc
 }
 
 func (m *appstate) listenForUpdates() tea.Cmd {
@@ -160,7 +204,7 @@ func (m *appstate) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			m.notification = msg.Message
 		case pong.NotificationType_ON_PLAYER_READY:
 			if msg.PlayerId != m.pc.ID {
-				m.notification = fmt.Sprintf("Opponent is ready to play")
+				m.notification = "Opponent is ready to play"
 			}
 		}
 		return m, m.waitForMsg()
@@ -237,9 +281,33 @@ func (m *appstate) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 				}
 				return m, nil
 			}
+		case "p":
+			if m.mode == settlementMode {
+				go func() { m.startSettlementStream(); m.msgCh <- client.UpdatedMsg{} }()
+				return m, nil
+			}
+		case "x":
+			// Enter settlement mode and start streaming settlement
+			if m.mode == gameIdle {
+				m.mode = settlementMode
+				m.notification = "Settlement: stream driven. [p]=retry stream, [Esc]=back"
+				go func() { m.startSettlementStream(); m.msgCh <- client.UpdatedMsg{} }()
+				return m, nil
+			}
+
 		case "esc":
 			if m.mode == viewLogs {
 				m.mode = gameIdle
+				return m, nil
+			}
+			if m.mode == settlementMode {
+				// Cancel any active funding status stream
+				if m.fundingCancel != nil {
+					m.fundingCancel()
+					m.fundingCancel = nil
+				}
+				m.mode = gameIdle
+
 				return m, nil
 			}
 		case "r":
@@ -250,6 +318,77 @@ func (m *appstate) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 				}
 			}
 			return m, nil
+
+		case "e":
+			if m.mode == settlementMode {
+				if m.settle.aCompHex == "" {
+					m.notification = "Generate A_c first with [K]"
+					return m, nil
+				}
+				// Default bet amount for POC simplicity
+				if m.settle.betAtoms == 0 {
+					m.settle.betAtoms = 100000000
+				}
+				if m.settle.csvBlocks == 0 {
+					m.settle.csvBlocks = 64
+				}
+				go func() {
+					res, err := m.pc.RefAllocateEscrow(m.pc.ID, m.settle.aCompHex, m.settle.betAtoms, m.settle.csvBlocks)
+					if err != nil {
+						m.notification = err.Error()
+						m.msgCh <- client.UpdatedMsg{}
+						return
+					}
+					b, _ := json.MarshalIndent(res, "", "  ")
+					m.settle.lastJSON = string(b)
+					m.settle.matchID = res.MatchId
+					m.settle.xA = res.XA
+					m.settle.xB = res.XB
+					// Defer reflecting bet amount until funding is observed (mempool/blocks)
+					m.msgCh <- client.UpdatedMsg{}
+				}()
+				return m, nil
+			}
+		case "A":
+			if m.mode == settlementMode {
+				m.settle.branch = pong.Branch_BRANCH_A
+				m.notification = "Selected branch: A"
+				return m, nil
+			}
+		case "B":
+			if m.mode == settlementMode {
+				m.settle.branch = pong.Branch_BRANCH_B
+				m.notification = "Selected branch: B"
+				return m, nil
+			}
+		case "g":
+			if m.mode == settlementMode {
+
+				go func() {
+					// Cancel previous stream if any
+					if m.fundingCancel != nil {
+						m.fundingCancel()
+					}
+					ctx, cancel := context.WithCancel(context.Background())
+					m.fundingCancel = cancel
+					// FundingStatus removed: migrate to server WaitFunding stream (both A and B)
+					m.notification = "Use WaitFunding (server streams both A and B)."
+					m.msgCh <- client.UpdatedMsg{}
+					_ = ctx
+				}()
+				return m, nil
+			}
+		case "k":
+			if m.mode == settlementMode {
+				// Generate a fresh secp256k1 key and set k for this session
+				p, _ := secp256k1.GeneratePrivateKey()
+				m.genPrivHex = hex.EncodeToString(p.Serialize())
+				m.genPubHex = hex.EncodeToString(p.PubKey().SerializeCompressed())
+				m.settle.aCompHex = m.genPubHex
+				m.notification = "Generated A_c; private key kept in-memory (copy from logs if you need persistence)"
+				return m, nil
+			}
+
 		case "+", "=":
 			if m.keyReleaseDelay < 500*time.Millisecond {
 				m.keyReleaseDelay += 25 * time.Millisecond
@@ -269,6 +408,7 @@ func (m *appstate) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			return m, nil
 		}
 		if msg.Type == tea.KeySpace {
+
 			if m.isGameRunning {
 				// When in game, space signals ready to play
 				err := m.signalReadyToPlay()
@@ -306,9 +446,11 @@ func (m *appstate) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 					m.downKeyPressed = false
 				}
 			}
+
 			m.mode = gameIdle
 			return m, nil
 		}
+
 	case *pong.GameUpdateBytes:
 		var gameUpdate pong.GameUpdate
 		// Use Protocol Buffers unmarshaling instead of JSON
@@ -348,11 +490,17 @@ func (m *appstate) listWaitingRooms() error {
 
 func (m *appstate) createRoom() error {
 	var err error
-	_, err = m.pc.CreateWaitingRoom(m.pc.ID, m.pc.BetAmt)
+	// Require escrow betAtoms and use it as the room bet for UI/consistency
+	if m.settle.betAtoms == 0 {
+		m.notification = "Set bet atoms first ([X] -> [E] or prefill bet) before creating a room"
+		return nil
+	}
+	_, err = m.pc.CreateWaitingRoom(m.pc.ID, int64(m.settle.betAtoms))
 	if err != nil {
 		m.log.Errorf("Error creating room: %v", err)
 		return err
 	}
+
 	m.mode = gameMode
 	return nil
 }
@@ -364,6 +512,7 @@ func (m *appstate) joinRoom(roomID string) error {
 		return err
 	}
 	m.currentWR = res.Wr
+
 	m.mode = gameMode
 	return nil
 }
@@ -554,6 +703,7 @@ func (m *appstate) View() string {
 		b.WriteString("[J] - Join room\n")
 		b.WriteString("[Q] - Leave current room\n")
 		b.WriteString("[V] - View logs\n")
+		b.WriteString("[X] - Settlement (escrow/referee) menu\n")
 		b.WriteString("[Ctrl+C] - Exit\n")
 		b.WriteString("====================\n\n")
 
@@ -686,7 +836,7 @@ func (m *appstate) View() string {
 		b.WriteString("\n[List Rooms Mode]\n")
 		if len(m.waitingRooms) > 0 {
 			for i, room := range m.waitingRooms {
-				b.WriteString(fmt.Sprintf("%d: Room ID %s - Bet Price: %.8f\n", i+1, room.Id, float64(room.BetAmt)/1e11))
+				b.WriteString(fmt.Sprintf("%d: Room ID %s - Bet Price: %.8f\n", i+1, room.Id, float64(room.BetAmt)/1e8))
 			}
 		} else {
 			b.WriteString("No rooms available.\n")
@@ -708,7 +858,7 @@ func (m *appstate) View() string {
 				if i == m.selectedRoomIndex {
 					indicator = ">" // Mark the selected room
 				}
-				b.WriteString(fmt.Sprintf("%s %d: Room ID %s - Bet Price: %.8f\n", indicator, i+1, room.Id, float64(room.BetAmt)/1e11))
+				b.WriteString(fmt.Sprintf("%s %d: Room ID %s - Bet Price: %.8f\n", indicator, i+1, room.Id, float64(room.BetAmt)/1e8))
 			}
 		} else {
 			b.WriteString("No rooms available.\n")
@@ -726,6 +876,34 @@ func (m *appstate) View() string {
 		}
 		b.WriteString("\n\n")
 		b.WriteString("Press 'Esc' to return • ↑/↓ to scroll • PgUp/PgDn for pages • Home/End for top/bottom")
+
+	case settlementMode:
+		b.WriteString("\n[Settlement Mode]\n")
+		b.WriteString("Auto: presign both branches when you enter. [p]=retry, [r]=reveal, [Esc]=back\n\n")
+		b.WriteString(fmt.Sprintf("MatchID: %s\n", m.settle.matchID))
+		b.WriteString(fmt.Sprintf("A_c: %s\n", m.settle.aCompHex))
+		b.WriteString(fmt.Sprintf("B_c: %s\n", m.settle.bCompHex))
+		b.WriteString(fmt.Sprintf("Branch: %v\n", m.settle.branch))
+		b.WriteString(fmt.Sprintf("Escrows JSON: %s  PreSig JSON: %s\n\n", m.settle.escrowPath, m.settle.preSigPath))
+		if m.settle.lastJSON != "" {
+			b.WriteString("Last result:\n")
+			b.WriteString(m.settle.lastJSON)
+			b.WriteString("\n")
+			var alloc struct {
+				DepositAddress string `json:"deposit_address"`
+				PkScriptHex    string `json:"pk_script_hex"`
+			}
+			if json.Unmarshal([]byte(m.settle.lastJSON), &alloc) == nil {
+				if alloc.DepositAddress != "" {
+					b.WriteString(fmt.Sprintf("Server deposit address: %s\n", alloc.DepositAddress))
+				}
+				if alloc.PkScriptHex != "" {
+					b.WriteString(fmt.Sprintf("Deposit pkScript:       %s\n", alloc.PkScriptHex))
+					b.WriteString("Use your node to derive the address from pkScript if needed.\n")
+				}
+				b.WriteString("\n")
+			}
+		}
 
 	default:
 		b.WriteString("\nUnknown mode.\n")
@@ -781,15 +959,18 @@ func realMain() error {
 	g, gctx := errgroup.WithContext(ctx)
 
 	useStdout := false
-	logBackend, err := logging.NewLogBackend(logging.LogConfig{
+	lb, err := logging.NewLogBackend(logging.LogConfig{
 		LogFile:        filepath.Join(*datadir, "logs", "pongclient.log"),
 		DebugLevel:     cfg.Debug,
 		MaxLogFiles:    10,
 		MaxBufferLines: 1000,
 		UseStdout:      &useStdout,
 	})
-	log := logBackend.Logger("BotClient")
-	c, err := botclient.NewClient(cfg, logBackend)
+	if err != nil {
+		return err
+	}
+	log := lb.Logger("BotClient")
+	c, err := botclient.NewClient(cfg, lb)
 	if err != nil {
 		return err
 	}
@@ -809,9 +990,10 @@ func realMain() error {
 		ctx:        ctx,
 		cancel:     cancel,
 		log:        log,
-		logBackend: logBackend,
+		logBackend: lb,
 		mode:       gameIdle,
 	}
+	as.dataDir = *datadir
 	// Setup notification handlers.
 	ntfns := client.NewNotificationManager()
 	ntfns.RegisterSync(client.OnWRCreatedNtfn(func(wr *pong.WaitingRoom, ts time.Time) {
@@ -820,7 +1002,7 @@ func realMain() error {
 		for _, p := range as.players {
 			if p.Uid == clientID {
 				as.currentWR = wr
-				as.betAmount = float64(wr.BetAmt) / 1e11
+				as.betAmount = float64(wr.BetAmt) / 1e8
 				as.mode = gameMode
 			}
 		}
@@ -840,7 +1022,7 @@ func realMain() error {
 		// Update bet amount for the player in the local state (e.g., as.Players).
 		if clientID == playerID {
 			as.notification = "bet amount updated"
-			as.betAmount = float64(betAmt) / 1e11
+			as.betAmount = float64(betAmt) / 1e8
 			as.msgCh <- client.UpdatedMsg{}
 		}
 		for i, p := range as.players {

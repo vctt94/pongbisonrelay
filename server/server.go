@@ -8,9 +8,12 @@ import (
 	"sync"
 	"time"
 
+	"os"
+
 	"github.com/companyzero/bisonrelay/clientrpc/types"
 	"github.com/companyzero/bisonrelay/zkidentity"
 	"github.com/decred/dcrd/dcrutil/v4"
+	"github.com/decred/dcrd/rpcclient/v8"
 	"github.com/decred/slog"
 	"github.com/vctt94/bisonbotkit"
 	"github.com/vctt94/bisonbotkit/logging"
@@ -20,8 +23,9 @@ import (
 )
 
 const (
-	name    = "pong"
-	version = "v0.0.0"
+	csvBlocks = 64
+	name      = "pong"
+	version   = "v0.0.0"
 )
 
 // BotInterface defines the methods needed by the server
@@ -45,10 +49,17 @@ type ServerConfig struct {
 	ChatClient            types.ChatServiceClient
 	HTTPPort              string
 	LogBackend            *logging.LogBackend
+
+	// dcrd RPC connectivity
+	DcrdHostPort    string // e.g. 127.0.0.1:19109
+	DcrdRPCCertPath string // path to rpc.cert
+	DcrdRPCUser     string
+	DcrdRPCPass     string
 }
 
 type Server struct {
 	pong.UnimplementedPongGameServer
+	pong.UnimplementedPongRefereeServer
 	sync.RWMutex
 
 	bot                BotInterface
@@ -66,6 +77,23 @@ type Server struct {
 	db                serverdb.ServerDB
 
 	appdata string
+
+	// dcrd RPC client
+	dcrd *rpcclient.Client
+
+	// chain watcher for tip + mempool
+	watcher *chainWatcher
+
+	// Referee state
+	refereeKeyOnce         sync.Once
+	refereePrivInitialized bool
+	refereePrivKeyHex      string
+	refereePubCompressed   string
+	matches                map[string]*refMatchState
+	refAllocByPlayer       map[string]string
+	// v0-min defaults
+	pocCSV      uint32
+	pocFeeAtoms uint64
 }
 
 func NewServer(id *zkidentity.ShortID, cfg ServerConfig) (*Server, error) {
@@ -85,6 +113,9 @@ func NewServer(id *zkidentity.ShortID, cfg ServerConfig) (*Server, error) {
 		MaxLogFiles:    10,
 		MaxBufferLines: 1000,
 	})
+	if err != nil {
+		return nil, fmt.Errorf("failed to initialize game manager logger: %w", err)
+	}
 	logGM := bknd.Logger("GM")
 	s := &Server{
 		appdata:            cfg.ServerDir,
@@ -103,8 +134,43 @@ func NewServer(id *zkidentity.ShortID, cfg ServerConfig) (*Server, error) {
 			Log:            logGM,
 			PlayerGameMap:  make(map[zkidentity.ShortID]*ponggame.GameInstance),
 		},
+		matches:          make(map[string]*refMatchState),
+		refAllocByPlayer: make(map[string]string),
+		pocCSV:           csvBlocks,
+		pocFeeAtoms:      0,
 	}
 	s.gameManager.OnWaitingRoomRemoved = s.handleWaitingRoomRemoved
+
+	// Initialize optional dcrd RPC client (no fallbacks; require explicit values)
+	if cfg.DcrdHostPort != "" || cfg.DcrdRPCUser != "" || cfg.DcrdRPCPass != "" || cfg.DcrdRPCCertPath != "" {
+		if cfg.DcrdHostPort == "" || cfg.DcrdRPCUser == "" || cfg.DcrdRPCPass == "" || cfg.DcrdRPCCertPath == "" {
+			return nil, fmt.Errorf("incomplete dcrd config: host=%q user=%q pass_set=%t cert=%q", cfg.DcrdHostPort, cfg.DcrdRPCUser, cfg.DcrdRPCPass != "", cfg.DcrdRPCCertPath)
+		}
+		b, err := os.ReadFile(cfg.DcrdRPCCertPath)
+		if err != nil {
+			return nil, fmt.Errorf("failed to read dcrd rpc cert at %s: %w", cfg.DcrdRPCCertPath, err)
+		}
+		s.log.Infof("Connecting to dcrd host=%s user=%s cert=%s endpoint=ws", cfg.DcrdHostPort, cfg.DcrdRPCUser, cfg.DcrdRPCCertPath)
+		connCfg := &rpcclient.ConnConfig{
+			Host:         cfg.DcrdHostPort,
+			User:         cfg.DcrdRPCUser,
+			Pass:         cfg.DcrdRPCPass,
+			Endpoint:     "ws",
+			Certificates: b,
+		}
+		c, err := rpcclient.New(connCfg, nil)
+		if err != nil {
+			return nil, fmt.Errorf("failed to create dcrd rpc client (host=%s user=%s cert=%s): %w", cfg.DcrdHostPort, cfg.DcrdRPCUser, cfg.DcrdRPCCertPath, err)
+		}
+		s.dcrd = c
+		s.log.Infof("Connected to dcrd at %s", cfg.DcrdHostPort)
+
+		// Start chain watcher to keep tip and mempool for watched scripts
+		s.watcher = newChainWatcher(s.log, s.dcrd)
+		go s.watcher.run(context.Background())
+	} else {
+		s.log.Infof("dcrd RPC not configured; FundingStatus will not query chain state")
+	}
 
 	if cfg.HTTPPort != "" {
 		// Set up HTTP server for db calls
@@ -150,9 +216,6 @@ func (s *Server) StartGameStream(req *pong.StartGameStreamRequest, stream pong.P
 	}
 	if player.GameStream != nil {
 		return fmt.Errorf("game stream is already set for id %s", clientID)
-	}
-	if !s.isF2P && float64(player.BetAmt)/1e11 < s.minBetAmt {
-		return fmt.Errorf("player needs to place bet higher or equal to: %.8f DCR", s.minBetAmt)
 	}
 
 	player.GameStream = stream
@@ -203,15 +266,6 @@ func (s *Server) handleDisconnect(clientID zkidentity.ShortID) {
 	playerSession := s.gameManager.PlayerSessions.GetPlayer(clientID)
 	if playerSession != nil {
 		s.gameManager.PlayerSessions.RemovePlayer(clientID)
-
-		// Check if player is not currently in any game
-		if s.gameManager.GetPlayerGame(clientID) == nil {
-			ctx, cancel := context.WithTimeout(context.Background(), 3*time.Second)
-			defer cancel()
-			if err := s.handleReturnUnprocessedTips(ctx, clientID); err != nil {
-				s.log.Errorf("Error returning unprocessed tips for client %s: %v", clientID.String(), err)
-			}
-		}
 	}
 
 	// These can safely be called multiple times
@@ -391,30 +445,8 @@ func (s *Server) JoinWaitingRoom(ctx context.Context, req *pong.JoinWaitingRoomR
 		return nil, fmt.Errorf("waiting room not found: %s", req.RoomId)
 	}
 
-	// Fetch and reserve joining player's tips
-	tips, err := s.db.FetchReceivedTipsByUID(ctx, uid, serverdb.StatusUnpaid)
-	if err != nil {
-		return nil, fmt.Errorf("failed to fetch player tips: %v", err)
-	}
-
-	// Calculate total from tips
-	totalBet := int64(0)
-	for _, tip := range tips {
-		totalBet += tip.AmountMatoms
-	}
-
-	// Validate bet amount matches
-	if totalBet != wr.BetAmount {
-		return nil, fmt.Errorf("bet amount mismatch. Available: %.8f, Required: %.8f",
-			float64(totalBet)/1e11, float64(wr.BetAmount)/1e11)
-	}
-
 	wr.AddPlayer(player)
 	player.WR = wr
-
-	wr.Lock()
-	wr.ReservedTips = append(wr.ReservedTips, tips...)
-	wr.Unlock()
 
 	pwr, err := wr.Marshal()
 	if err != nil {
@@ -439,6 +471,45 @@ func (s *Server) JoinWaitingRoom(ctx context.Context, req *pong.JoinWaitingRoomR
 	}, nil
 }
 
+// isPlayerFundingConfirmed returns true if the player's current escrow allocation
+// has at least 1 confirmation on-chain.
+func (s *Server) isPlayerFundingConfirmed(ctx context.Context, playerID, matchID string) (bool, error) {
+	// Load or restore match state
+	s.RLock()
+	state, ok := s.matches[matchID]
+	s.RUnlock()
+	if !ok {
+		rec, err := s.db.FetchRefMatch(ctx, matchID)
+		if err != nil || rec == nil {
+			return false, fmt.Errorf("unknown match id %s", matchID)
+		}
+		state = &refMatchState{
+			MatchID:                rec.MatchID,
+			DepositPkScriptHex:     rec.DepositPkScriptHex,
+			DepositRedeemScriptHex: rec.DepositRedeemScriptHex,
+		}
+		s.Lock()
+		s.matches[matchID] = state
+		if s.watcher != nil && state.DepositPkScriptHex != "" {
+			s.watcher.registerDeposit(state.DepositPkScriptHex, state.DepositRedeemScriptHex, state.MatchID)
+		}
+		s.Unlock()
+	}
+	if s.watcher == nil {
+		return false, fmt.Errorf("chain watcher not initialized")
+	}
+	if state.DepositPkScriptHex == "" {
+		return false, fmt.Errorf("deposit script not set for match %s", matchID)
+	}
+	// Ensure registration; idempotent
+	s.watcher.registerDeposit(state.DepositPkScriptHex, state.DepositRedeemScriptHex, state.MatchID)
+	utxos, confs, ok := s.watcher.queryDeposit(state.DepositPkScriptHex)
+	if !ok || len(utxos) == 0 {
+		return false, nil
+	}
+	return confs >= 1, nil
+}
+
 func (s *Server) CreateWaitingRoom(ctx context.Context, req *pong.CreateWaitingRoomRequest) (*pong.CreateWaitingRoomResponse, error) {
 	var hostID zkidentity.ShortID
 	err := hostID.FromString(req.HostId)
@@ -450,14 +521,9 @@ func (s *Server) CreateWaitingRoom(ctx context.Context, req *pong.CreateWaitingR
 	if hostPlayer == nil {
 		return nil, fmt.Errorf("player not found: %s", req.HostId)
 	}
-	if hostPlayer.BetAmt != req.BetAmt {
-		return nil, fmt.Errorf("server and request mismatch. request amt: %.8f, server amt: %.8f",
-			float64(req.BetAmt)/1e11, float64(hostPlayer.BetAmt)/1e11)
-	}
-	if !s.isF2P && req.BetAmt == 0 {
-		return nil, fmt.Errorf("bet needs to be higher than 0")
-	}
-	if !s.isF2P && float64(req.BetAmt)/1e11 < s.minBetAmt {
+	// Decouple room creation from tip-based BetAmt; escrow lobbies will set funding separately.
+	// Allow zero bet for escrow-based lobbies; enforce min bet only when positive
+	if !s.isF2P && req.BetAmt > 0 && float64(req.BetAmt)/1e11 < s.minBetAmt {
 		return nil, fmt.Errorf("bet needs to be higher than %.8f", s.minBetAmt)
 	}
 	if hostPlayer.WR != nil {
@@ -466,33 +532,11 @@ func (s *Server) CreateWaitingRoom(ctx context.Context, req *pong.CreateWaitingR
 
 	s.log.Debugf("creating waiting room. Host ID: %s", hostID)
 
-	// Fetch and reserve unprocessed tips
-	tips, err := s.db.FetchReceivedTipsByUID(ctx, hostID, serverdb.StatusUnpaid)
-	if err != nil {
-		return nil, fmt.Errorf("failed to fetch unprocessed tips: %v", err)
-	}
-
-	// Calculate total from tips
-	totalBet := int64(0)
-	for _, tip := range tips {
-		totalBet += tip.AmountMatoms
-	}
-
-	// Validate bet amount matches
-	if totalBet != req.BetAmt {
-		return nil, fmt.Errorf("bet amount mismatch. Available: %.8f, Requested: %.8f",
-			float64(totalBet)/1e11, float64(req.BetAmt)/1e11)
-	}
-
-	// Create waiting room with reserved tips
+	// Create waiting room for escrow-based lobbies (no tip reservation)
 	wr, err := ponggame.NewWaitingRoom(hostPlayer, req.BetAmt)
 	if err != nil {
 		return nil, fmt.Errorf("failed to create waiting room: %v", err)
 	}
-
-	wr.Lock()
-	wr.ReservedTips = tips // Store reserved tips
-	wr.Unlock()
 
 	hostPlayer.WR = wr
 
@@ -594,9 +638,7 @@ func (s *Server) LeaveWaitingRoom(ctx context.Context, req *pong.LeaveWaitingRoo
 	}
 
 	// Reset the player's waiting room reference
-	if player != nil {
-		player.WR = nil
-	}
+	player.WR = nil
 
 	return &pong.LeaveWaitingRoomResponse{
 		Success: true,
@@ -653,6 +695,10 @@ func (s *Server) UnreadyGameStream(ctx context.Context, req *pong.UnreadyGameStr
 
 // Shutdown forcefully shuts down the server, closing HTTP server, database, waiting rooms, and games.
 func (s *Server) Shutdown(ctx context.Context) error {
+	// Stop chain watcher first so background RPCs stop
+	if s.watcher != nil {
+		s.watcher.stop()
+	}
 	// Stop HTTP server first
 	if s.httpServer != nil {
 		s.log.Info("Shutting down HTTP server...")
@@ -711,45 +757,4 @@ func (s *Server) Shutdown(ctx context.Context) error {
 
 	s.log.Info("Server shut down completed.")
 	return nil
-}
-
-// SignalReadyToPlay handles player readiness for a game
-func (s *Server) SignalReadyToPlay(ctx context.Context, req *pong.SignalReadyToPlayRequest) (*pong.SignalReadyToPlayResponse, error) {
-	var clientID zkidentity.ShortID
-	clientID.FromString(req.ClientId)
-
-	s.log.Debugf("Client %s signaling ready to play for game %s", req.ClientId, req.GameId)
-
-	player := s.gameManager.PlayerSessions.GetPlayer(clientID)
-	if player == nil {
-		return nil, fmt.Errorf("player not found for client ID %s", clientID)
-	}
-
-	game := s.gameManager.GetPlayerGame(clientID)
-	if game == nil {
-		return nil, fmt.Errorf("game instance not found for client ID %s", clientID)
-	}
-
-	// Mark this player as ready in the game
-	game.Lock()
-	game.PlayersReady[req.ClientId] = true
-	game.Unlock()
-
-	// Notify all players in the game that this player is ready
-	for _, p := range game.Players {
-		if p.NotifierStream != nil {
-			p.NotifierStream.Send(&pong.NtfnStreamResponse{
-				NotificationType: pong.NotificationType_ON_PLAYER_READY,
-				Message:          fmt.Sprintf("Player %s is ready to start the game", player.Nick),
-				PlayerId:         req.ClientId,
-				GameId:           req.GameId,
-				Ready:            true,
-			})
-		}
-	}
-
-	return &pong.SignalReadyToPlayResponse{
-		Success: true,
-		Message: "Ready signal received",
-	}, nil
 }

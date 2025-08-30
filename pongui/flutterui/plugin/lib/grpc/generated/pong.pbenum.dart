@@ -13,6 +13,23 @@ import 'dart:core' as $core;
 
 import 'package:protobuf/protobuf.dart' as $pb;
 
+class Branch extends $pb.ProtobufEnum {
+  static const Branch BRANCH_UNSPECIFIED = Branch._(0, _omitEnumNames ? '' : 'BRANCH_UNSPECIFIED');
+  static const Branch BRANCH_A = Branch._(1, _omitEnumNames ? '' : 'BRANCH_A');
+  static const Branch BRANCH_B = Branch._(2, _omitEnumNames ? '' : 'BRANCH_B');
+
+  static const $core.List<Branch> values = <Branch> [
+    BRANCH_UNSPECIFIED,
+    BRANCH_A,
+    BRANCH_B,
+  ];
+
+  static final $core.Map<$core.int, Branch> _byValue = $pb.ProtobufEnum.initByValue(values);
+  static Branch? valueOf($core.int value) => _byValue[value];
+
+  const Branch._($core.int v, $core.String n) : super(v, n);
+}
+
 /// Notification Messages
 class NotificationType extends $pb.ProtobufEnum {
   static const NotificationType UNKNOWN = NotificationType._(0, _omitEnumNames ? '' : 'UNKNOWN');
@@ -49,6 +66,23 @@ class NotificationType extends $pb.ProtobufEnum {
   static NotificationType? valueOf($core.int value) => _byValue[value];
 
   const NotificationType._($core.int v, $core.String n) : super(v, n);
+}
+
+class AssignRole_Role extends $pb.ProtobufEnum {
+  static const AssignRole_Role UNKNOWN = AssignRole_Role._(0, _omitEnumNames ? '' : 'UNKNOWN');
+  static const AssignRole_Role A = AssignRole_Role._(1, _omitEnumNames ? '' : 'A');
+  static const AssignRole_Role B = AssignRole_Role._(2, _omitEnumNames ? '' : 'B');
+
+  static const $core.List<AssignRole_Role> values = <AssignRole_Role> [
+    UNKNOWN,
+    A,
+    B,
+  ];
+
+  static final $core.Map<$core.int, AssignRole_Role> _byValue = $pb.ProtobufEnum.initByValue(values);
+  static AssignRole_Role? valueOf($core.int value) => _byValue[value];
+
+  const AssignRole_Role._($core.int v, $core.String n) : super(v, n);
 }
 
 

@@ -20,6 +20,217 @@ service PongGame {
   rpc LeaveWaitingRoom(LeaveWaitingRoomRequest) returns (LeaveWaitingRoomResponse);
 }
 
+// Referee service coordinating escrow and settlement
+service PongReferee {
+  rpc CreateMatch(CreateMatchRequest) returns (CreateMatchResponse);
+  rpc SubmitFunding(SubmitFundingRequest) returns (SubmitFundingResponse);
+  rpc RevealAdaptors(RevealAdaptorsRequest) returns (RevealAdaptorsResponse);
+  // New endpoints for server-managed deposits and settlement
+  rpc AllocateEscrow(AllocateEscrowRequest) returns (AllocateEscrowResponse);
+  rpc FinalizeWinner(FinalizeWinnerRequest) returns (FinalizeWinnerResponse);
+  // v0-min POC minimal API
+  rpc AllocateMatch(AllocateMatchRequest) returns (AllocateMatchResponse);
+  rpc WaitFunding(WaitFundingRequest) returns (stream WaitFundingResponse);
+  // Phase 1 streaming settlement
+  rpc SettlementStream(stream ClientMsg) returns (stream ServerMsg);
+}
+
+enum Branch {
+  BRANCH_UNSPECIFIED = 0;
+  BRANCH_A = 1; // A wins branch
+  BRANCH_B = 2; // B wins branch
+}
+
+// === Phase 1 streaming messages ===
+message ClientMsg {
+  string match_id = 1;
+  oneof kind {
+    Hello hello = 10;
+    PreSigBatch presigs = 11;
+    Ack ack = 12;
+  }
+}
+
+message ServerMsg {
+  string match_id = 1;
+  oneof kind {
+    AssignRole role = 10;
+    NeedPreSigs req = 11;
+    RevealGamma reveal = 12;
+    Info info = 13;
+  }
+}
+
+message Hello {
+  bytes comp_pubkey = 1;  // 33B compressed pubkey (A_c/B_c)
+  string client_version = 2;
+}
+
+message AssignRole {
+  enum Role { UNKNOWN = 0; A = 1; B = 2; }
+  Role role = 1;
+  uint64 required_atoms = 2;
+  string deposit_pkscript_hex = 3;
+}
+
+message NeedPreSigs {
+  repeated Branch branches_to_presign = 1; // e.g., [BRANCH_A, BRANCH_B]
+  string draft_awins_tx_hex = 2;
+  string draft_bwins_tx_hex = 3;
+  message PerInput {
+    string input_id = 1;
+    string redeem_script_hex = 2;
+    string m_awins_hex = 3;
+    bytes  T_awins_compressed = 4; // 33B
+    string m_bwins_hex = 5;
+    bytes  T_bwins_compressed = 6; // 33B
+  }
+  repeated PerInput inputs = 4;
+}
+
+message PreSigBatch {
+  Branch branch = 1;
+  message Sig {
+    string input_id = 1;
+    bytes  rprime32 = 2; // 32B
+    bytes  sprime32 = 3; // 32B
+  }
+  repeated Sig presigs = 2;
+}
+
+message RevealGamma {
+  bytes gamma32 = 1; // 32B
+}
+
+message Ack { string note = 1; }
+message Info { string text = 1; }
+
+// === Existing API below ===
+
+message CreateMatchRequest {
+  string a_c = 1; // compressed pubkey hex (33B)
+  string b_c = 2; // compressed pubkey hex (33B)
+  uint32 csv = 3; // CSV delay blocks
+}
+
+message CreateMatchResponse {
+  string match_id = 1;
+  string s_c = 2; // server compressed pubkey hex (33B)
+  string a_a = 3; // coeff a_A (32B hex)
+  string a_b = 4; // coeff a_B (32B hex)
+  string a_s = 5; // coeff a_S (32B hex)
+  string x_a = 6; // branch agg pubkey for A wins (33B hex)
+  string x_b = 7; // branch agg pubkey for B wins (33B hex)
+  uint32 csv = 8; // echoed
+  string escrow_template_a = 9; // redeemScript hex template (may contain placeholders)
+  string escrow_template_b = 10; // redeemScript hex template (may contain placeholders)
+}
+
+message EscrowUTXO {
+  string txid = 1;
+  uint32 vout = 2;
+  uint64 value = 3; // atoms
+  string redeem_script_hex = 4;
+  string pk_script_hex = 5;
+  string owner = 6; // "A" or "B"
+}
+
+message SubmitFundingRequest {
+  string match_id = 1;
+  repeated EscrowUTXO escrows = 2;
+}
+
+message SubmitFundingResponse {
+  bool ok = 1;
+}
+
+// Deprecated draft/presig RPCs removed in favor of SettlementStream
+
+message RevealAdaptorEntry {
+  string input_id = 1;
+  string gamma = 2; // 32B hex
+}
+
+message RevealAdaptorsRequest {
+  string match_id = 1;
+  Branch branch = 2;
+}
+
+message RevealAdaptorsResponse {
+  Branch branch = 1;
+  repeated RevealAdaptorEntry entries = 2;
+}
+
+// v0-min POC messages
+message AllocateMatchRequest {
+  string a_c = 1;       // A's compressed pubkey hex (33B)
+  string b_c = 2;       // B's compressed pubkey hex (33B)
+  uint64 bet_atoms = 3; // fixed deposit amount per player
+}
+
+message AllocateMatchResponse {
+  string match_id = 1;
+  uint32 csv = 2; // fixed 64
+  uint64 bet_atoms = 3;
+  uint64 fee_atoms = 4; // flat fee subtracted from pot
+  string a_redeem_script_hex = 5;
+  string a_pk_script_hex = 6;
+  string a_deposit_address = 7;
+  string b_redeem_script_hex = 8;
+  string b_pk_script_hex = 9;
+  string b_deposit_address = 10;
+}
+
+message WaitFundingRequest {
+  string match_id = 1;
+}
+
+message WaitFundingResponse {
+  bool confirmed = 1; // true when both deposits have >= 1 confirmation
+  uint32 confs_a = 2;
+  uint32 confs_b = 3;
+  EscrowUTXO utxo_a = 4;
+  EscrowUTXO utxo_b = 5;
+}
+
+// Deprecated both-branches draft RPC removed; server pushes NeedPreSigs via SettlementStream
+
+// Server-managed deposit allocation
+message AllocateEscrowRequest {
+  string player_id = 1; // zkidentity ShortID hex
+  string a_c = 2;       // player's compressed pubkey hex
+  uint64 bet_atoms = 3; // expected escrow amount
+  uint32 csv = 4;       // CSV blocks
+}
+
+message AllocateEscrowResponse {
+  string match_id = 1;
+  Branch role = 2; // BRANCH_A for player A, BRANCH_B for player B
+  // Coefficients and branch keys for client-side checks
+  string a_a = 3;
+  string a_b = 4;
+  string a_s = 5;
+  string x_a = 6;
+  string x_b = 7;
+  uint32 csv = 8;
+  // Deposit destination
+  string deposit_address = 9; // P2SH address (testnet)
+  string redeem_script_hex = 10;
+  string pk_script_hex = 11;
+  uint64 required_atoms = 12;
+}
+
+// FundingStatus removed in favor of WaitFunding which reports both A and B.
+
+message FinalizeWinnerRequest {
+  string match_id = 1;
+  Branch branch = 2; // winning branch
+}
+
+message FinalizeWinnerResponse {
+  string broadcast_txid = 1;
+}
+
 // Notification Messages
 enum NotificationType {
   UNKNOWN = 0;

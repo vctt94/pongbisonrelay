@@ -24,11 +24,12 @@ import (
 type UpdatedMsg struct{}
 
 type PongClientCfg struct {
-	ServerAddr    string      // Address of the Pong server
-	GRPCCertPath  string      // Cert to the grpc server
-	Log           slog.Logger // Application's logger
-	ChatClient    types.ChatServiceClient
-	PaymentClient types.PaymentsServiceClient
+	ServerAddr     string      // Address of the Pong server
+	GRPCCertPath   string      // Cert to the grpc server
+	GRPCServerName string      // Expected server name (CN/SAN) for TLS
+	Log            slog.Logger // Application's logger
+	ChatClient     types.ChatServiceClient
+	PaymentClient  types.PaymentsServiceClient
 
 	// Notifications tracks handlers for client events. If nil, the client
 	// will initialize a new notification manager. Specifying a
@@ -49,6 +50,8 @@ type PongClient struct {
 	conn         *grpc.ClientConn
 	// game client
 	gc pong.PongGameClient
+	// referee client
+	rc pong.PongRefereeClient
 	// br clientrpc
 	chat    types.ChatServiceClient
 	payment types.PaymentsServiceClient
@@ -311,6 +314,7 @@ func (pc *PongClient) reconnect() error {
 			// Successfully reconnected
 			pc.conn = pongConn
 			pc.gc = pong.NewPongGameClient(pongConn)
+			pc.rc = pong.NewPongRefereeClient(pongConn)
 
 			// Re-establish streams
 			err = pc.StartNotifier(pc.ctx)
@@ -393,6 +397,7 @@ func NewPongClient(clientID string, cfg *PongClientCfg) (*PongClient, error) {
 		cfg:        cfg,
 		conn:       pongConn,
 		gc:         pong.NewPongGameClient(pongConn),
+		rc:         pong.NewPongRefereeClient(pongConn),
 		chat:       cfg.ChatClient,
 		payment:    cfg.PaymentClient,
 		UpdatesCh:  make(chan tea.Msg),
@@ -456,4 +461,41 @@ func (pc *PongClient) SignalReadyToPlay(gameID string) error {
 	}
 
 	return nil
+}
+
+// Referee helpers
+func (pc *PongClient) RefCreateMatch(aCompHex, bCompHex string, csv uint32) (*pong.CreateMatchResponse, error) {
+	ctx := context.Background()
+	return pc.rc.CreateMatch(ctx, &pong.CreateMatchRequest{AC: aCompHex, BC: bCompHex, Csv: csv})
+}
+
+func (pc *PongClient) RefSubmitFunding(matchID string, escrows []*pong.EscrowUTXO) (*pong.SubmitFundingResponse, error) {
+	ctx := context.Background()
+	return pc.rc.SubmitFunding(ctx, &pong.SubmitFundingRequest{MatchId: matchID, Escrows: escrows})
+}
+
+func (pc *PongClient) RefRevealAdaptors(matchID string, branch pong.Branch) (*pong.RevealAdaptorsResponse, error) {
+	ctx := context.Background()
+	return pc.rc.RevealAdaptors(ctx, &pong.RevealAdaptorsRequest{MatchId: matchID, Branch: branch})
+}
+
+// New referee helpers for server-managed deposits
+func (pc *PongClient) RefAllocateEscrow(playerID string, aCompHex string, betAtoms uint64, csv uint32) (*pong.AllocateEscrowResponse, error) {
+	ctx := context.Background()
+	return pc.rc.AllocateEscrow(ctx, &pong.AllocateEscrowRequest{PlayerId: playerID, AC: aCompHex, BetAtoms: betAtoms, Csv: csv})
+}
+
+func (pc *PongClient) RefFinalizeWinner(matchID string, branch pong.Branch) (*pong.FinalizeWinnerResponse, error) {
+	ctx := context.Background()
+	return pc.rc.FinalizeWinner(ctx, &pong.FinalizeWinnerRequest{MatchId: matchID, Branch: branch})
+}
+
+// RefStartSettlementStream starts the bidirectional settlement stream.
+func (pc *PongClient) RefStartSettlementStream(ctx context.Context) (pong.PongReferee_SettlementStreamClient, error) {
+	return pc.rc.SettlementStream(ctx)
+}
+
+// RefWaitFunding starts the server-driven funding status stream for the match.
+func (pc *PongClient) RefWaitFunding(ctx context.Context, matchID string) (pong.PongReferee_WaitFundingClient, error) {
+	return pc.rc.WaitFunding(ctx, &pong.WaitFundingRequest{MatchId: matchID})
 }

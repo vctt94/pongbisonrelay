@@ -16,6 +16,8 @@ import (
 var (
 	receivedTipsBucket    = []byte("receivedTips")
 	sendTipProgressBucket = []byte("sendTipsProgress")
+	refMatchesBucket      = []byte("refMatches")
+	refAllocBucket        = []byte("refAllocByPlayer")
 )
 
 // itob converte um uint64 em []byte usando BigEndian.
@@ -39,19 +41,107 @@ func NewBoltDB(dbPath string) (ServerDB, error) {
 		return nil, err
 	}
 	// Initialize the main and status buckets on the first run.
-	err = db.Update(func(tx *bolt.Tx) error {
+	// Initialize the main and status buckets on the first run.
+	if err = db.Update(func(tx *bolt.Tx) error {
 		_, err := tx.CreateBucketIfNotExists(receivedTipsBucket)
 		return err
-	})
-	err = db.Update(func(tx *bolt.Tx) error {
+	}); err != nil {
+		db.Close()
+		return nil, err
+	}
+	if err = db.Update(func(tx *bolt.Tx) error {
 		_, err := tx.CreateBucketIfNotExists(sendTipProgressBucket)
 		return err
-	})
-	if err != nil {
+	}); err != nil {
+		db.Close()
+		return nil, err
+	}
+	// Initialize referee buckets
+	if err = db.Update(func(tx *bolt.Tx) error {
+		if _, e := tx.CreateBucketIfNotExists(refMatchesBucket); e != nil {
+			return e
+		}
+		if _, e := tx.CreateBucketIfNotExists(refAllocBucket); e != nil {
+			return e
+		}
+		return nil
+	}); err != nil {
 		db.Close()
 		return nil, err
 	}
 	return &boltDB{db: db}, nil
+}
+
+// --- Referee persistence ---
+
+func (b *boltDB) SaveRefMatch(ctx context.Context, rec *RefMatchRecord) error {
+	if rec == nil || rec.MatchID == "" {
+		return errors.New("invalid ref match record")
+	}
+	data, err := json.Marshal(rec)
+	if err != nil {
+		return err
+	}
+	return b.db.Update(func(tx *bolt.Tx) error {
+		bucket := tx.Bucket(refMatchesBucket)
+		if bucket == nil {
+			return ErrTipBucketNotFound
+		}
+		return bucket.Put([]byte(rec.MatchID), data)
+	})
+}
+
+func (b *boltDB) FetchRefMatch(ctx context.Context, matchID string) (*RefMatchRecord, error) {
+	var out *RefMatchRecord
+	err := b.db.View(func(tx *bolt.Tx) error {
+		bucket := tx.Bucket(refMatchesBucket)
+		if bucket == nil {
+			return ErrTipBucketNotFound
+		}
+		data := bucket.Get([]byte(matchID))
+		if data == nil {
+			out = nil
+			return nil
+		}
+		var rec RefMatchRecord
+		if e := json.Unmarshal(data, &rec); e != nil {
+			return e
+		}
+		out = &rec
+		return nil
+	})
+	return out, err
+}
+
+func (b *boltDB) SaveRefAlloc(ctx context.Context, playerID string, matchID string) error {
+	if playerID == "" || matchID == "" {
+		return errors.New("invalid ref alloc mapping")
+	}
+	return b.db.Update(func(tx *bolt.Tx) error {
+		bucket := tx.Bucket(refAllocBucket)
+		if bucket == nil {
+			return ErrTipBucketNotFound
+		}
+		return bucket.Put([]byte(playerID), []byte(matchID))
+	})
+}
+
+func (b *boltDB) FetchRefAlloc(ctx context.Context, playerID string) (string, error) {
+	var mid string
+	err := b.db.View(func(tx *bolt.Tx) error {
+		bucket := tx.Bucket(refAllocBucket)
+		if bucket == nil {
+			return ErrTipBucketNotFound
+		}
+		v := bucket.Get([]byte(playerID))
+		if v == nil {
+			mid = ""
+			return nil
+		}
+		mid = string(v)
+		return nil
+	})
+	return mid, err
 }
 
 // StoreUnprocessedTip stores a tip under the Uid sub-bucket in the main tips bucket.
