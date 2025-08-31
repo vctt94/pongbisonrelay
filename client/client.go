@@ -221,24 +221,26 @@ func (pc *PongClient) GetWRPlayers() ([]*pong.Player, error) {
 	return wr.Players, nil
 }
 
-func (pc *PongClient) CreateWaitingRoom(clientId string, betAmt int64) (*pong.WaitingRoom, error) {
+func (pc *PongClient) CreateWaitingRoom(clientId string, betAmt int64, escrowID string) (*pong.WaitingRoom, error) {
 	ctx := context.Background()
-	res, err := pc.gc.CreateWaitingRoom(ctx, &pong.CreateWaitingRoomRequest{
-		HostId: clientId,
-		BetAmt: betAmt,
-	})
+	req := &pong.CreateWaitingRoomRequest{HostId: clientId, BetAmt: betAmt}
+	if escrowID != "" {
+		req.EscrowId = escrowID
+	}
+	res, err := pc.gc.CreateWaitingRoom(ctx, req)
 	if err != nil {
 		return nil, fmt.Errorf("error creating wr: %w", err)
 	}
 	return res.Wr, nil
 }
 
-func (pc *PongClient) JoinWaitingRoom(roomID string) (*pong.JoinWaitingRoomResponse, error) {
+func (pc *PongClient) JoinWaitingRoom(roomID string, escrowID string) (*pong.JoinWaitingRoomResponse, error) {
 	ctx := context.Background()
-	res, err := pc.gc.JoinWaitingRoom(ctx, &pong.JoinWaitingRoomRequest{
-		ClientId: pc.ID,
-		RoomId:   roomID,
-	})
+	req := &pong.JoinWaitingRoomRequest{ClientId: pc.ID, RoomId: roomID}
+	if escrowID != "" {
+		req.EscrowId = escrowID
+	}
+	res, err := pc.gc.JoinWaitingRoom(ctx, req)
 	if err != nil {
 		return nil, fmt.Errorf("error joining wr: %w", err)
 	}
@@ -469,25 +471,10 @@ func (pc *PongClient) RefCreateMatch(aCompHex, bCompHex string, csv uint32) (*po
 	return pc.rc.CreateMatch(ctx, &pong.CreateMatchRequest{AC: aCompHex, BC: bCompHex, Csv: csv})
 }
 
-func (pc *PongClient) RefSubmitFunding(matchID string, escrows []*pong.EscrowUTXO) (*pong.SubmitFundingResponse, error) {
+// Escrow-first referee helpers
+func (pc *PongClient) RefOpenEscrow(ownerID string, compPub []byte, betAtoms uint64, csv uint32) (*pong.OpenEscrowResponse, error) {
 	ctx := context.Background()
-	return pc.rc.SubmitFunding(ctx, &pong.SubmitFundingRequest{MatchId: matchID, Escrows: escrows})
-}
-
-func (pc *PongClient) RefRevealAdaptors(matchID string, branch pong.Branch) (*pong.RevealAdaptorsResponse, error) {
-	ctx := context.Background()
-	return pc.rc.RevealAdaptors(ctx, &pong.RevealAdaptorsRequest{MatchId: matchID, Branch: branch})
-}
-
-// New referee helpers for server-managed deposits
-func (pc *PongClient) RefAllocateEscrow(playerID string, aCompHex string, betAtoms uint64, csv uint32) (*pong.AllocateEscrowResponse, error) {
-	ctx := context.Background()
-	return pc.rc.AllocateEscrow(ctx, &pong.AllocateEscrowRequest{PlayerId: playerID, AC: aCompHex, BetAtoms: betAtoms, Csv: csv})
-}
-
-func (pc *PongClient) RefFinalizeWinner(matchID string, branch pong.Branch) (*pong.FinalizeWinnerResponse, error) {
-	ctx := context.Background()
-	return pc.rc.FinalizeWinner(ctx, &pong.FinalizeWinnerRequest{MatchId: matchID, Branch: branch})
+	return pc.rc.RefOpenEscrow(ctx, &pong.OpenEscrowRequest{OwnerUid: ownerID, CompPubkey: compPub, BetAtoms: betAtoms, CsvBlocks: csv})
 }
 
 // RefStartSettlementStream starts the bidirectional settlement stream.
@@ -497,5 +484,5 @@ func (pc *PongClient) RefStartSettlementStream(ctx context.Context) (pong.PongRe
 
 // RefWaitFunding starts the server-driven funding status stream for the match.
 func (pc *PongClient) RefWaitFunding(ctx context.Context, matchID string) (pong.PongReferee_WaitFundingClient, error) {
-	return pc.rc.WaitFunding(ctx, &pong.WaitFundingRequest{MatchId: matchID})
+	return pc.rc.WaitFunding(ctx, &pong.WaitFundingRequest{EscrowId: matchID})
 }

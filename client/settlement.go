@@ -4,6 +4,8 @@ import (
 	"encoding/hex"
 	"errors"
 	"fmt"
+	"strconv"
+	"strings"
 
 	"github.com/decred/dcrd/chaincfg/chainhash"
 	"github.com/decred/dcrd/crypto/blake256"
@@ -53,21 +55,37 @@ func finalizeAndVerify(m32, rX32, sPrime32, t32, pubCompressed []byte) ([]byte, 
 }
 
 func FindInputIndex(tx *wire.MsgTx, inputID string) (int, error) {
-	var txid string
-	var vout uint32
-	if _, err := fmt.Sscanf(inputID, "%s:%d", &txid, &vout); err != nil {
+	parts := strings.Split(inputID, ":")
+	if len(parts) != 2 {
+		return -1, fmt.Errorf("bad input_id %q: want txid:vout", inputID)
+	}
+	// fmt.Println("parts", parts)
+	txid := parts[0]
+	voutU64, err := strconv.ParseUint(parts[1], 10, 32)
+	if err != nil {
 		return -1, fmt.Errorf("bad input_id %q: %w", inputID, err)
 	}
 	var h chainhash.Hash
 	if err := chainhash.Decode(&h, txid); err != nil {
 		return -1, fmt.Errorf("bad txid %q: %w", txid, err)
 	}
+	vout := uint32(voutU64)
+
+	matchCount := 0
+	matchIdx := -1
 	for i, ti := range tx.TxIn {
 		if ti.PreviousOutPoint.Hash == h && ti.PreviousOutPoint.Index == vout {
-			return i, nil
+			matchCount++
+			matchIdx = i
 		}
 	}
-	return -1, fmt.Errorf("input %s not found in draft", inputID)
+	if matchCount == 0 {
+		return -1, fmt.Errorf("input %s not found in draft", inputID)
+	}
+	if matchCount > 1 {
+		return -1, fmt.Errorf("input %s matches %d inputs in draft (ambiguous)", inputID, matchCount)
+	}
+	return matchIdx, nil
 }
 
 // addPoints returns R+S as a *secp256k1.PublicKey using Jacobian add and affine conversion.
@@ -181,4 +199,25 @@ func ComputePreSig(xPrivHex, mHex, TCompHex string) (rXHex string, sPrimeHex str
 		spb := sprime.Bytes()
 		return hex.EncodeToString(r32[:]), hex.EncodeToString(spb[:]), hex.EncodeToString(cp), nil
 	}
+}
+
+// ComputePreSigMinusFull computes a minus-variant adaptor pre-signature ensuring a
+// normalized (even-Y) R' and returns the full compressed R' and s' bytes.
+// It uses RFC6979 deterministic nonces and retries until the derived R' has
+// even Y as required by EC-Schnorr-DCRv0's verification equation.
+func ComputePreSigMinusFull(xPrivHex, mHex, TCompHex string) (rPrimeCompressed []byte, sPrime32 []byte, err error) {
+	rXHex, sPrimeHex, rCompHex, err := ComputePreSig(xPrivHex, mHex, TCompHex)
+	_ = rXHex // x-coordinate is intentionally unused by callers of the minimal handshake
+	if err != nil {
+		return nil, nil, err
+	}
+	rb, err := hex.DecodeString(rCompHex)
+	if err != nil {
+		return nil, nil, err
+	}
+	sb, err := hex.DecodeString(sPrimeHex)
+	if err != nil {
+		return nil, nil, err
+	}
+	return rb, sb, nil
 }

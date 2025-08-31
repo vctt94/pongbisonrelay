@@ -10,6 +10,7 @@ import (
 	"math"
 	"os"
 	"path/filepath"
+	"sort"
 	"strings"
 	"sync"
 	"time"
@@ -27,6 +28,7 @@ import (
 	tea "github.com/charmbracelet/bubbletea"
 	"github.com/companyzero/bisonrelay/clientrpc/types"
 	"github.com/companyzero/bisonrelay/zkidentity"
+	"github.com/decred/dcrd/crypto/blake256"
 	"github.com/decred/slog"
 	"github.com/vctt94/bisonbotkit/botclient"
 	"github.com/vctt94/bisonbotkit/config"
@@ -63,16 +65,6 @@ var (
 	grpcServerCert     = flag.String("grpcservercert", "", "Path to grpc server.cert file")
 	refHTTP            = flag.String("refhttp", "", "Referee HTTP base URL, e.g. http://localhost:8080")
 )
-
-// cachedInput stores per-input data for both branches returned by the server.
-type cachedInput struct {
-	owner           string
-	redeemScriptHex string
-	mAwins          string
-	tAwins          string
-	mBwins          string
-	tBwins          string
-}
 
 type appstate struct {
 	sync.Mutex
@@ -122,22 +114,13 @@ type appstate struct {
 		matchID    string
 		aCompHex   string
 		bCompHex   string
-		branch     pong.Branch
 		escrowPath string
 		preSigPath string
 		lastJSON   string
 		betAtoms   uint64
 		csvBlocks  uint32
-		xA         string // winner A payout pubkey (compressed hex)
-		xB         string // winner B payout pubkey (compressed hex)
 
-		// Drafts and per-input cache for both branches
-		draftAHex string
-		draftBHex string
-		inputs    map[string]cachedInput
-
-		auto            bool // auto-run presign when possible
-		presigTriggered bool // avoid duplicate runs
+		activeEscrowID string
 	}
 
 	// In-memory generated key (optional helper)
@@ -190,13 +173,13 @@ func (m *appstate) Init() tea.Cmd {
 // handleSubmitPreSig triggers the streaming settlement flow (Phase 1 UX).
 func (m *appstate) handleSubmitPreSig() tea.Cmd {
 	return func() tea.Msg {
-		m.startSettlementStream()
+		m.startSettlement()
 		return client.UpdatedMsg{}
 	}
 }
 
-// startSettlementStream starts listening to the server-driven settlement stream (Phase 1).
-func (m *appstate) startSettlementStream() {
+// startSettlement runs the minimal 4-message adaptor handshake.
+func (m *appstate) startSettlement() {
 	// Ensure key and minimal allocation if needed
 	if m.genPrivHex == "" {
 		p, _ := secp256k1.GeneratePrivateKey()
@@ -207,72 +190,66 @@ func (m *appstate) startSettlementStream() {
 		m.msgCh <- client.UpdatedMsg{}
 	}
 
-	// Ensure match allocation
-	if m.settle.matchID == "" {
+	// Ensure escrow session and start funding stream by escrow_id
+	if m.settle.activeEscrowID == "" {
 		if m.settle.betAtoms == 0 {
 			m.settle.betAtoms = client.DefaultBetAtoms
 		}
 		if m.settle.csvBlocks == 0 {
 			m.settle.csvBlocks = 64
 		}
-
-		m.notification = "Allocating escrow…"
+		pubBytes, _ := hex.DecodeString(m.settle.aCompHex)
+		m.notification = "Opening escrow…"
 		m.msgCh <- client.UpdatedMsg{}
-
-		if res, err := m.pc.RefAllocateEscrow(m.pc.ID, m.settle.aCompHex, m.settle.betAtoms, m.settle.csvBlocks); err == nil {
-			m.settle.matchID, m.settle.xA, m.settle.xB = res.MatchId, res.XA, res.XB
-			m.notification = "Escrow allocated. Waiting for funding to appear…"
-			m.msgCh <- client.UpdatedMsg{}
-		} else {
-			m.notification = "Escrow allocation failed: " + err.Error()
-			m.msgCh <- client.UpdatedMsg{}
-			return
-		}
-	}
-
-	// Start WaitFunding stream to reflect bet when funding appears
-	if m.fundingCancel != nil {
-		m.fundingCancel()
-		m.fundingCancel = nil
-	}
-	fctx, cancel := context.WithCancel(context.Background())
-	m.fundingCancel = cancel
-	go func(matchID string) {
-		stream, err := m.pc.RefWaitFunding(fctx, matchID)
-		if err != nil {
-			m.notification = fmt.Sprintf("wait funding error: %v", err)
-			m.msgCh <- client.UpdatedMsg{}
-			return
-		}
-		for {
-			resp, err := stream.Recv()
+		go func() {
+			res, err := m.pc.RefOpenEscrow(m.pc.ID, pubBytes, m.settle.betAtoms, m.settle.csvBlocks)
 			if err != nil {
-				m.notification = fmt.Sprintf("funding stream closed: %v", err)
+				m.notification = "OpenEscrow failed: " + err.Error()
 				m.msgCh <- client.UpdatedMsg{}
 				return
 			}
-			if (resp.UtxoA != nil || resp.UtxoB != nil) && m.settle.betAtoms > 0 {
-				m.betAmount = float64(m.settle.betAtoms) / 1e8
-				m.msgCh <- client.UpdatedMsg{}
+			m.settle.activeEscrowID = res.EscrowId
+			// 0-conf unlock: wait until Found == true (utxo present), then enable Create/Join and run handshake
+			if m.fundingCancel != nil {
+				m.fundingCancel()
+				m.fundingCancel = nil
 			}
-
-			if !m.settle.presigTriggered && m.settle.auto &&
-				(resp.UtxoA != nil || resp.UtxoB != nil || resp.Confirmed) {
-				m.settle.presigTriggered = true
-				// We deliberately call the high-level entrypoint again. The server is idempotent on Hello.
-				go func() {
-					// Use the *same* app ctx to tie lifecycle to the app.
-					m.startSettlementStream()
+			fctx, cancel := context.WithCancel(context.Background())
+			m.fundingCancel = cancel
+			stream, err := m.pc.RefWaitFunding(fctx, m.settle.activeEscrowID)
+			if err != nil {
+				m.notification = "escrow funding watcher error: " + err.Error()
+				m.msgCh <- client.UpdatedMsg{}
+				return
+			}
+			for {
+				up, err := stream.Recv()
+				if err != nil {
+					m.notification = "escrow funding stream closed: " + err.Error()
 					m.msgCh <- client.UpdatedMsg{}
-				}()
+					return
+				}
+				if up.Utxo != nil {
+					if m.settle.betAtoms > 0 {
+						m.betAmount = float64(m.settle.betAtoms) / 1e8
+						m.msgCh <- client.UpdatedMsg{}
+					}
+					m.notification = "Escrow seen (0-conf). You can create or join a room."
+					m.msgCh <- client.UpdatedMsg{}
+					cancel()
+					go m.handshakeOnce()
+					return
+				}
 			}
+		}()
+		return
+	}
 
-			if resp.Confirmed {
-				return
-			}
-		}
-	}(m.settle.matchID)
+	go m.handshakeOnce()
+}
 
+// handshakeOnce performs HELLO -> REQ -> VERIFY_OK -> SERVER_OK and returns.
+func (m *appstate) handshakeOnce() {
 	ctx := m.ctx
 	stream, err := m.pc.RefStartSettlementStream(ctx)
 	if err != nil {
@@ -281,86 +258,95 @@ func (m *appstate) startSettlementStream() {
 		return
 	}
 	pubBytes, _ := hex.DecodeString(m.settle.aCompHex)
-	_ = stream.Send(&pong.ClientMsg{MatchId: m.settle.matchID, Kind: &pong.ClientMsg_Hello{Hello: &pong.Hello{CompPubkey: pubBytes, ClientVersion: "poc"}}})
-	go func() {
-		for {
-			in, err := stream.Recv()
-			if err != nil {
-				m.notification = fmt.Sprintf("settlement stream closed: %v", err)
-				m.msgCh <- client.UpdatedMsg{}
-				return
-			}
-			if role := in.GetRole(); role != nil {
-				// Map assigned role to branch for UI and presign flow
-				switch role.Role {
-				case pong.AssignRole_A:
-					m.settle.branch = pong.Branch_BRANCH_A
-				case pong.AssignRole_B:
-					m.settle.branch = pong.Branch_BRANCH_B
-				default:
-					m.settle.branch = pong.Branch_BRANCH_UNSPECIFIED
-				}
-				m.notification = fmt.Sprintf("Assigned role received. required=%d", role.RequiredAtoms)
-				m.msgCh <- client.UpdatedMsg{}
-				continue
-			}
-			if req := in.GetReq(); req != nil {
-				build := func() ([]*pong.PreSigBatch_Sig, error) {
-					draftHex := req.DraftTxHex
-					txb, err := hex.DecodeString(draftHex)
-					if err != nil {
-						return nil, err
-					}
-					var tx wire.MsgTx
-					if err := tx.Deserialize(bytes.NewReader(txb)); err != nil {
-						return nil, err
-					}
-					out := make([]*pong.PreSigBatch_Sig, 0, len(req.Inputs))
-					for _, in := range req.Inputs {
-						redeem, _ := hex.DecodeString(in.RedeemScriptHex)
-						idx, err := client.FindInputIndex(&tx, in.InputId)
-						if err != nil {
-							return nil, err
-						}
-						mBytes, err := txscript.CalcSignatureHash(redeem, txscript.SigHashAll, &tx, idx, nil)
-						if err != nil || len(mBytes) != 32 {
-							return nil, fmt.Errorf("sighash")
-						}
-						mHex := hex.EncodeToString(mBytes)
-						if mHex != in.MHex {
-							return nil, fmt.Errorf("m mismatch")
-						}
-						tComp := in.TCompressed
-						rX, sPrime, _, err := client.ComputePreSig(m.genPrivHex, mHex, hex.EncodeToString(tComp))
-						if err != nil {
-							return nil, err
-						}
-						rb, _ := hex.DecodeString(rX)
-						sb, _ := hex.DecodeString(sPrime)
-						out = append(out, &pong.PreSigBatch_Sig{InputId: in.InputId, Rprime32: rb, Sprime32: sb})
-					}
-					return out, nil
-				}
-				presigs, err := build()
-				if err != nil {
-					m.notification = "presig build failed: " + err.Error()
-					m.msgCh <- client.UpdatedMsg{}
-					//  keep the stream alive
-					continue
-				}
-				_ = stream.Send(&pong.ClientMsg{MatchId: m.settle.matchID, Kind: &pong.ClientMsg_Presigs{Presigs: &pong.PreSigBatch{Branch: req.Branch, Presigs: presigs}}})
-				m.notification = "Pre-sig batches sent via stream."
-				m.msgCh <- client.UpdatedMsg{}
-				continue
-			}
-			if rev := in.GetReveal(); rev != nil {
-				_ = rev
-				m.notification = "Gamma revealed (winner can finalize)."
-				m.msgCh <- client.UpdatedMsg{}
-				continue
-			}
+	_ = stream.Send(&pong.ClientMsg{Kind: &pong.ClientMsg_Hello{Hello: &pong.Hello{CompPubkey: pubBytes, ClientVersion: "poc"}}})
+	// Expect exactly one REQ
+	in, err := stream.Recv()
+	if err != nil || in.GetReq() == nil {
+		if err != nil {
+			m.notification = fmt.Sprintf("handshake recv error: %v", err)
+		} else {
+			m.notification = "unexpected handshake response"
 		}
-	}()
+		m.msgCh <- client.UpdatedMsg{}
+		_ = stream.CloseSend()
+		return
+	}
+	req := in.GetReq()
+	m.notification = "Verifying draft & building pre-sigs…"
+	m.msgCh <- client.UpdatedMsg{}
+
+	verify, err := m.buildVerifyOk(req)
+	if err != nil {
+		m.notification = "presig build failed: " + err.Error()
+		m.msgCh <- client.UpdatedMsg{}
+		_ = stream.CloseSend()
+		return
+	}
+	_ = stream.Send(&pong.ClientMsg{MatchId: m.settle.matchID, Kind: &pong.ClientMsg_VerifyOk{VerifyOk: verify}})
+
+	// Expect exactly one SERVER_OK and then close
+	in2, err := stream.Recv()
+	if err != nil || in2.GetOk() == nil {
+		if err != nil {
+			m.notification = fmt.Sprintf("server ok recv error: %v", err)
+		} else {
+			m.notification = "server did not ack presigs"
+		}
+		m.msgCh <- client.UpdatedMsg{}
+		_ = stream.CloseSend()
+		return
+	}
+	_ = stream.CloseSend()
+	m.notification = "Verified & exchanged pre-sigs (server OK)."
+	m.msgCh <- client.UpdatedMsg{}
+}
+
+// buildVerifyOk validates draft and inputs and constructs PreSig list and ack digest.
+func (m *appstate) buildVerifyOk(req *pong.NeedPreSigs) (*pong.VerifyOk, error) {
+	txb, err := hex.DecodeString(req.DraftTxHex)
+	if err != nil {
+		return nil, err
+	}
+	var tx wire.MsgTx
+	if err := tx.Deserialize(bytes.NewReader(txb)); err != nil {
+		return nil, err
+	}
+	inputs := make([]*pong.NeedPreSigs_PerInput, len(req.Inputs))
+	copy(inputs, req.Inputs)
+	sort.Slice(inputs, func(i, j int) bool { return inputs[i].InputId < inputs[j].InputId })
+	var concat []byte
+	concat = append(concat, []byte(req.DraftTxHex)...)
+	for _, in := range inputs {
+		concat = append(concat, []byte(in.InputId)...)
+		concat = append(concat, []byte(in.MHex)...)
+		concat = append(concat, in.TCompressed...)
+	}
+	ack := blake256.Sum256(concat)
+	pres := make([]*pong.PreSig, 0, len(inputs))
+	for _, in := range inputs {
+		redeem, err := hex.DecodeString(in.RedeemScriptHex)
+		if err != nil {
+			return nil, fmt.Errorf("bad redeem: %w", err)
+		}
+		idx, err := client.FindInputIndex(&tx, in.InputId)
+		if err != nil {
+			return nil, err
+		}
+		mBytes, err := txscript.CalcSignatureHash(redeem, txscript.SigHashAll, &tx, idx, nil)
+		if err != nil || len(mBytes) != 32 {
+			return nil, fmt.Errorf("sighash")
+		}
+		mHex := hex.EncodeToString(mBytes)
+		if mHex != in.MHex {
+			return nil, fmt.Errorf("m mismatch")
+		}
+		rComp, sPrime, err := client.ComputePreSigMinusFull(m.genPrivHex, mHex, hex.EncodeToString(in.TCompressed))
+		if err != nil {
+			return nil, err
+		}
+		pres = append(pres, &pong.PreSig{InputId: in.InputId, RprimeCompressed: rComp, Sprime32: sPrime})
+	}
+	return &pong.VerifyOk{AckDigest: ack[:], Presigs: pres}, nil
 }
 
 func (m *appstate) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
@@ -473,7 +459,7 @@ func (m *appstate) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			if m.mode == gameIdle {
 				m.mode = settlementMode
 				m.notification = "Settlement: stream driven. [p]=retry stream, [Esc]=back"
-				go func() { m.startSettlementStream(); m.msgCh <- client.UpdatedMsg{} }()
+				go func() { m.startSettlement(); m.msgCh <- client.UpdatedMsg{} }()
 				return m, nil
 			}
 
@@ -515,7 +501,8 @@ func (m *appstate) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 					m.settle.csvBlocks = 64
 				}
 				go func() {
-					res, err := m.pc.RefAllocateEscrow(m.pc.ID, m.settle.aCompHex, m.settle.betAtoms, m.settle.csvBlocks)
+					pubBytes, _ := hex.DecodeString(m.settle.aCompHex)
+					res, err := m.pc.RefOpenEscrow(m.pc.ID, pubBytes, m.settle.betAtoms, m.settle.csvBlocks)
 					if err != nil {
 						m.notification = err.Error()
 						m.msgCh <- client.UpdatedMsg{}
@@ -523,26 +510,12 @@ func (m *appstate) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 					}
 					b, _ := json.MarshalIndent(res, "", "  ")
 					m.settle.lastJSON = string(b)
-					m.settle.matchID = res.MatchId
-					m.settle.xA = res.XA
-					m.settle.xB = res.XB
-					// Defer reflecting bet amount until funding is observed (mempool/blocks)
+					m.settle.activeEscrowID = res.EscrowId
 					m.msgCh <- client.UpdatedMsg{}
 				}()
 				return m, nil
 			}
-		case "A":
-			if m.mode == settlementMode {
-				m.settle.branch = pong.Branch_BRANCH_A
-				m.notification = "Selected branch: A"
-				return m, nil
-			}
-		case "B":
-			if m.mode == settlementMode {
-				m.settle.branch = pong.Branch_BRANCH_B
-				m.notification = "Selected branch: B"
-				return m, nil
-			}
+
 		case "g":
 			if m.mode == settlementMode {
 
@@ -677,7 +650,7 @@ func (m *appstate) createRoom() error {
 		m.notification = "Set bet atoms first ([X] -> [E] or prefill bet) before creating a room"
 		return nil
 	}
-	_, err = m.pc.CreateWaitingRoom(m.pc.ID, int64(m.settle.betAtoms))
+	_, err = m.pc.CreateWaitingRoom(m.pc.ID, int64(m.settle.betAtoms), m.settle.activeEscrowID)
 	if err != nil {
 		m.log.Errorf("Error creating room: %v", err)
 		return err
@@ -688,7 +661,7 @@ func (m *appstate) createRoom() error {
 }
 
 func (m *appstate) joinRoom(roomID string) error {
-	res, err := m.pc.JoinWaitingRoom(roomID)
+	res, err := m.pc.JoinWaitingRoom(roomID, m.settle.activeEscrowID)
 	if err != nil {
 		m.log.Errorf("Failed to join room %s: %v", roomID, err)
 		return err
@@ -1065,7 +1038,6 @@ func (m *appstate) View() string {
 		b.WriteString(fmt.Sprintf("MatchID: %s\n", m.settle.matchID))
 		b.WriteString(fmt.Sprintf("A_c: %s\n", m.settle.aCompHex))
 		b.WriteString(fmt.Sprintf("B_c: %s\n", m.settle.bCompHex))
-		b.WriteString(fmt.Sprintf("Branch: %v\n", m.settle.branch))
 		b.WriteString(fmt.Sprintf("Escrows JSON: %s  PreSig JSON: %s\n\n", m.settle.escrowPath, m.settle.preSigPath))
 		if m.settle.lastJSON != "" {
 			b.WriteString("Last result:\n")

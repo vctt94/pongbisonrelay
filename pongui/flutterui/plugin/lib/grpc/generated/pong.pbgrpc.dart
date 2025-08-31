@@ -239,30 +239,18 @@ abstract class PongGameServiceBase extends $grpc.Service {
 }
 @$pb.GrpcServiceName('pong.PongReferee')
 class PongRefereeClient extends $grpc.Client {
+  static final _$refOpenEscrow = $grpc.ClientMethod<$0.OpenEscrowRequest, $0.OpenEscrowResponse>(
+      '/pong.PongReferee/RefOpenEscrow',
+      ($0.OpenEscrowRequest value) => value.writeToBuffer(),
+      ($core.List<$core.int> value) => $0.OpenEscrowResponse.fromBuffer(value));
+  static final _$refWaitEscrowFunding = $grpc.ClientMethod<$0.WaitEscrowFundingRequest, $0.WaitEscrowFundingUpdate>(
+      '/pong.PongReferee/RefWaitEscrowFunding',
+      ($0.WaitEscrowFundingRequest value) => value.writeToBuffer(),
+      ($core.List<$core.int> value) => $0.WaitEscrowFundingUpdate.fromBuffer(value));
   static final _$createMatch = $grpc.ClientMethod<$0.CreateMatchRequest, $0.CreateMatchResponse>(
       '/pong.PongReferee/CreateMatch',
       ($0.CreateMatchRequest value) => value.writeToBuffer(),
       ($core.List<$core.int> value) => $0.CreateMatchResponse.fromBuffer(value));
-  static final _$submitFunding = $grpc.ClientMethod<$0.SubmitFundingRequest, $0.SubmitFundingResponse>(
-      '/pong.PongReferee/SubmitFunding',
-      ($0.SubmitFundingRequest value) => value.writeToBuffer(),
-      ($core.List<$core.int> value) => $0.SubmitFundingResponse.fromBuffer(value));
-  static final _$revealAdaptors = $grpc.ClientMethod<$0.RevealAdaptorsRequest, $0.RevealAdaptorsResponse>(
-      '/pong.PongReferee/RevealAdaptors',
-      ($0.RevealAdaptorsRequest value) => value.writeToBuffer(),
-      ($core.List<$core.int> value) => $0.RevealAdaptorsResponse.fromBuffer(value));
-  static final _$allocateEscrow = $grpc.ClientMethod<$0.AllocateEscrowRequest, $0.AllocateEscrowResponse>(
-      '/pong.PongReferee/AllocateEscrow',
-      ($0.AllocateEscrowRequest value) => value.writeToBuffer(),
-      ($core.List<$core.int> value) => $0.AllocateEscrowResponse.fromBuffer(value));
-  static final _$finalizeWinner = $grpc.ClientMethod<$0.FinalizeWinnerRequest, $0.FinalizeWinnerResponse>(
-      '/pong.PongReferee/FinalizeWinner',
-      ($0.FinalizeWinnerRequest value) => value.writeToBuffer(),
-      ($core.List<$core.int> value) => $0.FinalizeWinnerResponse.fromBuffer(value));
-  static final _$allocateMatch = $grpc.ClientMethod<$0.AllocateMatchRequest, $0.AllocateMatchResponse>(
-      '/pong.PongReferee/AllocateMatch',
-      ($0.AllocateMatchRequest value) => value.writeToBuffer(),
-      ($core.List<$core.int> value) => $0.AllocateMatchResponse.fromBuffer(value));
   static final _$waitFunding = $grpc.ClientMethod<$0.WaitFundingRequest, $0.WaitFundingResponse>(
       '/pong.PongReferee/WaitFunding',
       ($0.WaitFundingRequest value) => value.writeToBuffer(),
@@ -278,28 +266,16 @@ class PongRefereeClient extends $grpc.Client {
       : super(channel, options: options,
         interceptors: interceptors);
 
+  $grpc.ResponseFuture<$0.OpenEscrowResponse> refOpenEscrow($0.OpenEscrowRequest request, {$grpc.CallOptions? options}) {
+    return $createUnaryCall(_$refOpenEscrow, request, options: options);
+  }
+
+  $grpc.ResponseStream<$0.WaitEscrowFundingUpdate> refWaitEscrowFunding($0.WaitEscrowFundingRequest request, {$grpc.CallOptions? options}) {
+    return $createStreamingCall(_$refWaitEscrowFunding, $async.Stream.fromIterable([request]), options: options);
+  }
+
   $grpc.ResponseFuture<$0.CreateMatchResponse> createMatch($0.CreateMatchRequest request, {$grpc.CallOptions? options}) {
     return $createUnaryCall(_$createMatch, request, options: options);
-  }
-
-  $grpc.ResponseFuture<$0.SubmitFundingResponse> submitFunding($0.SubmitFundingRequest request, {$grpc.CallOptions? options}) {
-    return $createUnaryCall(_$submitFunding, request, options: options);
-  }
-
-  $grpc.ResponseFuture<$0.RevealAdaptorsResponse> revealAdaptors($0.RevealAdaptorsRequest request, {$grpc.CallOptions? options}) {
-    return $createUnaryCall(_$revealAdaptors, request, options: options);
-  }
-
-  $grpc.ResponseFuture<$0.AllocateEscrowResponse> allocateEscrow($0.AllocateEscrowRequest request, {$grpc.CallOptions? options}) {
-    return $createUnaryCall(_$allocateEscrow, request, options: options);
-  }
-
-  $grpc.ResponseFuture<$0.FinalizeWinnerResponse> finalizeWinner($0.FinalizeWinnerRequest request, {$grpc.CallOptions? options}) {
-    return $createUnaryCall(_$finalizeWinner, request, options: options);
-  }
-
-  $grpc.ResponseFuture<$0.AllocateMatchResponse> allocateMatch($0.AllocateMatchRequest request, {$grpc.CallOptions? options}) {
-    return $createUnaryCall(_$allocateMatch, request, options: options);
   }
 
   $grpc.ResponseStream<$0.WaitFundingResponse> waitFunding($0.WaitFundingRequest request, {$grpc.CallOptions? options}) {
@@ -316,6 +292,20 @@ abstract class PongRefereeServiceBase extends $grpc.Service {
   $core.String get $name => 'pong.PongReferee';
 
   PongRefereeServiceBase() {
+    $addMethod($grpc.ServiceMethod<$0.OpenEscrowRequest, $0.OpenEscrowResponse>(
+        'RefOpenEscrow',
+        refOpenEscrow_Pre,
+        false,
+        false,
+        ($core.List<$core.int> value) => $0.OpenEscrowRequest.fromBuffer(value),
+        ($0.OpenEscrowResponse value) => value.writeToBuffer()));
+    $addMethod($grpc.ServiceMethod<$0.WaitEscrowFundingRequest, $0.WaitEscrowFundingUpdate>(
+        'RefWaitEscrowFunding',
+        refWaitEscrowFunding_Pre,
+        false,
+        true,
+        ($core.List<$core.int> value) => $0.WaitEscrowFundingRequest.fromBuffer(value),
+        ($0.WaitEscrowFundingUpdate value) => value.writeToBuffer()));
     $addMethod($grpc.ServiceMethod<$0.CreateMatchRequest, $0.CreateMatchResponse>(
         'CreateMatch',
         createMatch_Pre,
@@ -323,41 +313,6 @@ abstract class PongRefereeServiceBase extends $grpc.Service {
         false,
         ($core.List<$core.int> value) => $0.CreateMatchRequest.fromBuffer(value),
         ($0.CreateMatchResponse value) => value.writeToBuffer()));
-    $addMethod($grpc.ServiceMethod<$0.SubmitFundingRequest, $0.SubmitFundingResponse>(
-        'SubmitFunding',
-        submitFunding_Pre,
-        false,
-        false,
-        ($core.List<$core.int> value) => $0.SubmitFundingRequest.fromBuffer(value),
-        ($0.SubmitFundingResponse value) => value.writeToBuffer()));
-    $addMethod($grpc.ServiceMethod<$0.RevealAdaptorsRequest, $0.RevealAdaptorsResponse>(
-        'RevealAdaptors',
-        revealAdaptors_Pre,
-        false,
-        false,
-        ($core.List<$core.int> value) => $0.RevealAdaptorsRequest.fromBuffer(value),
-        ($0.RevealAdaptorsResponse value) => value.writeToBuffer()));
-    $addMethod($grpc.ServiceMethod<$0.AllocateEscrowRequest, $0.AllocateEscrowResponse>(
-        'AllocateEscrow',
-        allocateEscrow_Pre,
-        false,
-        false,
-        ($core.List<$core.int> value) => $0.AllocateEscrowRequest.fromBuffer(value),
-        ($0.AllocateEscrowResponse value) => value.writeToBuffer()));
-    $addMethod($grpc.ServiceMethod<$0.FinalizeWinnerRequest, $0.FinalizeWinnerResponse>(
-        'FinalizeWinner',
-        finalizeWinner_Pre,
-        false,
-        false,
-        ($core.List<$core.int> value) => $0.FinalizeWinnerRequest.fromBuffer(value),
-        ($0.FinalizeWinnerResponse value) => value.writeToBuffer()));
-    $addMethod($grpc.ServiceMethod<$0.AllocateMatchRequest, $0.AllocateMatchResponse>(
-        'AllocateMatch',
-        allocateMatch_Pre,
-        false,
-        false,
-        ($core.List<$core.int> value) => $0.AllocateMatchRequest.fromBuffer(value),
-        ($0.AllocateMatchResponse value) => value.writeToBuffer()));
     $addMethod($grpc.ServiceMethod<$0.WaitFundingRequest, $0.WaitFundingResponse>(
         'WaitFunding',
         waitFunding_Pre,
@@ -374,40 +329,25 @@ abstract class PongRefereeServiceBase extends $grpc.Service {
         ($0.ServerMsg value) => value.writeToBuffer()));
   }
 
+  $async.Future<$0.OpenEscrowResponse> refOpenEscrow_Pre($grpc.ServiceCall call, $async.Future<$0.OpenEscrowRequest> request) async {
+    return refOpenEscrow(call, await request);
+  }
+
+  $async.Stream<$0.WaitEscrowFundingUpdate> refWaitEscrowFunding_Pre($grpc.ServiceCall call, $async.Future<$0.WaitEscrowFundingRequest> request) async* {
+    yield* refWaitEscrowFunding(call, await request);
+  }
+
   $async.Future<$0.CreateMatchResponse> createMatch_Pre($grpc.ServiceCall call, $async.Future<$0.CreateMatchRequest> request) async {
     return createMatch(call, await request);
-  }
-
-  $async.Future<$0.SubmitFundingResponse> submitFunding_Pre($grpc.ServiceCall call, $async.Future<$0.SubmitFundingRequest> request) async {
-    return submitFunding(call, await request);
-  }
-
-  $async.Future<$0.RevealAdaptorsResponse> revealAdaptors_Pre($grpc.ServiceCall call, $async.Future<$0.RevealAdaptorsRequest> request) async {
-    return revealAdaptors(call, await request);
-  }
-
-  $async.Future<$0.AllocateEscrowResponse> allocateEscrow_Pre($grpc.ServiceCall call, $async.Future<$0.AllocateEscrowRequest> request) async {
-    return allocateEscrow(call, await request);
-  }
-
-  $async.Future<$0.FinalizeWinnerResponse> finalizeWinner_Pre($grpc.ServiceCall call, $async.Future<$0.FinalizeWinnerRequest> request) async {
-    return finalizeWinner(call, await request);
-  }
-
-  $async.Future<$0.AllocateMatchResponse> allocateMatch_Pre($grpc.ServiceCall call, $async.Future<$0.AllocateMatchRequest> request) async {
-    return allocateMatch(call, await request);
   }
 
   $async.Stream<$0.WaitFundingResponse> waitFunding_Pre($grpc.ServiceCall call, $async.Future<$0.WaitFundingRequest> request) async* {
     yield* waitFunding(call, await request);
   }
 
+  $async.Future<$0.OpenEscrowResponse> refOpenEscrow($grpc.ServiceCall call, $0.OpenEscrowRequest request);
+  $async.Stream<$0.WaitEscrowFundingUpdate> refWaitEscrowFunding($grpc.ServiceCall call, $0.WaitEscrowFundingRequest request);
   $async.Future<$0.CreateMatchResponse> createMatch($grpc.ServiceCall call, $0.CreateMatchRequest request);
-  $async.Future<$0.SubmitFundingResponse> submitFunding($grpc.ServiceCall call, $0.SubmitFundingRequest request);
-  $async.Future<$0.RevealAdaptorsResponse> revealAdaptors($grpc.ServiceCall call, $0.RevealAdaptorsRequest request);
-  $async.Future<$0.AllocateEscrowResponse> allocateEscrow($grpc.ServiceCall call, $0.AllocateEscrowRequest request);
-  $async.Future<$0.FinalizeWinnerResponse> finalizeWinner($grpc.ServiceCall call, $0.FinalizeWinnerRequest request);
-  $async.Future<$0.AllocateMatchResponse> allocateMatch($grpc.ServiceCall call, $0.AllocateMatchRequest request);
   $async.Stream<$0.WaitFundingResponse> waitFunding($grpc.ServiceCall call, $0.WaitFundingRequest request);
   $async.Stream<$0.ServerMsg> settlementStream($grpc.ServiceCall call, $async.Stream<$0.ClientMsg> request);
 }

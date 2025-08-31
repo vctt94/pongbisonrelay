@@ -21,55 +21,6 @@ const (
 	_ = protoimpl.EnforceVersion(protoimpl.MaxVersion - 20)
 )
 
-type Branch int32
-
-const (
-	Branch_BRANCH_UNSPECIFIED Branch = 0
-	Branch_BRANCH_A           Branch = 1 // A wins branch
-	Branch_BRANCH_B           Branch = 2 // B wins branch
-)
-
-// Enum value maps for Branch.
-var (
-	Branch_name = map[int32]string{
-		0: "BRANCH_UNSPECIFIED",
-		1: "BRANCH_A",
-		2: "BRANCH_B",
-	}
-	Branch_value = map[string]int32{
-		"BRANCH_UNSPECIFIED": 0,
-		"BRANCH_A":           1,
-		"BRANCH_B":           2,
-	}
-)
-
-func (x Branch) Enum() *Branch {
-	p := new(Branch)
-	*p = x
-	return p
-}
-
-func (x Branch) String() string {
-	return protoimpl.X.EnumStringOf(x.Descriptor(), protoreflect.EnumNumber(x))
-}
-
-func (Branch) Descriptor() protoreflect.EnumDescriptor {
-	return file_pong_proto_enumTypes[0].Descriptor()
-}
-
-func (Branch) Type() protoreflect.EnumType {
-	return &file_pong_proto_enumTypes[0]
-}
-
-func (x Branch) Number() protoreflect.EnumNumber {
-	return protoreflect.EnumNumber(x)
-}
-
-// Deprecated: Use Branch.Descriptor instead.
-func (Branch) EnumDescriptor() ([]byte, []int) {
-	return file_pong_proto_rawDescGZIP(), []int{0}
-}
-
 // Notification Messages
 type NotificationType int32
 
@@ -87,6 +38,7 @@ const (
 	NotificationType_PLAYER_LEFT_WR        NotificationType = 10
 	NotificationType_COUNTDOWN_UPDATE      NotificationType = 11
 	NotificationType_GAME_READY_TO_PLAY    NotificationType = 12
+	NotificationType_MATCH_ALLOCATED       NotificationType = 13
 )
 
 // Enum value maps for NotificationType.
@@ -105,6 +57,7 @@ var (
 		10: "PLAYER_LEFT_WR",
 		11: "COUNTDOWN_UPDATE",
 		12: "GAME_READY_TO_PLAY",
+		13: "MATCH_ALLOCATED",
 	}
 	NotificationType_value = map[string]int32{
 		"UNKNOWN":               0,
@@ -120,6 +73,7 @@ var (
 		"PLAYER_LEFT_WR":        10,
 		"COUNTDOWN_UPDATE":      11,
 		"GAME_READY_TO_PLAY":    12,
+		"MATCH_ALLOCATED":       13,
 	}
 )
 
@@ -134,11 +88,11 @@ func (x NotificationType) String() string {
 }
 
 func (NotificationType) Descriptor() protoreflect.EnumDescriptor {
-	return file_pong_proto_enumTypes[1].Descriptor()
+	return file_pong_proto_enumTypes[0].Descriptor()
 }
 
 func (NotificationType) Type() protoreflect.EnumType {
-	return &file_pong_proto_enumTypes[1]
+	return &file_pong_proto_enumTypes[0]
 }
 
 func (x NotificationType) Number() protoreflect.EnumNumber {
@@ -147,56 +101,7 @@ func (x NotificationType) Number() protoreflect.EnumNumber {
 
 // Deprecated: Use NotificationType.Descriptor instead.
 func (NotificationType) EnumDescriptor() ([]byte, []int) {
-	return file_pong_proto_rawDescGZIP(), []int{1}
-}
-
-type AssignRole_Role int32
-
-const (
-	AssignRole_UNKNOWN AssignRole_Role = 0
-	AssignRole_A       AssignRole_Role = 1
-	AssignRole_B       AssignRole_Role = 2
-)
-
-// Enum value maps for AssignRole_Role.
-var (
-	AssignRole_Role_name = map[int32]string{
-		0: "UNKNOWN",
-		1: "A",
-		2: "B",
-	}
-	AssignRole_Role_value = map[string]int32{
-		"UNKNOWN": 0,
-		"A":       1,
-		"B":       2,
-	}
-)
-
-func (x AssignRole_Role) Enum() *AssignRole_Role {
-	p := new(AssignRole_Role)
-	*p = x
-	return p
-}
-
-func (x AssignRole_Role) String() string {
-	return protoimpl.X.EnumStringOf(x.Descriptor(), protoreflect.EnumNumber(x))
-}
-
-func (AssignRole_Role) Descriptor() protoreflect.EnumDescriptor {
-	return file_pong_proto_enumTypes[2].Descriptor()
-}
-
-func (AssignRole_Role) Type() protoreflect.EnumType {
-	return &file_pong_proto_enumTypes[2]
-}
-
-func (x AssignRole_Role) Number() protoreflect.EnumNumber {
-	return protoreflect.EnumNumber(x)
-}
-
-// Deprecated: Use AssignRole_Role.Descriptor instead.
-func (AssignRole_Role) EnumDescriptor() ([]byte, []int) {
-	return file_pong_proto_rawDescGZIP(), []int{3, 0}
+	return file_pong_proto_rawDescGZIP(), []int{0}
 }
 
 // === Phase 1 streaming messages ===
@@ -208,6 +113,7 @@ type ClientMsg struct {
 	//	*ClientMsg_Hello
 	//	*ClientMsg_Presigs
 	//	*ClientMsg_Ack
+	//	*ClientMsg_VerifyOk
 	Kind          isClientMsg_Kind `protobuf_oneof:"kind"`
 	unknownFields protoimpl.UnknownFields
 	sizeCache     protoimpl.SizeCache
@@ -284,6 +190,15 @@ func (x *ClientMsg) GetAck() *Ack {
 	return nil
 }
 
+func (x *ClientMsg) GetVerifyOk() *VerifyOk {
+	if x != nil {
+		if x, ok := x.Kind.(*ClientMsg_VerifyOk); ok {
+			return x.VerifyOk
+		}
+	}
+	return nil
+}
+
 type isClientMsg_Kind interface {
 	isClientMsg_Kind()
 }
@@ -293,11 +208,17 @@ type ClientMsg_Hello struct {
 }
 
 type ClientMsg_Presigs struct {
+	// Deprecated: presigs/ack split. Use verify_ok.
 	Presigs *PreSigBatch `protobuf:"bytes,11,opt,name=presigs,proto3,oneof"`
 }
 
 type ClientMsg_Ack struct {
 	Ack *Ack `protobuf:"bytes,12,opt,name=ack,proto3,oneof"`
+}
+
+type ClientMsg_VerifyOk struct {
+	// New minimal handshake message carrying ack_digest and presigs.
+	VerifyOk *VerifyOk `protobuf:"bytes,13,opt,name=verify_ok,json=verifyOk,proto3,oneof"`
 }
 
 func (*ClientMsg_Hello) isClientMsg_Kind() {}
@@ -306,15 +227,17 @@ func (*ClientMsg_Presigs) isClientMsg_Kind() {}
 
 func (*ClientMsg_Ack) isClientMsg_Kind() {}
 
+func (*ClientMsg_VerifyOk) isClientMsg_Kind() {}
+
 type ServerMsg struct {
 	state   protoimpl.MessageState `protogen:"open.v1"`
 	MatchId string                 `protobuf:"bytes,1,opt,name=match_id,json=matchId,proto3" json:"match_id,omitempty"`
 	// Types that are valid to be assigned to Kind:
 	//
-	//	*ServerMsg_Role
 	//	*ServerMsg_Req
 	//	*ServerMsg_Reveal
 	//	*ServerMsg_Info
+	//	*ServerMsg_Ok
 	Kind          isServerMsg_Kind `protobuf_oneof:"kind"`
 	unknownFields protoimpl.UnknownFields
 	sizeCache     protoimpl.SizeCache
@@ -364,15 +287,6 @@ func (x *ServerMsg) GetKind() isServerMsg_Kind {
 	return nil
 }
 
-func (x *ServerMsg) GetRole() *AssignRole {
-	if x != nil {
-		if x, ok := x.Kind.(*ServerMsg_Role); ok {
-			return x.Role
-		}
-	}
-	return nil
-}
-
 func (x *ServerMsg) GetReq() *NeedPreSigs {
 	if x != nil {
 		if x, ok := x.Kind.(*ServerMsg_Req); ok {
@@ -400,12 +314,17 @@ func (x *ServerMsg) GetInfo() *Info {
 	return nil
 }
 
-type isServerMsg_Kind interface {
-	isServerMsg_Kind()
+func (x *ServerMsg) GetOk() *ServerOk {
+	if x != nil {
+		if x, ok := x.Kind.(*ServerMsg_Ok); ok {
+			return x.Ok
+		}
+	}
+	return nil
 }
 
-type ServerMsg_Role struct {
-	Role *AssignRole `protobuf:"bytes,10,opt,name=role,proto3,oneof"`
+type isServerMsg_Kind interface {
+	isServerMsg_Kind()
 }
 
 type ServerMsg_Req struct {
@@ -413,14 +332,17 @@ type ServerMsg_Req struct {
 }
 
 type ServerMsg_Reveal struct {
-	Reveal *RevealGamma `protobuf:"bytes,12,opt,name=reveal,proto3,oneof"`
+	Reveal *RevealGamma `protobuf:"bytes,12,opt,name=reveal,proto3,oneof"` // Not used in minimal handshake; gamma delivered later via separate RPC.
 }
 
 type ServerMsg_Info struct {
 	Info *Info `protobuf:"bytes,13,opt,name=info,proto3,oneof"`
 }
 
-func (*ServerMsg_Role) isServerMsg_Kind() {}
+type ServerMsg_Ok struct {
+	// New handshake completion ack from server.
+	Ok *ServerOk `protobuf:"bytes,14,opt,name=ok,proto3,oneof"`
+}
 
 func (*ServerMsg_Req) isServerMsg_Kind() {}
 
@@ -428,10 +350,13 @@ func (*ServerMsg_Reveal) isServerMsg_Kind() {}
 
 func (*ServerMsg_Info) isServerMsg_Kind() {}
 
+func (*ServerMsg_Ok) isServerMsg_Kind() {}
+
 type Hello struct {
 	state         protoimpl.MessageState `protogen:"open.v1"`
-	CompPubkey    []byte                 `protobuf:"bytes,1,opt,name=comp_pubkey,json=compPubkey,proto3" json:"comp_pubkey,omitempty"` // 33B compressed pubkey (A_c/B_c)
-	ClientVersion string                 `protobuf:"bytes,2,opt,name=client_version,json=clientVersion,proto3" json:"client_version,omitempty"`
+	MatchId       string                 `protobuf:"bytes,1,opt,name=match_id,json=matchId,proto3" json:"match_id,omitempty"`
+	CompPubkey    []byte                 `protobuf:"bytes,2,opt,name=comp_pubkey,json=compPubkey,proto3" json:"comp_pubkey,omitempty"` // 33B compressed pubkey (A_c/B_c)
+	ClientVersion string                 `protobuf:"bytes,3,opt,name=client_version,json=clientVersion,proto3" json:"client_version,omitempty"`
 	unknownFields protoimpl.UnknownFields
 	sizeCache     protoimpl.SizeCache
 }
@@ -466,6 +391,13 @@ func (*Hello) Descriptor() ([]byte, []int) {
 	return file_pong_proto_rawDescGZIP(), []int{2}
 }
 
+func (x *Hello) GetMatchId() string {
+	if x != nil {
+		return x.MatchId
+	}
+	return ""
+}
+
 func (x *Hello) GetCompPubkey() []byte {
 	if x != nil {
 		return x.CompPubkey
@@ -480,69 +412,8 @@ func (x *Hello) GetClientVersion() string {
 	return ""
 }
 
-type AssignRole struct {
-	state              protoimpl.MessageState `protogen:"open.v1"`
-	Role               AssignRole_Role        `protobuf:"varint,1,opt,name=role,proto3,enum=pong.AssignRole_Role" json:"role,omitempty"`
-	RequiredAtoms      uint64                 `protobuf:"varint,2,opt,name=required_atoms,json=requiredAtoms,proto3" json:"required_atoms,omitempty"`
-	DepositPkscriptHex string                 `protobuf:"bytes,3,opt,name=deposit_pkscript_hex,json=depositPkscriptHex,proto3" json:"deposit_pkscript_hex,omitempty"`
-	unknownFields      protoimpl.UnknownFields
-	sizeCache          protoimpl.SizeCache
-}
-
-func (x *AssignRole) Reset() {
-	*x = AssignRole{}
-	mi := &file_pong_proto_msgTypes[3]
-	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
-	ms.StoreMessageInfo(mi)
-}
-
-func (x *AssignRole) String() string {
-	return protoimpl.X.MessageStringOf(x)
-}
-
-func (*AssignRole) ProtoMessage() {}
-
-func (x *AssignRole) ProtoReflect() protoreflect.Message {
-	mi := &file_pong_proto_msgTypes[3]
-	if x != nil {
-		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
-		if ms.LoadMessageInfo() == nil {
-			ms.StoreMessageInfo(mi)
-		}
-		return ms
-	}
-	return mi.MessageOf(x)
-}
-
-// Deprecated: Use AssignRole.ProtoReflect.Descriptor instead.
-func (*AssignRole) Descriptor() ([]byte, []int) {
-	return file_pong_proto_rawDescGZIP(), []int{3}
-}
-
-func (x *AssignRole) GetRole() AssignRole_Role {
-	if x != nil {
-		return x.Role
-	}
-	return AssignRole_UNKNOWN
-}
-
-func (x *AssignRole) GetRequiredAtoms() uint64 {
-	if x != nil {
-		return x.RequiredAtoms
-	}
-	return 0
-}
-
-func (x *AssignRole) GetDepositPkscriptHex() string {
-	if x != nil {
-		return x.DepositPkscriptHex
-	}
-	return ""
-}
-
 type NeedPreSigs struct {
 	state         protoimpl.MessageState  `protogen:"open.v1"`
-	Branch        Branch                  `protobuf:"varint,1,opt,name=branch,proto3,enum=pong.Branch" json:"branch,omitempty"` // single branch to presign
 	DraftTxHex    string                  `protobuf:"bytes,2,opt,name=draft_tx_hex,json=draftTxHex,proto3" json:"draft_tx_hex,omitempty"`
 	Inputs        []*NeedPreSigs_PerInput `protobuf:"bytes,4,rep,name=inputs,proto3" json:"inputs,omitempty"`
 	unknownFields protoimpl.UnknownFields
@@ -551,7 +422,7 @@ type NeedPreSigs struct {
 
 func (x *NeedPreSigs) Reset() {
 	*x = NeedPreSigs{}
-	mi := &file_pong_proto_msgTypes[4]
+	mi := &file_pong_proto_msgTypes[3]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -563,7 +434,7 @@ func (x *NeedPreSigs) String() string {
 func (*NeedPreSigs) ProtoMessage() {}
 
 func (x *NeedPreSigs) ProtoReflect() protoreflect.Message {
-	mi := &file_pong_proto_msgTypes[4]
+	mi := &file_pong_proto_msgTypes[3]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -576,14 +447,7 @@ func (x *NeedPreSigs) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use NeedPreSigs.ProtoReflect.Descriptor instead.
 func (*NeedPreSigs) Descriptor() ([]byte, []int) {
-	return file_pong_proto_rawDescGZIP(), []int{4}
-}
-
-func (x *NeedPreSigs) GetBranch() Branch {
-	if x != nil {
-		return x.Branch
-	}
-	return Branch_BRANCH_UNSPECIFIED
+	return file_pong_proto_rawDescGZIP(), []int{3}
 }
 
 func (x *NeedPreSigs) GetDraftTxHex() string {
@@ -600,9 +464,122 @@ func (x *NeedPreSigs) GetInputs() []*NeedPreSigs_PerInput {
 	return nil
 }
 
+// Client VERIFY_OK message: verifies draft, builds presigs, and includes ack digest.
+type VerifyOk struct {
+	state         protoimpl.MessageState `protogen:"open.v1"`
+	AckDigest     []byte                 `protobuf:"bytes,1,opt,name=ack_digest,json=ackDigest,proto3" json:"ack_digest,omitempty"` // 32B BLAKE256(draft_tx_hex || canonical(inputs))
+	Presigs       []*PreSig              `protobuf:"bytes,2,rep,name=presigs,proto3" json:"presigs,omitempty"`
+	unknownFields protoimpl.UnknownFields
+	sizeCache     protoimpl.SizeCache
+}
+
+func (x *VerifyOk) Reset() {
+	*x = VerifyOk{}
+	mi := &file_pong_proto_msgTypes[4]
+	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+	ms.StoreMessageInfo(mi)
+}
+
+func (x *VerifyOk) String() string {
+	return protoimpl.X.MessageStringOf(x)
+}
+
+func (*VerifyOk) ProtoMessage() {}
+
+func (x *VerifyOk) ProtoReflect() protoreflect.Message {
+	mi := &file_pong_proto_msgTypes[4]
+	if x != nil {
+		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+		if ms.LoadMessageInfo() == nil {
+			ms.StoreMessageInfo(mi)
+		}
+		return ms
+	}
+	return mi.MessageOf(x)
+}
+
+// Deprecated: Use VerifyOk.ProtoReflect.Descriptor instead.
+func (*VerifyOk) Descriptor() ([]byte, []int) {
+	return file_pong_proto_rawDescGZIP(), []int{4}
+}
+
+func (x *VerifyOk) GetAckDigest() []byte {
+	if x != nil {
+		return x.AckDigest
+	}
+	return nil
+}
+
+func (x *VerifyOk) GetPresigs() []*PreSig {
+	if x != nil {
+		return x.Presigs
+	}
+	return nil
+}
+
+// Per-input pre-signature using minus variant and normalized R'.
+type PreSig struct {
+	state            protoimpl.MessageState `protogen:"open.v1"`
+	InputId          string                 `protobuf:"bytes,1,opt,name=input_id,json=inputId,proto3" json:"input_id,omitempty"`
+	RprimeCompressed []byte                 `protobuf:"bytes,2,opt,name=Rprime_compressed,json=RprimeCompressed,proto3" json:"Rprime_compressed,omitempty"` // 33B normalized (even-Y) R'
+	Sprime32         []byte                 `protobuf:"bytes,3,opt,name=sprime32,proto3" json:"sprime32,omitempty"`                                         // 32B little endian mod-n scalar
+	unknownFields    protoimpl.UnknownFields
+	sizeCache        protoimpl.SizeCache
+}
+
+func (x *PreSig) Reset() {
+	*x = PreSig{}
+	mi := &file_pong_proto_msgTypes[5]
+	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+	ms.StoreMessageInfo(mi)
+}
+
+func (x *PreSig) String() string {
+	return protoimpl.X.MessageStringOf(x)
+}
+
+func (*PreSig) ProtoMessage() {}
+
+func (x *PreSig) ProtoReflect() protoreflect.Message {
+	mi := &file_pong_proto_msgTypes[5]
+	if x != nil {
+		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+		if ms.LoadMessageInfo() == nil {
+			ms.StoreMessageInfo(mi)
+		}
+		return ms
+	}
+	return mi.MessageOf(x)
+}
+
+// Deprecated: Use PreSig.ProtoReflect.Descriptor instead.
+func (*PreSig) Descriptor() ([]byte, []int) {
+	return file_pong_proto_rawDescGZIP(), []int{5}
+}
+
+func (x *PreSig) GetInputId() string {
+	if x != nil {
+		return x.InputId
+	}
+	return ""
+}
+
+func (x *PreSig) GetRprimeCompressed() []byte {
+	if x != nil {
+		return x.RprimeCompressed
+	}
+	return nil
+}
+
+func (x *PreSig) GetSprime32() []byte {
+	if x != nil {
+		return x.Sprime32
+	}
+	return nil
+}
+
 type PreSigBatch struct {
 	state         protoimpl.MessageState `protogen:"open.v1"`
-	Branch        Branch                 `protobuf:"varint,1,opt,name=branch,proto3,enum=pong.Branch" json:"branch,omitempty"`
 	Presigs       []*PreSigBatch_Sig     `protobuf:"bytes,2,rep,name=presigs,proto3" json:"presigs,omitempty"`
 	unknownFields protoimpl.UnknownFields
 	sizeCache     protoimpl.SizeCache
@@ -610,7 +587,7 @@ type PreSigBatch struct {
 
 func (x *PreSigBatch) Reset() {
 	*x = PreSigBatch{}
-	mi := &file_pong_proto_msgTypes[5]
+	mi := &file_pong_proto_msgTypes[6]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -622,7 +599,7 @@ func (x *PreSigBatch) String() string {
 func (*PreSigBatch) ProtoMessage() {}
 
 func (x *PreSigBatch) ProtoReflect() protoreflect.Message {
-	mi := &file_pong_proto_msgTypes[5]
+	mi := &file_pong_proto_msgTypes[6]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -635,14 +612,7 @@ func (x *PreSigBatch) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use PreSigBatch.ProtoReflect.Descriptor instead.
 func (*PreSigBatch) Descriptor() ([]byte, []int) {
-	return file_pong_proto_rawDescGZIP(), []int{5}
-}
-
-func (x *PreSigBatch) GetBranch() Branch {
-	if x != nil {
-		return x.Branch
-	}
-	return Branch_BRANCH_UNSPECIFIED
+	return file_pong_proto_rawDescGZIP(), []int{6}
 }
 
 func (x *PreSigBatch) GetPresigs() []*PreSigBatch_Sig {
@@ -661,7 +631,7 @@ type RevealGamma struct {
 
 func (x *RevealGamma) Reset() {
 	*x = RevealGamma{}
-	mi := &file_pong_proto_msgTypes[6]
+	mi := &file_pong_proto_msgTypes[7]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -673,7 +643,7 @@ func (x *RevealGamma) String() string {
 func (*RevealGamma) ProtoMessage() {}
 
 func (x *RevealGamma) ProtoReflect() protoreflect.Message {
-	mi := &file_pong_proto_msgTypes[6]
+	mi := &file_pong_proto_msgTypes[7]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -686,7 +656,7 @@ func (x *RevealGamma) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use RevealGamma.ProtoReflect.Descriptor instead.
 func (*RevealGamma) Descriptor() ([]byte, []int) {
-	return file_pong_proto_rawDescGZIP(), []int{6}
+	return file_pong_proto_rawDescGZIP(), []int{7}
 }
 
 func (x *RevealGamma) GetGamma32() []byte {
@@ -705,7 +675,7 @@ type Ack struct {
 
 func (x *Ack) Reset() {
 	*x = Ack{}
-	mi := &file_pong_proto_msgTypes[7]
+	mi := &file_pong_proto_msgTypes[8]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -717,7 +687,7 @@ func (x *Ack) String() string {
 func (*Ack) ProtoMessage() {}
 
 func (x *Ack) ProtoReflect() protoreflect.Message {
-	mi := &file_pong_proto_msgTypes[7]
+	mi := &file_pong_proto_msgTypes[8]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -730,7 +700,7 @@ func (x *Ack) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use Ack.ProtoReflect.Descriptor instead.
 func (*Ack) Descriptor() ([]byte, []int) {
-	return file_pong_proto_rawDescGZIP(), []int{7}
+	return file_pong_proto_rawDescGZIP(), []int{8}
 }
 
 func (x *Ack) GetNote() string {
@@ -749,7 +719,7 @@ type Info struct {
 
 func (x *Info) Reset() {
 	*x = Info{}
-	mi := &file_pong_proto_msgTypes[8]
+	mi := &file_pong_proto_msgTypes[9]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -761,7 +731,7 @@ func (x *Info) String() string {
 func (*Info) ProtoMessage() {}
 
 func (x *Info) ProtoReflect() protoreflect.Message {
-	mi := &file_pong_proto_msgTypes[8]
+	mi := &file_pong_proto_msgTypes[9]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -774,7 +744,7 @@ func (x *Info) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use Info.ProtoReflect.Descriptor instead.
 func (*Info) Descriptor() ([]byte, []int) {
-	return file_pong_proto_rawDescGZIP(), []int{8}
+	return file_pong_proto_rawDescGZIP(), []int{9}
 }
 
 func (x *Info) GetText() string {
@@ -782,6 +752,293 @@ func (x *Info) GetText() string {
 		return x.Text
 	}
 	return ""
+}
+
+// Server SERVER_OK message: acknowledges successful verification.
+type ServerOk struct {
+	state         protoimpl.MessageState `protogen:"open.v1"`
+	AckDigest     []byte                 `protobuf:"bytes,1,opt,name=ack_digest,json=ackDigest,proto3" json:"ack_digest,omitempty"`
+	unknownFields protoimpl.UnknownFields
+	sizeCache     protoimpl.SizeCache
+}
+
+func (x *ServerOk) Reset() {
+	*x = ServerOk{}
+	mi := &file_pong_proto_msgTypes[10]
+	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+	ms.StoreMessageInfo(mi)
+}
+
+func (x *ServerOk) String() string {
+	return protoimpl.X.MessageStringOf(x)
+}
+
+func (*ServerOk) ProtoMessage() {}
+
+func (x *ServerOk) ProtoReflect() protoreflect.Message {
+	mi := &file_pong_proto_msgTypes[10]
+	if x != nil {
+		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+		if ms.LoadMessageInfo() == nil {
+			ms.StoreMessageInfo(mi)
+		}
+		return ms
+	}
+	return mi.MessageOf(x)
+}
+
+// Deprecated: Use ServerOk.ProtoReflect.Descriptor instead.
+func (*ServerOk) Descriptor() ([]byte, []int) {
+	return file_pong_proto_rawDescGZIP(), []int{10}
+}
+
+func (x *ServerOk) GetAckDigest() []byte {
+	if x != nil {
+		return x.AckDigest
+	}
+	return nil
+}
+
+// === Existing API below ===
+// Escrow-first RPCs
+type OpenEscrowRequest struct {
+	state         protoimpl.MessageState `protogen:"open.v1"`
+	OwnerUid      string                 `protobuf:"bytes,1,opt,name=owner_uid,json=ownerUid,proto3" json:"owner_uid,omitempty"`
+	CompPubkey    []byte                 `protobuf:"bytes,2,opt,name=comp_pubkey,json=compPubkey,proto3" json:"comp_pubkey,omitempty"` // 33 bytes (compressed)
+	BetAtoms      uint64                 `protobuf:"varint,3,opt,name=bet_atoms,json=betAtoms,proto3" json:"bet_atoms,omitempty"`
+	CsvBlocks     uint32                 `protobuf:"varint,4,opt,name=csv_blocks,json=csvBlocks,proto3" json:"csv_blocks,omitempty"`
+	unknownFields protoimpl.UnknownFields
+	sizeCache     protoimpl.SizeCache
+}
+
+func (x *OpenEscrowRequest) Reset() {
+	*x = OpenEscrowRequest{}
+	mi := &file_pong_proto_msgTypes[11]
+	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+	ms.StoreMessageInfo(mi)
+}
+
+func (x *OpenEscrowRequest) String() string {
+	return protoimpl.X.MessageStringOf(x)
+}
+
+func (*OpenEscrowRequest) ProtoMessage() {}
+
+func (x *OpenEscrowRequest) ProtoReflect() protoreflect.Message {
+	mi := &file_pong_proto_msgTypes[11]
+	if x != nil {
+		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+		if ms.LoadMessageInfo() == nil {
+			ms.StoreMessageInfo(mi)
+		}
+		return ms
+	}
+	return mi.MessageOf(x)
+}
+
+// Deprecated: Use OpenEscrowRequest.ProtoReflect.Descriptor instead.
+func (*OpenEscrowRequest) Descriptor() ([]byte, []int) {
+	return file_pong_proto_rawDescGZIP(), []int{11}
+}
+
+func (x *OpenEscrowRequest) GetOwnerUid() string {
+	if x != nil {
+		return x.OwnerUid
+	}
+	return ""
+}
+
+func (x *OpenEscrowRequest) GetCompPubkey() []byte {
+	if x != nil {
+		return x.CompPubkey
+	}
+	return nil
+}
+
+func (x *OpenEscrowRequest) GetBetAtoms() uint64 {
+	if x != nil {
+		return x.BetAtoms
+	}
+	return 0
+}
+
+func (x *OpenEscrowRequest) GetCsvBlocks() uint32 {
+	if x != nil {
+		return x.CsvBlocks
+	}
+	return 0
+}
+
+type OpenEscrowResponse struct {
+	state          protoimpl.MessageState `protogen:"open.v1"`
+	EscrowId       string                 `protobuf:"bytes,1,opt,name=escrow_id,json=escrowId,proto3" json:"escrow_id,omitempty"`
+	DepositAddress string                 `protobuf:"bytes,2,opt,name=deposit_address,json=depositAddress,proto3" json:"deposit_address,omitempty"`
+	PkScriptHex    string                 `protobuf:"bytes,3,opt,name=pk_script_hex,json=pkScriptHex,proto3" json:"pk_script_hex,omitempty"`
+	unknownFields  protoimpl.UnknownFields
+	sizeCache      protoimpl.SizeCache
+}
+
+func (x *OpenEscrowResponse) Reset() {
+	*x = OpenEscrowResponse{}
+	mi := &file_pong_proto_msgTypes[12]
+	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+	ms.StoreMessageInfo(mi)
+}
+
+func (x *OpenEscrowResponse) String() string {
+	return protoimpl.X.MessageStringOf(x)
+}
+
+func (*OpenEscrowResponse) ProtoMessage() {}
+
+func (x *OpenEscrowResponse) ProtoReflect() protoreflect.Message {
+	mi := &file_pong_proto_msgTypes[12]
+	if x != nil {
+		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+		if ms.LoadMessageInfo() == nil {
+			ms.StoreMessageInfo(mi)
+		}
+		return ms
+	}
+	return mi.MessageOf(x)
+}
+
+// Deprecated: Use OpenEscrowResponse.ProtoReflect.Descriptor instead.
+func (*OpenEscrowResponse) Descriptor() ([]byte, []int) {
+	return file_pong_proto_rawDescGZIP(), []int{12}
+}
+
+func (x *OpenEscrowResponse) GetEscrowId() string {
+	if x != nil {
+		return x.EscrowId
+	}
+	return ""
+}
+
+func (x *OpenEscrowResponse) GetDepositAddress() string {
+	if x != nil {
+		return x.DepositAddress
+	}
+	return ""
+}
+
+func (x *OpenEscrowResponse) GetPkScriptHex() string {
+	if x != nil {
+		return x.PkScriptHex
+	}
+	return ""
+}
+
+type WaitEscrowFundingRequest struct {
+	state         protoimpl.MessageState `protogen:"open.v1"`
+	EscrowId      string                 `protobuf:"bytes,1,opt,name=escrow_id,json=escrowId,proto3" json:"escrow_id,omitempty"`
+	unknownFields protoimpl.UnknownFields
+	sizeCache     protoimpl.SizeCache
+}
+
+func (x *WaitEscrowFundingRequest) Reset() {
+	*x = WaitEscrowFundingRequest{}
+	mi := &file_pong_proto_msgTypes[13]
+	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+	ms.StoreMessageInfo(mi)
+}
+
+func (x *WaitEscrowFundingRequest) String() string {
+	return protoimpl.X.MessageStringOf(x)
+}
+
+func (*WaitEscrowFundingRequest) ProtoMessage() {}
+
+func (x *WaitEscrowFundingRequest) ProtoReflect() protoreflect.Message {
+	mi := &file_pong_proto_msgTypes[13]
+	if x != nil {
+		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+		if ms.LoadMessageInfo() == nil {
+			ms.StoreMessageInfo(mi)
+		}
+		return ms
+	}
+	return mi.MessageOf(x)
+}
+
+// Deprecated: Use WaitEscrowFundingRequest.ProtoReflect.Descriptor instead.
+func (*WaitEscrowFundingRequest) Descriptor() ([]byte, []int) {
+	return file_pong_proto_rawDescGZIP(), []int{13}
+}
+
+func (x *WaitEscrowFundingRequest) GetEscrowId() string {
+	if x != nil {
+		return x.EscrowId
+	}
+	return ""
+}
+
+type WaitEscrowFundingUpdate struct {
+	state         protoimpl.MessageState `protogen:"open.v1"`
+	Funded        bool                   `protobuf:"varint,1,opt,name=funded,proto3" json:"funded,omitempty"`
+	Confirmed     bool                   `protobuf:"varint,2,opt,name=confirmed,proto3" json:"confirmed,omitempty"`
+	UtxoId        string                 `protobuf:"bytes,3,opt,name=utxo_id,json=utxoId,proto3" json:"utxo_id,omitempty"` // "txid:vout"
+	ValueAtoms    uint64                 `protobuf:"varint,4,opt,name=value_atoms,json=valueAtoms,proto3" json:"value_atoms,omitempty"`
+	unknownFields protoimpl.UnknownFields
+	sizeCache     protoimpl.SizeCache
+}
+
+func (x *WaitEscrowFundingUpdate) Reset() {
+	*x = WaitEscrowFundingUpdate{}
+	mi := &file_pong_proto_msgTypes[14]
+	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+	ms.StoreMessageInfo(mi)
+}
+
+func (x *WaitEscrowFundingUpdate) String() string {
+	return protoimpl.X.MessageStringOf(x)
+}
+
+func (*WaitEscrowFundingUpdate) ProtoMessage() {}
+
+func (x *WaitEscrowFundingUpdate) ProtoReflect() protoreflect.Message {
+	mi := &file_pong_proto_msgTypes[14]
+	if x != nil {
+		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+		if ms.LoadMessageInfo() == nil {
+			ms.StoreMessageInfo(mi)
+		}
+		return ms
+	}
+	return mi.MessageOf(x)
+}
+
+// Deprecated: Use WaitEscrowFundingUpdate.ProtoReflect.Descriptor instead.
+func (*WaitEscrowFundingUpdate) Descriptor() ([]byte, []int) {
+	return file_pong_proto_rawDescGZIP(), []int{14}
+}
+
+func (x *WaitEscrowFundingUpdate) GetFunded() bool {
+	if x != nil {
+		return x.Funded
+	}
+	return false
+}
+
+func (x *WaitEscrowFundingUpdate) GetConfirmed() bool {
+	if x != nil {
+		return x.Confirmed
+	}
+	return false
+}
+
+func (x *WaitEscrowFundingUpdate) GetUtxoId() string {
+	if x != nil {
+		return x.UtxoId
+	}
+	return ""
+}
+
+func (x *WaitEscrowFundingUpdate) GetValueAtoms() uint64 {
+	if x != nil {
+		return x.ValueAtoms
+	}
+	return 0
 }
 
 type CreateMatchRequest struct {
@@ -795,7 +1052,7 @@ type CreateMatchRequest struct {
 
 func (x *CreateMatchRequest) Reset() {
 	*x = CreateMatchRequest{}
-	mi := &file_pong_proto_msgTypes[9]
+	mi := &file_pong_proto_msgTypes[15]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -807,7 +1064,7 @@ func (x *CreateMatchRequest) String() string {
 func (*CreateMatchRequest) ProtoMessage() {}
 
 func (x *CreateMatchRequest) ProtoReflect() protoreflect.Message {
-	mi := &file_pong_proto_msgTypes[9]
+	mi := &file_pong_proto_msgTypes[15]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -820,7 +1077,7 @@ func (x *CreateMatchRequest) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use CreateMatchRequest.ProtoReflect.Descriptor instead.
 func (*CreateMatchRequest) Descriptor() ([]byte, []int) {
-	return file_pong_proto_rawDescGZIP(), []int{9}
+	return file_pong_proto_rawDescGZIP(), []int{15}
 }
 
 func (x *CreateMatchRequest) GetAC() string {
@@ -862,7 +1119,7 @@ type CreateMatchResponse struct {
 
 func (x *CreateMatchResponse) Reset() {
 	*x = CreateMatchResponse{}
-	mi := &file_pong_proto_msgTypes[10]
+	mi := &file_pong_proto_msgTypes[16]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -874,7 +1131,7 @@ func (x *CreateMatchResponse) String() string {
 func (*CreateMatchResponse) ProtoMessage() {}
 
 func (x *CreateMatchResponse) ProtoReflect() protoreflect.Message {
-	mi := &file_pong_proto_msgTypes[10]
+	mi := &file_pong_proto_msgTypes[16]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -887,7 +1144,7 @@ func (x *CreateMatchResponse) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use CreateMatchResponse.ProtoReflect.Descriptor instead.
 func (*CreateMatchResponse) Descriptor() ([]byte, []int) {
-	return file_pong_proto_rawDescGZIP(), []int{10}
+	return file_pong_proto_rawDescGZIP(), []int{16}
 }
 
 func (x *CreateMatchResponse) GetMatchId() string {
@@ -974,7 +1231,7 @@ type EscrowUTXO struct {
 
 func (x *EscrowUTXO) Reset() {
 	*x = EscrowUTXO{}
-	mi := &file_pong_proto_msgTypes[11]
+	mi := &file_pong_proto_msgTypes[17]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -986,7 +1243,7 @@ func (x *EscrowUTXO) String() string {
 func (*EscrowUTXO) ProtoMessage() {}
 
 func (x *EscrowUTXO) ProtoReflect() protoreflect.Message {
-	mi := &file_pong_proto_msgTypes[11]
+	mi := &file_pong_proto_msgTypes[17]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -999,7 +1256,7 @@ func (x *EscrowUTXO) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use EscrowUTXO.ProtoReflect.Descriptor instead.
 func (*EscrowUTXO) Descriptor() ([]byte, []int) {
-	return file_pong_proto_rawDescGZIP(), []int{11}
+	return file_pong_proto_rawDescGZIP(), []int{17}
 }
 
 func (x *EscrowUTXO) GetTxid() string {
@@ -1044,445 +1301,16 @@ func (x *EscrowUTXO) GetOwner() string {
 	return ""
 }
 
-type SubmitFundingRequest struct {
-	state         protoimpl.MessageState `protogen:"open.v1"`
-	MatchId       string                 `protobuf:"bytes,1,opt,name=match_id,json=matchId,proto3" json:"match_id,omitempty"`
-	Escrows       []*EscrowUTXO          `protobuf:"bytes,2,rep,name=escrows,proto3" json:"escrows,omitempty"`
-	unknownFields protoimpl.UnknownFields
-	sizeCache     protoimpl.SizeCache
-}
-
-func (x *SubmitFundingRequest) Reset() {
-	*x = SubmitFundingRequest{}
-	mi := &file_pong_proto_msgTypes[12]
-	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
-	ms.StoreMessageInfo(mi)
-}
-
-func (x *SubmitFundingRequest) String() string {
-	return protoimpl.X.MessageStringOf(x)
-}
-
-func (*SubmitFundingRequest) ProtoMessage() {}
-
-func (x *SubmitFundingRequest) ProtoReflect() protoreflect.Message {
-	mi := &file_pong_proto_msgTypes[12]
-	if x != nil {
-		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
-		if ms.LoadMessageInfo() == nil {
-			ms.StoreMessageInfo(mi)
-		}
-		return ms
-	}
-	return mi.MessageOf(x)
-}
-
-// Deprecated: Use SubmitFundingRequest.ProtoReflect.Descriptor instead.
-func (*SubmitFundingRequest) Descriptor() ([]byte, []int) {
-	return file_pong_proto_rawDescGZIP(), []int{12}
-}
-
-func (x *SubmitFundingRequest) GetMatchId() string {
-	if x != nil {
-		return x.MatchId
-	}
-	return ""
-}
-
-func (x *SubmitFundingRequest) GetEscrows() []*EscrowUTXO {
-	if x != nil {
-		return x.Escrows
-	}
-	return nil
-}
-
-type SubmitFundingResponse struct {
-	state         protoimpl.MessageState `protogen:"open.v1"`
-	Ok            bool                   `protobuf:"varint,1,opt,name=ok,proto3" json:"ok,omitempty"`
-	unknownFields protoimpl.UnknownFields
-	sizeCache     protoimpl.SizeCache
-}
-
-func (x *SubmitFundingResponse) Reset() {
-	*x = SubmitFundingResponse{}
-	mi := &file_pong_proto_msgTypes[13]
-	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
-	ms.StoreMessageInfo(mi)
-}
-
-func (x *SubmitFundingResponse) String() string {
-	return protoimpl.X.MessageStringOf(x)
-}
-
-func (*SubmitFundingResponse) ProtoMessage() {}
-
-func (x *SubmitFundingResponse) ProtoReflect() protoreflect.Message {
-	mi := &file_pong_proto_msgTypes[13]
-	if x != nil {
-		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
-		if ms.LoadMessageInfo() == nil {
-			ms.StoreMessageInfo(mi)
-		}
-		return ms
-	}
-	return mi.MessageOf(x)
-}
-
-// Deprecated: Use SubmitFundingResponse.ProtoReflect.Descriptor instead.
-func (*SubmitFundingResponse) Descriptor() ([]byte, []int) {
-	return file_pong_proto_rawDescGZIP(), []int{13}
-}
-
-func (x *SubmitFundingResponse) GetOk() bool {
-	if x != nil {
-		return x.Ok
-	}
-	return false
-}
-
-type RevealAdaptorEntry struct {
-	state         protoimpl.MessageState `protogen:"open.v1"`
-	InputId       string                 `protobuf:"bytes,1,opt,name=input_id,json=inputId,proto3" json:"input_id,omitempty"`
-	Gamma         string                 `protobuf:"bytes,2,opt,name=gamma,proto3" json:"gamma,omitempty"` // 32B hex
-	unknownFields protoimpl.UnknownFields
-	sizeCache     protoimpl.SizeCache
-}
-
-func (x *RevealAdaptorEntry) Reset() {
-	*x = RevealAdaptorEntry{}
-	mi := &file_pong_proto_msgTypes[14]
-	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
-	ms.StoreMessageInfo(mi)
-}
-
-func (x *RevealAdaptorEntry) String() string {
-	return protoimpl.X.MessageStringOf(x)
-}
-
-func (*RevealAdaptorEntry) ProtoMessage() {}
-
-func (x *RevealAdaptorEntry) ProtoReflect() protoreflect.Message {
-	mi := &file_pong_proto_msgTypes[14]
-	if x != nil {
-		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
-		if ms.LoadMessageInfo() == nil {
-			ms.StoreMessageInfo(mi)
-		}
-		return ms
-	}
-	return mi.MessageOf(x)
-}
-
-// Deprecated: Use RevealAdaptorEntry.ProtoReflect.Descriptor instead.
-func (*RevealAdaptorEntry) Descriptor() ([]byte, []int) {
-	return file_pong_proto_rawDescGZIP(), []int{14}
-}
-
-func (x *RevealAdaptorEntry) GetInputId() string {
-	if x != nil {
-		return x.InputId
-	}
-	return ""
-}
-
-func (x *RevealAdaptorEntry) GetGamma() string {
-	if x != nil {
-		return x.Gamma
-	}
-	return ""
-}
-
-type RevealAdaptorsRequest struct {
-	state         protoimpl.MessageState `protogen:"open.v1"`
-	MatchId       string                 `protobuf:"bytes,1,opt,name=match_id,json=matchId,proto3" json:"match_id,omitempty"`
-	Branch        Branch                 `protobuf:"varint,2,opt,name=branch,proto3,enum=pong.Branch" json:"branch,omitempty"`
-	unknownFields protoimpl.UnknownFields
-	sizeCache     protoimpl.SizeCache
-}
-
-func (x *RevealAdaptorsRequest) Reset() {
-	*x = RevealAdaptorsRequest{}
-	mi := &file_pong_proto_msgTypes[15]
-	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
-	ms.StoreMessageInfo(mi)
-}
-
-func (x *RevealAdaptorsRequest) String() string {
-	return protoimpl.X.MessageStringOf(x)
-}
-
-func (*RevealAdaptorsRequest) ProtoMessage() {}
-
-func (x *RevealAdaptorsRequest) ProtoReflect() protoreflect.Message {
-	mi := &file_pong_proto_msgTypes[15]
-	if x != nil {
-		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
-		if ms.LoadMessageInfo() == nil {
-			ms.StoreMessageInfo(mi)
-		}
-		return ms
-	}
-	return mi.MessageOf(x)
-}
-
-// Deprecated: Use RevealAdaptorsRequest.ProtoReflect.Descriptor instead.
-func (*RevealAdaptorsRequest) Descriptor() ([]byte, []int) {
-	return file_pong_proto_rawDescGZIP(), []int{15}
-}
-
-func (x *RevealAdaptorsRequest) GetMatchId() string {
-	if x != nil {
-		return x.MatchId
-	}
-	return ""
-}
-
-func (x *RevealAdaptorsRequest) GetBranch() Branch {
-	if x != nil {
-		return x.Branch
-	}
-	return Branch_BRANCH_UNSPECIFIED
-}
-
-type RevealAdaptorsResponse struct {
-	state         protoimpl.MessageState `protogen:"open.v1"`
-	Branch        Branch                 `protobuf:"varint,1,opt,name=branch,proto3,enum=pong.Branch" json:"branch,omitempty"`
-	Entries       []*RevealAdaptorEntry  `protobuf:"bytes,2,rep,name=entries,proto3" json:"entries,omitempty"`
-	unknownFields protoimpl.UnknownFields
-	sizeCache     protoimpl.SizeCache
-}
-
-func (x *RevealAdaptorsResponse) Reset() {
-	*x = RevealAdaptorsResponse{}
-	mi := &file_pong_proto_msgTypes[16]
-	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
-	ms.StoreMessageInfo(mi)
-}
-
-func (x *RevealAdaptorsResponse) String() string {
-	return protoimpl.X.MessageStringOf(x)
-}
-
-func (*RevealAdaptorsResponse) ProtoMessage() {}
-
-func (x *RevealAdaptorsResponse) ProtoReflect() protoreflect.Message {
-	mi := &file_pong_proto_msgTypes[16]
-	if x != nil {
-		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
-		if ms.LoadMessageInfo() == nil {
-			ms.StoreMessageInfo(mi)
-		}
-		return ms
-	}
-	return mi.MessageOf(x)
-}
-
-// Deprecated: Use RevealAdaptorsResponse.ProtoReflect.Descriptor instead.
-func (*RevealAdaptorsResponse) Descriptor() ([]byte, []int) {
-	return file_pong_proto_rawDescGZIP(), []int{16}
-}
-
-func (x *RevealAdaptorsResponse) GetBranch() Branch {
-	if x != nil {
-		return x.Branch
-	}
-	return Branch_BRANCH_UNSPECIFIED
-}
-
-func (x *RevealAdaptorsResponse) GetEntries() []*RevealAdaptorEntry {
-	if x != nil {
-		return x.Entries
-	}
-	return nil
-}
-
-// v0-min POC messages
-type AllocateMatchRequest struct {
-	state         protoimpl.MessageState `protogen:"open.v1"`
-	AC            string                 `protobuf:"bytes,1,opt,name=a_c,json=aC,proto3" json:"a_c,omitempty"`                    // A's compressed pubkey hex (33B)
-	BC            string                 `protobuf:"bytes,2,opt,name=b_c,json=bC,proto3" json:"b_c,omitempty"`                    // B's compressed pubkey hex (33B)
-	BetAtoms      uint64                 `protobuf:"varint,3,opt,name=bet_atoms,json=betAtoms,proto3" json:"bet_atoms,omitempty"` // fixed deposit amount per player
-	unknownFields protoimpl.UnknownFields
-	sizeCache     protoimpl.SizeCache
-}
-
-func (x *AllocateMatchRequest) Reset() {
-	*x = AllocateMatchRequest{}
-	mi := &file_pong_proto_msgTypes[17]
-	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
-	ms.StoreMessageInfo(mi)
-}
-
-func (x *AllocateMatchRequest) String() string {
-	return protoimpl.X.MessageStringOf(x)
-}
-
-func (*AllocateMatchRequest) ProtoMessage() {}
-
-func (x *AllocateMatchRequest) ProtoReflect() protoreflect.Message {
-	mi := &file_pong_proto_msgTypes[17]
-	if x != nil {
-		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
-		if ms.LoadMessageInfo() == nil {
-			ms.StoreMessageInfo(mi)
-		}
-		return ms
-	}
-	return mi.MessageOf(x)
-}
-
-// Deprecated: Use AllocateMatchRequest.ProtoReflect.Descriptor instead.
-func (*AllocateMatchRequest) Descriptor() ([]byte, []int) {
-	return file_pong_proto_rawDescGZIP(), []int{17}
-}
-
-func (x *AllocateMatchRequest) GetAC() string {
-	if x != nil {
-		return x.AC
-	}
-	return ""
-}
-
-func (x *AllocateMatchRequest) GetBC() string {
-	if x != nil {
-		return x.BC
-	}
-	return ""
-}
-
-func (x *AllocateMatchRequest) GetBetAtoms() uint64 {
-	if x != nil {
-		return x.BetAtoms
-	}
-	return 0
-}
-
-type AllocateMatchResponse struct {
-	state            protoimpl.MessageState `protogen:"open.v1"`
-	MatchId          string                 `protobuf:"bytes,1,opt,name=match_id,json=matchId,proto3" json:"match_id,omitempty"`
-	Csv              uint32                 `protobuf:"varint,2,opt,name=csv,proto3" json:"csv,omitempty"` // fixed 64
-	BetAtoms         uint64                 `protobuf:"varint,3,opt,name=bet_atoms,json=betAtoms,proto3" json:"bet_atoms,omitempty"`
-	FeeAtoms         uint64                 `protobuf:"varint,4,opt,name=fee_atoms,json=feeAtoms,proto3" json:"fee_atoms,omitempty"` // flat fee subtracted from pot
-	ARedeemScriptHex string                 `protobuf:"bytes,5,opt,name=a_redeem_script_hex,json=aRedeemScriptHex,proto3" json:"a_redeem_script_hex,omitempty"`
-	APkScriptHex     string                 `protobuf:"bytes,6,opt,name=a_pk_script_hex,json=aPkScriptHex,proto3" json:"a_pk_script_hex,omitempty"`
-	ADepositAddress  string                 `protobuf:"bytes,7,opt,name=a_deposit_address,json=aDepositAddress,proto3" json:"a_deposit_address,omitempty"`
-	BRedeemScriptHex string                 `protobuf:"bytes,8,opt,name=b_redeem_script_hex,json=bRedeemScriptHex,proto3" json:"b_redeem_script_hex,omitempty"`
-	BPkScriptHex     string                 `protobuf:"bytes,9,opt,name=b_pk_script_hex,json=bPkScriptHex,proto3" json:"b_pk_script_hex,omitempty"`
-	BDepositAddress  string                 `protobuf:"bytes,10,opt,name=b_deposit_address,json=bDepositAddress,proto3" json:"b_deposit_address,omitempty"`
-	unknownFields    protoimpl.UnknownFields
-	sizeCache        protoimpl.SizeCache
-}
-
-func (x *AllocateMatchResponse) Reset() {
-	*x = AllocateMatchResponse{}
-	mi := &file_pong_proto_msgTypes[18]
-	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
-	ms.StoreMessageInfo(mi)
-}
-
-func (x *AllocateMatchResponse) String() string {
-	return protoimpl.X.MessageStringOf(x)
-}
-
-func (*AllocateMatchResponse) ProtoMessage() {}
-
-func (x *AllocateMatchResponse) ProtoReflect() protoreflect.Message {
-	mi := &file_pong_proto_msgTypes[18]
-	if x != nil {
-		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
-		if ms.LoadMessageInfo() == nil {
-			ms.StoreMessageInfo(mi)
-		}
-		return ms
-	}
-	return mi.MessageOf(x)
-}
-
-// Deprecated: Use AllocateMatchResponse.ProtoReflect.Descriptor instead.
-func (*AllocateMatchResponse) Descriptor() ([]byte, []int) {
-	return file_pong_proto_rawDescGZIP(), []int{18}
-}
-
-func (x *AllocateMatchResponse) GetMatchId() string {
-	if x != nil {
-		return x.MatchId
-	}
-	return ""
-}
-
-func (x *AllocateMatchResponse) GetCsv() uint32 {
-	if x != nil {
-		return x.Csv
-	}
-	return 0
-}
-
-func (x *AllocateMatchResponse) GetBetAtoms() uint64 {
-	if x != nil {
-		return x.BetAtoms
-	}
-	return 0
-}
-
-func (x *AllocateMatchResponse) GetFeeAtoms() uint64 {
-	if x != nil {
-		return x.FeeAtoms
-	}
-	return 0
-}
-
-func (x *AllocateMatchResponse) GetARedeemScriptHex() string {
-	if x != nil {
-		return x.ARedeemScriptHex
-	}
-	return ""
-}
-
-func (x *AllocateMatchResponse) GetAPkScriptHex() string {
-	if x != nil {
-		return x.APkScriptHex
-	}
-	return ""
-}
-
-func (x *AllocateMatchResponse) GetADepositAddress() string {
-	if x != nil {
-		return x.ADepositAddress
-	}
-	return ""
-}
-
-func (x *AllocateMatchResponse) GetBRedeemScriptHex() string {
-	if x != nil {
-		return x.BRedeemScriptHex
-	}
-	return ""
-}
-
-func (x *AllocateMatchResponse) GetBPkScriptHex() string {
-	if x != nil {
-		return x.BPkScriptHex
-	}
-	return ""
-}
-
-func (x *AllocateMatchResponse) GetBDepositAddress() string {
-	if x != nil {
-		return x.BDepositAddress
-	}
-	return ""
-}
-
 type WaitFundingRequest struct {
 	state         protoimpl.MessageState `protogen:"open.v1"`
-	MatchId       string                 `protobuf:"bytes,1,opt,name=match_id,json=matchId,proto3" json:"match_id,omitempty"`
+	EscrowId      string                 `protobuf:"bytes,1,opt,name=escrow_id,json=escrowId,proto3" json:"escrow_id,omitempty"`
 	unknownFields protoimpl.UnknownFields
 	sizeCache     protoimpl.SizeCache
 }
 
 func (x *WaitFundingRequest) Reset() {
 	*x = WaitFundingRequest{}
-	mi := &file_pong_proto_msgTypes[19]
+	mi := &file_pong_proto_msgTypes[18]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -1494,7 +1322,7 @@ func (x *WaitFundingRequest) String() string {
 func (*WaitFundingRequest) ProtoMessage() {}
 
 func (x *WaitFundingRequest) ProtoReflect() protoreflect.Message {
-	mi := &file_pong_proto_msgTypes[19]
+	mi := &file_pong_proto_msgTypes[18]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -1507,30 +1335,28 @@ func (x *WaitFundingRequest) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use WaitFundingRequest.ProtoReflect.Descriptor instead.
 func (*WaitFundingRequest) Descriptor() ([]byte, []int) {
-	return file_pong_proto_rawDescGZIP(), []int{19}
+	return file_pong_proto_rawDescGZIP(), []int{18}
 }
 
-func (x *WaitFundingRequest) GetMatchId() string {
+func (x *WaitFundingRequest) GetEscrowId() string {
 	if x != nil {
-		return x.MatchId
+		return x.EscrowId
 	}
 	return ""
 }
 
 type WaitFundingResponse struct {
 	state         protoimpl.MessageState `protogen:"open.v1"`
-	Confirmed     bool                   `protobuf:"varint,1,opt,name=confirmed,proto3" json:"confirmed,omitempty"` // true when both deposits have >= 1 confirmation
-	ConfsA        uint32                 `protobuf:"varint,2,opt,name=confs_a,json=confsA,proto3" json:"confs_a,omitempty"`
-	ConfsB        uint32                 `protobuf:"varint,3,opt,name=confs_b,json=confsB,proto3" json:"confs_b,omitempty"`
-	UtxoA         *EscrowUTXO            `protobuf:"bytes,4,opt,name=utxo_a,json=utxoA,proto3" json:"utxo_a,omitempty"`
-	UtxoB         *EscrowUTXO            `protobuf:"bytes,5,opt,name=utxo_b,json=utxoB,proto3" json:"utxo_b,omitempty"`
+	Confs         uint32                 `protobuf:"varint,1,opt,name=confs,proto3" json:"confs,omitempty"`
+	Value         uint64                 `protobuf:"varint,2,opt,name=value,proto3" json:"value,omitempty"`
+	Utxo          *EscrowUTXO            `protobuf:"bytes,3,opt,name=utxo,proto3" json:"utxo,omitempty"`
 	unknownFields protoimpl.UnknownFields
 	sizeCache     protoimpl.SizeCache
 }
 
 func (x *WaitFundingResponse) Reset() {
 	*x = WaitFundingResponse{}
-	mi := &file_pong_proto_msgTypes[20]
+	mi := &file_pong_proto_msgTypes[19]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -1542,7 +1368,7 @@ func (x *WaitFundingResponse) String() string {
 func (*WaitFundingResponse) ProtoMessage() {}
 
 func (x *WaitFundingResponse) ProtoReflect() protoreflect.Message {
-	mi := &file_pong_proto_msgTypes[20]
+	mi := &file_pong_proto_msgTypes[19]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -1555,70 +1381,57 @@ func (x *WaitFundingResponse) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use WaitFundingResponse.ProtoReflect.Descriptor instead.
 func (*WaitFundingResponse) Descriptor() ([]byte, []int) {
-	return file_pong_proto_rawDescGZIP(), []int{20}
+	return file_pong_proto_rawDescGZIP(), []int{19}
 }
 
-func (x *WaitFundingResponse) GetConfirmed() bool {
+func (x *WaitFundingResponse) GetConfs() uint32 {
 	if x != nil {
-		return x.Confirmed
-	}
-	return false
-}
-
-func (x *WaitFundingResponse) GetConfsA() uint32 {
-	if x != nil {
-		return x.ConfsA
+		return x.Confs
 	}
 	return 0
 }
 
-func (x *WaitFundingResponse) GetConfsB() uint32 {
+func (x *WaitFundingResponse) GetValue() uint64 {
 	if x != nil {
-		return x.ConfsB
+		return x.Value
 	}
 	return 0
 }
 
-func (x *WaitFundingResponse) GetUtxoA() *EscrowUTXO {
+func (x *WaitFundingResponse) GetUtxo() *EscrowUTXO {
 	if x != nil {
-		return x.UtxoA
+		return x.Utxo
 	}
 	return nil
 }
 
-func (x *WaitFundingResponse) GetUtxoB() *EscrowUTXO {
-	if x != nil {
-		return x.UtxoB
-	}
-	return nil
-}
-
-// Server-managed deposit allocation
-type AllocateEscrowRequest struct {
+type MatchAllocatedNtfn struct {
 	state         protoimpl.MessageState `protogen:"open.v1"`
-	PlayerId      string                 `protobuf:"bytes,1,opt,name=player_id,json=playerId,proto3" json:"player_id,omitempty"`  // zkidentity ShortID hex
-	AC            string                 `protobuf:"bytes,2,opt,name=a_c,json=aC,proto3" json:"a_c,omitempty"`                    // player's compressed pubkey hex
-	BetAtoms      uint64                 `protobuf:"varint,3,opt,name=bet_atoms,json=betAtoms,proto3" json:"bet_atoms,omitempty"` // expected escrow amount
-	Csv           uint32                 `protobuf:"varint,4,opt,name=csv,proto3" json:"csv,omitempty"`                           // CSV blocks
+	MatchId       string                 `protobuf:"bytes,1,opt,name=match_id,json=matchId,proto3" json:"match_id,omitempty"`
+	RoomId        string                 `protobuf:"bytes,2,opt,name=room_id,json=roomId,proto3" json:"room_id,omitempty"`
+	BetAtoms      uint64                 `protobuf:"varint,3,opt,name=bet_atoms,json=betAtoms,proto3" json:"bet_atoms,omitempty"`
+	CsvBlocks     uint32                 `protobuf:"varint,4,opt,name=csv_blocks,json=csvBlocks,proto3" json:"csv_blocks,omitempty"`
+	AComp         []byte                 `protobuf:"bytes,5,opt,name=a_comp,json=aComp,proto3" json:"a_comp,omitempty"` // optional debug
+	BComp         []byte                 `protobuf:"bytes,6,opt,name=b_comp,json=bComp,proto3" json:"b_comp,omitempty"` // optional debug
 	unknownFields protoimpl.UnknownFields
 	sizeCache     protoimpl.SizeCache
 }
 
-func (x *AllocateEscrowRequest) Reset() {
-	*x = AllocateEscrowRequest{}
-	mi := &file_pong_proto_msgTypes[21]
+func (x *MatchAllocatedNtfn) Reset() {
+	*x = MatchAllocatedNtfn{}
+	mi := &file_pong_proto_msgTypes[20]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
 
-func (x *AllocateEscrowRequest) String() string {
+func (x *MatchAllocatedNtfn) String() string {
 	return protoimpl.X.MessageStringOf(x)
 }
 
-func (*AllocateEscrowRequest) ProtoMessage() {}
+func (*MatchAllocatedNtfn) ProtoMessage() {}
 
-func (x *AllocateEscrowRequest) ProtoReflect() protoreflect.Message {
-	mi := &file_pong_proto_msgTypes[21]
+func (x *MatchAllocatedNtfn) ProtoReflect() protoreflect.Message {
+	mi := &file_pong_proto_msgTypes[20]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -1629,267 +1442,51 @@ func (x *AllocateEscrowRequest) ProtoReflect() protoreflect.Message {
 	return mi.MessageOf(x)
 }
 
-// Deprecated: Use AllocateEscrowRequest.ProtoReflect.Descriptor instead.
-func (*AllocateEscrowRequest) Descriptor() ([]byte, []int) {
-	return file_pong_proto_rawDescGZIP(), []int{21}
+// Deprecated: Use MatchAllocatedNtfn.ProtoReflect.Descriptor instead.
+func (*MatchAllocatedNtfn) Descriptor() ([]byte, []int) {
+	return file_pong_proto_rawDescGZIP(), []int{20}
 }
 
-func (x *AllocateEscrowRequest) GetPlayerId() string {
+func (x *MatchAllocatedNtfn) GetMatchId() string {
 	if x != nil {
-		return x.PlayerId
+		return x.MatchId
 	}
 	return ""
 }
 
-func (x *AllocateEscrowRequest) GetAC() string {
+func (x *MatchAllocatedNtfn) GetRoomId() string {
 	if x != nil {
-		return x.AC
+		return x.RoomId
 	}
 	return ""
 }
 
-func (x *AllocateEscrowRequest) GetBetAtoms() uint64 {
+func (x *MatchAllocatedNtfn) GetBetAtoms() uint64 {
 	if x != nil {
 		return x.BetAtoms
 	}
 	return 0
 }
 
-func (x *AllocateEscrowRequest) GetCsv() uint32 {
+func (x *MatchAllocatedNtfn) GetCsvBlocks() uint32 {
 	if x != nil {
-		return x.Csv
+		return x.CsvBlocks
 	}
 	return 0
 }
 
-type AllocateEscrowResponse struct {
-	state   protoimpl.MessageState `protogen:"open.v1"`
-	MatchId string                 `protobuf:"bytes,1,opt,name=match_id,json=matchId,proto3" json:"match_id,omitempty"`
-	Role    Branch                 `protobuf:"varint,2,opt,name=role,proto3,enum=pong.Branch" json:"role,omitempty"` // BRANCH_A for player A, BRANCH_B for player B
-	// Coefficients and branch keys for client-side checks
-	AA  string `protobuf:"bytes,3,opt,name=a_a,json=aA,proto3" json:"a_a,omitempty"`
-	AB  string `protobuf:"bytes,4,opt,name=a_b,json=aB,proto3" json:"a_b,omitempty"`
-	AS  string `protobuf:"bytes,5,opt,name=a_s,json=aS,proto3" json:"a_s,omitempty"`
-	XA  string `protobuf:"bytes,6,opt,name=x_a,json=xA,proto3" json:"x_a,omitempty"`
-	XB  string `protobuf:"bytes,7,opt,name=x_b,json=xB,proto3" json:"x_b,omitempty"`
-	Csv uint32 `protobuf:"varint,8,opt,name=csv,proto3" json:"csv,omitempty"`
-	// Deposit destination
-	DepositAddress  string `protobuf:"bytes,9,opt,name=deposit_address,json=depositAddress,proto3" json:"deposit_address,omitempty"` // P2SH address (testnet)
-	RedeemScriptHex string `protobuf:"bytes,10,opt,name=redeem_script_hex,json=redeemScriptHex,proto3" json:"redeem_script_hex,omitempty"`
-	PkScriptHex     string `protobuf:"bytes,11,opt,name=pk_script_hex,json=pkScriptHex,proto3" json:"pk_script_hex,omitempty"`
-	RequiredAtoms   uint64 `protobuf:"varint,12,opt,name=required_atoms,json=requiredAtoms,proto3" json:"required_atoms,omitempty"`
-	unknownFields   protoimpl.UnknownFields
-	sizeCache       protoimpl.SizeCache
-}
-
-func (x *AllocateEscrowResponse) Reset() {
-	*x = AllocateEscrowResponse{}
-	mi := &file_pong_proto_msgTypes[22]
-	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
-	ms.StoreMessageInfo(mi)
-}
-
-func (x *AllocateEscrowResponse) String() string {
-	return protoimpl.X.MessageStringOf(x)
-}
-
-func (*AllocateEscrowResponse) ProtoMessage() {}
-
-func (x *AllocateEscrowResponse) ProtoReflect() protoreflect.Message {
-	mi := &file_pong_proto_msgTypes[22]
+func (x *MatchAllocatedNtfn) GetAComp() []byte {
 	if x != nil {
-		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
-		if ms.LoadMessageInfo() == nil {
-			ms.StoreMessageInfo(mi)
-		}
-		return ms
+		return x.AComp
 	}
-	return mi.MessageOf(x)
+	return nil
 }
 
-// Deprecated: Use AllocateEscrowResponse.ProtoReflect.Descriptor instead.
-func (*AllocateEscrowResponse) Descriptor() ([]byte, []int) {
-	return file_pong_proto_rawDescGZIP(), []int{22}
-}
-
-func (x *AllocateEscrowResponse) GetMatchId() string {
+func (x *MatchAllocatedNtfn) GetBComp() []byte {
 	if x != nil {
-		return x.MatchId
+		return x.BComp
 	}
-	return ""
-}
-
-func (x *AllocateEscrowResponse) GetRole() Branch {
-	if x != nil {
-		return x.Role
-	}
-	return Branch_BRANCH_UNSPECIFIED
-}
-
-func (x *AllocateEscrowResponse) GetAA() string {
-	if x != nil {
-		return x.AA
-	}
-	return ""
-}
-
-func (x *AllocateEscrowResponse) GetAB() string {
-	if x != nil {
-		return x.AB
-	}
-	return ""
-}
-
-func (x *AllocateEscrowResponse) GetAS() string {
-	if x != nil {
-		return x.AS
-	}
-	return ""
-}
-
-func (x *AllocateEscrowResponse) GetXA() string {
-	if x != nil {
-		return x.XA
-	}
-	return ""
-}
-
-func (x *AllocateEscrowResponse) GetXB() string {
-	if x != nil {
-		return x.XB
-	}
-	return ""
-}
-
-func (x *AllocateEscrowResponse) GetCsv() uint32 {
-	if x != nil {
-		return x.Csv
-	}
-	return 0
-}
-
-func (x *AllocateEscrowResponse) GetDepositAddress() string {
-	if x != nil {
-		return x.DepositAddress
-	}
-	return ""
-}
-
-func (x *AllocateEscrowResponse) GetRedeemScriptHex() string {
-	if x != nil {
-		return x.RedeemScriptHex
-	}
-	return ""
-}
-
-func (x *AllocateEscrowResponse) GetPkScriptHex() string {
-	if x != nil {
-		return x.PkScriptHex
-	}
-	return ""
-}
-
-func (x *AllocateEscrowResponse) GetRequiredAtoms() uint64 {
-	if x != nil {
-		return x.RequiredAtoms
-	}
-	return 0
-}
-
-type FinalizeWinnerRequest struct {
-	state         protoimpl.MessageState `protogen:"open.v1"`
-	MatchId       string                 `protobuf:"bytes,1,opt,name=match_id,json=matchId,proto3" json:"match_id,omitempty"`
-	Branch        Branch                 `protobuf:"varint,2,opt,name=branch,proto3,enum=pong.Branch" json:"branch,omitempty"` // winning branch
-	unknownFields protoimpl.UnknownFields
-	sizeCache     protoimpl.SizeCache
-}
-
-func (x *FinalizeWinnerRequest) Reset() {
-	*x = FinalizeWinnerRequest{}
-	mi := &file_pong_proto_msgTypes[23]
-	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
-	ms.StoreMessageInfo(mi)
-}
-
-func (x *FinalizeWinnerRequest) String() string {
-	return protoimpl.X.MessageStringOf(x)
-}
-
-func (*FinalizeWinnerRequest) ProtoMessage() {}
-
-func (x *FinalizeWinnerRequest) ProtoReflect() protoreflect.Message {
-	mi := &file_pong_proto_msgTypes[23]
-	if x != nil {
-		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
-		if ms.LoadMessageInfo() == nil {
-			ms.StoreMessageInfo(mi)
-		}
-		return ms
-	}
-	return mi.MessageOf(x)
-}
-
-// Deprecated: Use FinalizeWinnerRequest.ProtoReflect.Descriptor instead.
-func (*FinalizeWinnerRequest) Descriptor() ([]byte, []int) {
-	return file_pong_proto_rawDescGZIP(), []int{23}
-}
-
-func (x *FinalizeWinnerRequest) GetMatchId() string {
-	if x != nil {
-		return x.MatchId
-	}
-	return ""
-}
-
-func (x *FinalizeWinnerRequest) GetBranch() Branch {
-	if x != nil {
-		return x.Branch
-	}
-	return Branch_BRANCH_UNSPECIFIED
-}
-
-type FinalizeWinnerResponse struct {
-	state         protoimpl.MessageState `protogen:"open.v1"`
-	BroadcastTxid string                 `protobuf:"bytes,1,opt,name=broadcast_txid,json=broadcastTxid,proto3" json:"broadcast_txid,omitempty"`
-	unknownFields protoimpl.UnknownFields
-	sizeCache     protoimpl.SizeCache
-}
-
-func (x *FinalizeWinnerResponse) Reset() {
-	*x = FinalizeWinnerResponse{}
-	mi := &file_pong_proto_msgTypes[24]
-	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
-	ms.StoreMessageInfo(mi)
-}
-
-func (x *FinalizeWinnerResponse) String() string {
-	return protoimpl.X.MessageStringOf(x)
-}
-
-func (*FinalizeWinnerResponse) ProtoMessage() {}
-
-func (x *FinalizeWinnerResponse) ProtoReflect() protoreflect.Message {
-	mi := &file_pong_proto_msgTypes[24]
-	if x != nil {
-		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
-		if ms.LoadMessageInfo() == nil {
-			ms.StoreMessageInfo(mi)
-		}
-		return ms
-	}
-	return mi.MessageOf(x)
-}
-
-// Deprecated: Use FinalizeWinnerResponse.ProtoReflect.Descriptor instead.
-func (*FinalizeWinnerResponse) Descriptor() ([]byte, []int) {
-	return file_pong_proto_rawDescGZIP(), []int{24}
-}
-
-func (x *FinalizeWinnerResponse) GetBroadcastTxid() string {
-	if x != nil {
-		return x.BroadcastTxid
-	}
-	return ""
+	return nil
 }
 
 type UnreadyGameStreamRequest struct {
@@ -1901,7 +1498,7 @@ type UnreadyGameStreamRequest struct {
 
 func (x *UnreadyGameStreamRequest) Reset() {
 	*x = UnreadyGameStreamRequest{}
-	mi := &file_pong_proto_msgTypes[25]
+	mi := &file_pong_proto_msgTypes[21]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -1913,7 +1510,7 @@ func (x *UnreadyGameStreamRequest) String() string {
 func (*UnreadyGameStreamRequest) ProtoMessage() {}
 
 func (x *UnreadyGameStreamRequest) ProtoReflect() protoreflect.Message {
-	mi := &file_pong_proto_msgTypes[25]
+	mi := &file_pong_proto_msgTypes[21]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -1926,7 +1523,7 @@ func (x *UnreadyGameStreamRequest) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use UnreadyGameStreamRequest.ProtoReflect.Descriptor instead.
 func (*UnreadyGameStreamRequest) Descriptor() ([]byte, []int) {
-	return file_pong_proto_rawDescGZIP(), []int{25}
+	return file_pong_proto_rawDescGZIP(), []int{21}
 }
 
 func (x *UnreadyGameStreamRequest) GetClientId() string {
@@ -1944,7 +1541,7 @@ type UnreadyGameStreamResponse struct {
 
 func (x *UnreadyGameStreamResponse) Reset() {
 	*x = UnreadyGameStreamResponse{}
-	mi := &file_pong_proto_msgTypes[26]
+	mi := &file_pong_proto_msgTypes[22]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -1956,7 +1553,7 @@ func (x *UnreadyGameStreamResponse) String() string {
 func (*UnreadyGameStreamResponse) ProtoMessage() {}
 
 func (x *UnreadyGameStreamResponse) ProtoReflect() protoreflect.Message {
-	mi := &file_pong_proto_msgTypes[26]
+	mi := &file_pong_proto_msgTypes[22]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -1969,7 +1566,7 @@ func (x *UnreadyGameStreamResponse) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use UnreadyGameStreamResponse.ProtoReflect.Descriptor instead.
 func (*UnreadyGameStreamResponse) Descriptor() ([]byte, []int) {
-	return file_pong_proto_rawDescGZIP(), []int{26}
+	return file_pong_proto_rawDescGZIP(), []int{22}
 }
 
 type StartNtfnStreamRequest struct {
@@ -1981,7 +1578,7 @@ type StartNtfnStreamRequest struct {
 
 func (x *StartNtfnStreamRequest) Reset() {
 	*x = StartNtfnStreamRequest{}
-	mi := &file_pong_proto_msgTypes[27]
+	mi := &file_pong_proto_msgTypes[23]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -1993,7 +1590,7 @@ func (x *StartNtfnStreamRequest) String() string {
 func (*StartNtfnStreamRequest) ProtoMessage() {}
 
 func (x *StartNtfnStreamRequest) ProtoReflect() protoreflect.Message {
-	mi := &file_pong_proto_msgTypes[27]
+	mi := &file_pong_proto_msgTypes[23]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -2006,7 +1603,7 @@ func (x *StartNtfnStreamRequest) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use StartNtfnStreamRequest.ProtoReflect.Descriptor instead.
 func (*StartNtfnStreamRequest) Descriptor() ([]byte, []int) {
-	return file_pong_proto_rawDescGZIP(), []int{27}
+	return file_pong_proto_rawDescGZIP(), []int{23}
 }
 
 func (x *StartNtfnStreamRequest) GetClientId() string {
@@ -2028,13 +1625,14 @@ type NtfnStreamResponse struct {
 	RoomId           string                 `protobuf:"bytes,8,opt,name=room_id,json=roomId,proto3" json:"room_id,omitempty"`
 	Wr               *WaitingRoom           `protobuf:"bytes,9,opt,name=wr,proto3" json:"wr,omitempty"`
 	Ready            bool                   `protobuf:"varint,10,opt,name=ready,proto3" json:"ready,omitempty"`
+	MatchAlloc       *MatchAllocatedNtfn    `protobuf:"bytes,11,opt,name=match_alloc,json=matchAlloc,proto3" json:"match_alloc,omitempty"`
 	unknownFields    protoimpl.UnknownFields
 	sizeCache        protoimpl.SizeCache
 }
 
 func (x *NtfnStreamResponse) Reset() {
 	*x = NtfnStreamResponse{}
-	mi := &file_pong_proto_msgTypes[28]
+	mi := &file_pong_proto_msgTypes[24]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -2046,7 +1644,7 @@ func (x *NtfnStreamResponse) String() string {
 func (*NtfnStreamResponse) ProtoMessage() {}
 
 func (x *NtfnStreamResponse) ProtoReflect() protoreflect.Message {
-	mi := &file_pong_proto_msgTypes[28]
+	mi := &file_pong_proto_msgTypes[24]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -2059,7 +1657,7 @@ func (x *NtfnStreamResponse) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use NtfnStreamResponse.ProtoReflect.Descriptor instead.
 func (*NtfnStreamResponse) Descriptor() ([]byte, []int) {
-	return file_pong_proto_rawDescGZIP(), []int{28}
+	return file_pong_proto_rawDescGZIP(), []int{24}
 }
 
 func (x *NtfnStreamResponse) GetNotificationType() NotificationType {
@@ -2132,6 +1730,13 @@ func (x *NtfnStreamResponse) GetReady() bool {
 	return false
 }
 
+func (x *NtfnStreamResponse) GetMatchAlloc() *MatchAllocatedNtfn {
+	if x != nil {
+		return x.MatchAlloc
+	}
+	return nil
+}
+
 // Waiting Room Messages
 type WaitingRoomsRequest struct {
 	state         protoimpl.MessageState `protogen:"open.v1"`
@@ -2142,7 +1747,7 @@ type WaitingRoomsRequest struct {
 
 func (x *WaitingRoomsRequest) Reset() {
 	*x = WaitingRoomsRequest{}
-	mi := &file_pong_proto_msgTypes[29]
+	mi := &file_pong_proto_msgTypes[25]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -2154,7 +1759,7 @@ func (x *WaitingRoomsRequest) String() string {
 func (*WaitingRoomsRequest) ProtoMessage() {}
 
 func (x *WaitingRoomsRequest) ProtoReflect() protoreflect.Message {
-	mi := &file_pong_proto_msgTypes[29]
+	mi := &file_pong_proto_msgTypes[25]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -2167,7 +1772,7 @@ func (x *WaitingRoomsRequest) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use WaitingRoomsRequest.ProtoReflect.Descriptor instead.
 func (*WaitingRoomsRequest) Descriptor() ([]byte, []int) {
-	return file_pong_proto_rawDescGZIP(), []int{29}
+	return file_pong_proto_rawDescGZIP(), []int{25}
 }
 
 func (x *WaitingRoomsRequest) GetRoomId() string {
@@ -2186,7 +1791,7 @@ type WaitingRoomsResponse struct {
 
 func (x *WaitingRoomsResponse) Reset() {
 	*x = WaitingRoomsResponse{}
-	mi := &file_pong_proto_msgTypes[30]
+	mi := &file_pong_proto_msgTypes[26]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -2198,7 +1803,7 @@ func (x *WaitingRoomsResponse) String() string {
 func (*WaitingRoomsResponse) ProtoMessage() {}
 
 func (x *WaitingRoomsResponse) ProtoReflect() protoreflect.Message {
-	mi := &file_pong_proto_msgTypes[30]
+	mi := &file_pong_proto_msgTypes[26]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -2211,7 +1816,7 @@ func (x *WaitingRoomsResponse) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use WaitingRoomsResponse.ProtoReflect.Descriptor instead.
 func (*WaitingRoomsResponse) Descriptor() ([]byte, []int) {
-	return file_pong_proto_rawDescGZIP(), []int{30}
+	return file_pong_proto_rawDescGZIP(), []int{26}
 }
 
 func (x *WaitingRoomsResponse) GetWr() []*WaitingRoom {
@@ -2225,13 +1830,14 @@ type JoinWaitingRoomRequest struct {
 	state         protoimpl.MessageState `protogen:"open.v1"`
 	RoomId        string                 `protobuf:"bytes,1,opt,name=room_id,json=roomId,proto3" json:"room_id,omitempty"`
 	ClientId      string                 `protobuf:"bytes,2,opt,name=client_id,json=clientId,proto3" json:"client_id,omitempty"`
+	EscrowId      string                 `protobuf:"bytes,3,opt,name=escrow_id,json=escrowId,proto3" json:"escrow_id,omitempty"` // optional
 	unknownFields protoimpl.UnknownFields
 	sizeCache     protoimpl.SizeCache
 }
 
 func (x *JoinWaitingRoomRequest) Reset() {
 	*x = JoinWaitingRoomRequest{}
-	mi := &file_pong_proto_msgTypes[31]
+	mi := &file_pong_proto_msgTypes[27]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -2243,7 +1849,7 @@ func (x *JoinWaitingRoomRequest) String() string {
 func (*JoinWaitingRoomRequest) ProtoMessage() {}
 
 func (x *JoinWaitingRoomRequest) ProtoReflect() protoreflect.Message {
-	mi := &file_pong_proto_msgTypes[31]
+	mi := &file_pong_proto_msgTypes[27]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -2256,7 +1862,7 @@ func (x *JoinWaitingRoomRequest) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use JoinWaitingRoomRequest.ProtoReflect.Descriptor instead.
 func (*JoinWaitingRoomRequest) Descriptor() ([]byte, []int) {
-	return file_pong_proto_rawDescGZIP(), []int{31}
+	return file_pong_proto_rawDescGZIP(), []int{27}
 }
 
 func (x *JoinWaitingRoomRequest) GetRoomId() string {
@@ -2273,6 +1879,13 @@ func (x *JoinWaitingRoomRequest) GetClientId() string {
 	return ""
 }
 
+func (x *JoinWaitingRoomRequest) GetEscrowId() string {
+	if x != nil {
+		return x.EscrowId
+	}
+	return ""
+}
+
 type JoinWaitingRoomResponse struct {
 	state         protoimpl.MessageState `protogen:"open.v1"`
 	Wr            *WaitingRoom           `protobuf:"bytes,1,opt,name=wr,proto3" json:"wr,omitempty"`
@@ -2282,7 +1895,7 @@ type JoinWaitingRoomResponse struct {
 
 func (x *JoinWaitingRoomResponse) Reset() {
 	*x = JoinWaitingRoomResponse{}
-	mi := &file_pong_proto_msgTypes[32]
+	mi := &file_pong_proto_msgTypes[28]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -2294,7 +1907,7 @@ func (x *JoinWaitingRoomResponse) String() string {
 func (*JoinWaitingRoomResponse) ProtoMessage() {}
 
 func (x *JoinWaitingRoomResponse) ProtoReflect() protoreflect.Message {
-	mi := &file_pong_proto_msgTypes[32]
+	mi := &file_pong_proto_msgTypes[28]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -2307,7 +1920,7 @@ func (x *JoinWaitingRoomResponse) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use JoinWaitingRoomResponse.ProtoReflect.Descriptor instead.
 func (*JoinWaitingRoomResponse) Descriptor() ([]byte, []int) {
-	return file_pong_proto_rawDescGZIP(), []int{32}
+	return file_pong_proto_rawDescGZIP(), []int{28}
 }
 
 func (x *JoinWaitingRoomResponse) GetWr() *WaitingRoom {
@@ -2321,13 +1934,14 @@ type CreateWaitingRoomRequest struct {
 	state         protoimpl.MessageState `protogen:"open.v1"`
 	HostId        string                 `protobuf:"bytes,1,opt,name=host_id,json=hostId,proto3" json:"host_id,omitempty"`
 	BetAmt        int64                  `protobuf:"varint,2,opt,name=betAmt,proto3" json:"betAmt,omitempty"`
+	EscrowId      string                 `protobuf:"bytes,3,opt,name=escrow_id,json=escrowId,proto3" json:"escrow_id,omitempty"` // optional; server may auto-pick if empty
 	unknownFields protoimpl.UnknownFields
 	sizeCache     protoimpl.SizeCache
 }
 
 func (x *CreateWaitingRoomRequest) Reset() {
 	*x = CreateWaitingRoomRequest{}
-	mi := &file_pong_proto_msgTypes[33]
+	mi := &file_pong_proto_msgTypes[29]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -2339,7 +1953,7 @@ func (x *CreateWaitingRoomRequest) String() string {
 func (*CreateWaitingRoomRequest) ProtoMessage() {}
 
 func (x *CreateWaitingRoomRequest) ProtoReflect() protoreflect.Message {
-	mi := &file_pong_proto_msgTypes[33]
+	mi := &file_pong_proto_msgTypes[29]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -2352,7 +1966,7 @@ func (x *CreateWaitingRoomRequest) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use CreateWaitingRoomRequest.ProtoReflect.Descriptor instead.
 func (*CreateWaitingRoomRequest) Descriptor() ([]byte, []int) {
-	return file_pong_proto_rawDescGZIP(), []int{33}
+	return file_pong_proto_rawDescGZIP(), []int{29}
 }
 
 func (x *CreateWaitingRoomRequest) GetHostId() string {
@@ -2369,6 +1983,13 @@ func (x *CreateWaitingRoomRequest) GetBetAmt() int64 {
 	return 0
 }
 
+func (x *CreateWaitingRoomRequest) GetEscrowId() string {
+	if x != nil {
+		return x.EscrowId
+	}
+	return ""
+}
+
 type CreateWaitingRoomResponse struct {
 	state         protoimpl.MessageState `protogen:"open.v1"`
 	Wr            *WaitingRoom           `protobuf:"bytes,1,opt,name=wr,proto3" json:"wr,omitempty"`
@@ -2378,7 +1999,7 @@ type CreateWaitingRoomResponse struct {
 
 func (x *CreateWaitingRoomResponse) Reset() {
 	*x = CreateWaitingRoomResponse{}
-	mi := &file_pong_proto_msgTypes[34]
+	mi := &file_pong_proto_msgTypes[30]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -2390,7 +2011,7 @@ func (x *CreateWaitingRoomResponse) String() string {
 func (*CreateWaitingRoomResponse) ProtoMessage() {}
 
 func (x *CreateWaitingRoomResponse) ProtoReflect() protoreflect.Message {
-	mi := &file_pong_proto_msgTypes[34]
+	mi := &file_pong_proto_msgTypes[30]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -2403,7 +2024,7 @@ func (x *CreateWaitingRoomResponse) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use CreateWaitingRoomResponse.ProtoReflect.Descriptor instead.
 func (*CreateWaitingRoomResponse) Descriptor() ([]byte, []int) {
-	return file_pong_proto_rawDescGZIP(), []int{34}
+	return file_pong_proto_rawDescGZIP(), []int{30}
 }
 
 func (x *CreateWaitingRoomResponse) GetWr() *WaitingRoom {
@@ -2425,7 +2046,7 @@ type WaitingRoom struct {
 
 func (x *WaitingRoom) Reset() {
 	*x = WaitingRoom{}
-	mi := &file_pong_proto_msgTypes[35]
+	mi := &file_pong_proto_msgTypes[31]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -2437,7 +2058,7 @@ func (x *WaitingRoom) String() string {
 func (*WaitingRoom) ProtoMessage() {}
 
 func (x *WaitingRoom) ProtoReflect() protoreflect.Message {
-	mi := &file_pong_proto_msgTypes[35]
+	mi := &file_pong_proto_msgTypes[31]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -2450,7 +2071,7 @@ func (x *WaitingRoom) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use WaitingRoom.ProtoReflect.Descriptor instead.
 func (*WaitingRoom) Descriptor() ([]byte, []int) {
-	return file_pong_proto_rawDescGZIP(), []int{35}
+	return file_pong_proto_rawDescGZIP(), []int{31}
 }
 
 func (x *WaitingRoom) GetId() string {
@@ -2489,7 +2110,7 @@ type WaitingRoomRequest struct {
 
 func (x *WaitingRoomRequest) Reset() {
 	*x = WaitingRoomRequest{}
-	mi := &file_pong_proto_msgTypes[36]
+	mi := &file_pong_proto_msgTypes[32]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -2501,7 +2122,7 @@ func (x *WaitingRoomRequest) String() string {
 func (*WaitingRoomRequest) ProtoMessage() {}
 
 func (x *WaitingRoomRequest) ProtoReflect() protoreflect.Message {
-	mi := &file_pong_proto_msgTypes[36]
+	mi := &file_pong_proto_msgTypes[32]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -2514,7 +2135,7 @@ func (x *WaitingRoomRequest) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use WaitingRoomRequest.ProtoReflect.Descriptor instead.
 func (*WaitingRoomRequest) Descriptor() ([]byte, []int) {
-	return file_pong_proto_rawDescGZIP(), []int{36}
+	return file_pong_proto_rawDescGZIP(), []int{32}
 }
 
 type WaitingRoomResponse struct {
@@ -2526,7 +2147,7 @@ type WaitingRoomResponse struct {
 
 func (x *WaitingRoomResponse) Reset() {
 	*x = WaitingRoomResponse{}
-	mi := &file_pong_proto_msgTypes[37]
+	mi := &file_pong_proto_msgTypes[33]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -2538,7 +2159,7 @@ func (x *WaitingRoomResponse) String() string {
 func (*WaitingRoomResponse) ProtoMessage() {}
 
 func (x *WaitingRoomResponse) ProtoReflect() protoreflect.Message {
-	mi := &file_pong_proto_msgTypes[37]
+	mi := &file_pong_proto_msgTypes[33]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -2551,7 +2172,7 @@ func (x *WaitingRoomResponse) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use WaitingRoomResponse.ProtoReflect.Descriptor instead.
 func (*WaitingRoomResponse) Descriptor() ([]byte, []int) {
-	return file_pong_proto_rawDescGZIP(), []int{37}
+	return file_pong_proto_rawDescGZIP(), []int{33}
 }
 
 func (x *WaitingRoomResponse) GetPlayers() []*Player {
@@ -2576,7 +2197,7 @@ type Player struct {
 
 func (x *Player) Reset() {
 	*x = Player{}
-	mi := &file_pong_proto_msgTypes[38]
+	mi := &file_pong_proto_msgTypes[34]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -2588,7 +2209,7 @@ func (x *Player) String() string {
 func (*Player) ProtoMessage() {}
 
 func (x *Player) ProtoReflect() protoreflect.Message {
-	mi := &file_pong_proto_msgTypes[38]
+	mi := &file_pong_proto_msgTypes[34]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -2601,7 +2222,7 @@ func (x *Player) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use Player.ProtoReflect.Descriptor instead.
 func (*Player) Descriptor() ([]byte, []int) {
-	return file_pong_proto_rawDescGZIP(), []int{38}
+	return file_pong_proto_rawDescGZIP(), []int{34}
 }
 
 func (x *Player) GetUid() string {
@@ -2656,7 +2277,7 @@ type StartGameStreamRequest struct {
 
 func (x *StartGameStreamRequest) Reset() {
 	*x = StartGameStreamRequest{}
-	mi := &file_pong_proto_msgTypes[39]
+	mi := &file_pong_proto_msgTypes[35]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -2668,7 +2289,7 @@ func (x *StartGameStreamRequest) String() string {
 func (*StartGameStreamRequest) ProtoMessage() {}
 
 func (x *StartGameStreamRequest) ProtoReflect() protoreflect.Message {
-	mi := &file_pong_proto_msgTypes[39]
+	mi := &file_pong_proto_msgTypes[35]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -2681,7 +2302,7 @@ func (x *StartGameStreamRequest) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use StartGameStreamRequest.ProtoReflect.Descriptor instead.
 func (*StartGameStreamRequest) Descriptor() ([]byte, []int) {
-	return file_pong_proto_rawDescGZIP(), []int{39}
+	return file_pong_proto_rawDescGZIP(), []int{35}
 }
 
 func (x *StartGameStreamRequest) GetClientId() string {
@@ -2700,7 +2321,7 @@ type GameUpdateBytes struct {
 
 func (x *GameUpdateBytes) Reset() {
 	*x = GameUpdateBytes{}
-	mi := &file_pong_proto_msgTypes[40]
+	mi := &file_pong_proto_msgTypes[36]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -2712,7 +2333,7 @@ func (x *GameUpdateBytes) String() string {
 func (*GameUpdateBytes) ProtoMessage() {}
 
 func (x *GameUpdateBytes) ProtoReflect() protoreflect.Message {
-	mi := &file_pong_proto_msgTypes[40]
+	mi := &file_pong_proto_msgTypes[36]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -2725,7 +2346,7 @@ func (x *GameUpdateBytes) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use GameUpdateBytes.ProtoReflect.Descriptor instead.
 func (*GameUpdateBytes) Descriptor() ([]byte, []int) {
-	return file_pong_proto_rawDescGZIP(), []int{40}
+	return file_pong_proto_rawDescGZIP(), []int{36}
 }
 
 func (x *GameUpdateBytes) GetData() []byte {
@@ -2746,7 +2367,7 @@ type PlayerInput struct {
 
 func (x *PlayerInput) Reset() {
 	*x = PlayerInput{}
-	mi := &file_pong_proto_msgTypes[41]
+	mi := &file_pong_proto_msgTypes[37]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -2758,7 +2379,7 @@ func (x *PlayerInput) String() string {
 func (*PlayerInput) ProtoMessage() {}
 
 func (x *PlayerInput) ProtoReflect() protoreflect.Message {
-	mi := &file_pong_proto_msgTypes[41]
+	mi := &file_pong_proto_msgTypes[37]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -2771,7 +2392,7 @@ func (x *PlayerInput) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use PlayerInput.ProtoReflect.Descriptor instead.
 func (*PlayerInput) Descriptor() ([]byte, []int) {
-	return file_pong_proto_rawDescGZIP(), []int{41}
+	return file_pong_proto_rawDescGZIP(), []int{37}
 }
 
 func (x *PlayerInput) GetPlayerId() string {
@@ -2828,7 +2449,7 @@ type GameUpdate struct {
 
 func (x *GameUpdate) Reset() {
 	*x = GameUpdate{}
-	mi := &file_pong_proto_msgTypes[42]
+	mi := &file_pong_proto_msgTypes[38]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -2840,7 +2461,7 @@ func (x *GameUpdate) String() string {
 func (*GameUpdate) ProtoMessage() {}
 
 func (x *GameUpdate) ProtoReflect() protoreflect.Message {
-	mi := &file_pong_proto_msgTypes[42]
+	mi := &file_pong_proto_msgTypes[38]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -2853,7 +2474,7 @@ func (x *GameUpdate) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use GameUpdate.ProtoReflect.Descriptor instead.
 func (*GameUpdate) Descriptor() ([]byte, []int) {
-	return file_pong_proto_rawDescGZIP(), []int{42}
+	return file_pong_proto_rawDescGZIP(), []int{38}
 }
 
 func (x *GameUpdate) GetGameWidth() float64 {
@@ -3034,7 +2655,7 @@ type LeaveWaitingRoomRequest struct {
 
 func (x *LeaveWaitingRoomRequest) Reset() {
 	*x = LeaveWaitingRoomRequest{}
-	mi := &file_pong_proto_msgTypes[43]
+	mi := &file_pong_proto_msgTypes[39]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -3046,7 +2667,7 @@ func (x *LeaveWaitingRoomRequest) String() string {
 func (*LeaveWaitingRoomRequest) ProtoMessage() {}
 
 func (x *LeaveWaitingRoomRequest) ProtoReflect() protoreflect.Message {
-	mi := &file_pong_proto_msgTypes[43]
+	mi := &file_pong_proto_msgTypes[39]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -3059,7 +2680,7 @@ func (x *LeaveWaitingRoomRequest) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use LeaveWaitingRoomRequest.ProtoReflect.Descriptor instead.
 func (*LeaveWaitingRoomRequest) Descriptor() ([]byte, []int) {
-	return file_pong_proto_rawDescGZIP(), []int{43}
+	return file_pong_proto_rawDescGZIP(), []int{39}
 }
 
 func (x *LeaveWaitingRoomRequest) GetClientId() string {
@@ -3086,7 +2707,7 @@ type LeaveWaitingRoomResponse struct {
 
 func (x *LeaveWaitingRoomResponse) Reset() {
 	*x = LeaveWaitingRoomResponse{}
-	mi := &file_pong_proto_msgTypes[44]
+	mi := &file_pong_proto_msgTypes[40]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -3098,7 +2719,7 @@ func (x *LeaveWaitingRoomResponse) String() string {
 func (*LeaveWaitingRoomResponse) ProtoMessage() {}
 
 func (x *LeaveWaitingRoomResponse) ProtoReflect() protoreflect.Message {
-	mi := &file_pong_proto_msgTypes[44]
+	mi := &file_pong_proto_msgTypes[40]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -3111,7 +2732,7 @@ func (x *LeaveWaitingRoomResponse) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use LeaveWaitingRoomResponse.ProtoReflect.Descriptor instead.
 func (*LeaveWaitingRoomResponse) Descriptor() ([]byte, []int) {
-	return file_pong_proto_rawDescGZIP(), []int{44}
+	return file_pong_proto_rawDescGZIP(), []int{40}
 }
 
 func (x *LeaveWaitingRoomResponse) GetSuccess() bool {
@@ -3139,7 +2760,7 @@ type SignalReadyToPlayRequest struct {
 
 func (x *SignalReadyToPlayRequest) Reset() {
 	*x = SignalReadyToPlayRequest{}
-	mi := &file_pong_proto_msgTypes[45]
+	mi := &file_pong_proto_msgTypes[41]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -3151,7 +2772,7 @@ func (x *SignalReadyToPlayRequest) String() string {
 func (*SignalReadyToPlayRequest) ProtoMessage() {}
 
 func (x *SignalReadyToPlayRequest) ProtoReflect() protoreflect.Message {
-	mi := &file_pong_proto_msgTypes[45]
+	mi := &file_pong_proto_msgTypes[41]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -3164,7 +2785,7 @@ func (x *SignalReadyToPlayRequest) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use SignalReadyToPlayRequest.ProtoReflect.Descriptor instead.
 func (*SignalReadyToPlayRequest) Descriptor() ([]byte, []int) {
-	return file_pong_proto_rawDescGZIP(), []int{45}
+	return file_pong_proto_rawDescGZIP(), []int{41}
 }
 
 func (x *SignalReadyToPlayRequest) GetClientId() string {
@@ -3192,7 +2813,7 @@ type SignalReadyToPlayResponse struct {
 
 func (x *SignalReadyToPlayResponse) Reset() {
 	*x = SignalReadyToPlayResponse{}
-	mi := &file_pong_proto_msgTypes[46]
+	mi := &file_pong_proto_msgTypes[42]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -3204,7 +2825,7 @@ func (x *SignalReadyToPlayResponse) String() string {
 func (*SignalReadyToPlayResponse) ProtoMessage() {}
 
 func (x *SignalReadyToPlayResponse) ProtoReflect() protoreflect.Message {
-	mi := &file_pong_proto_msgTypes[46]
+	mi := &file_pong_proto_msgTypes[42]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -3217,7 +2838,7 @@ func (x *SignalReadyToPlayResponse) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use SignalReadyToPlayResponse.ProtoReflect.Descriptor instead.
 func (*SignalReadyToPlayResponse) Descriptor() ([]byte, []int) {
-	return file_pong_proto_rawDescGZIP(), []int{46}
+	return file_pong_proto_rawDescGZIP(), []int{42}
 }
 
 func (x *SignalReadyToPlayResponse) GetSuccess() bool {
@@ -3246,7 +2867,7 @@ type NeedPreSigs_PerInput struct {
 
 func (x *NeedPreSigs_PerInput) Reset() {
 	*x = NeedPreSigs_PerInput{}
-	mi := &file_pong_proto_msgTypes[47]
+	mi := &file_pong_proto_msgTypes[43]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -3258,7 +2879,7 @@ func (x *NeedPreSigs_PerInput) String() string {
 func (*NeedPreSigs_PerInput) ProtoMessage() {}
 
 func (x *NeedPreSigs_PerInput) ProtoReflect() protoreflect.Message {
-	mi := &file_pong_proto_msgTypes[47]
+	mi := &file_pong_proto_msgTypes[43]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -3271,7 +2892,7 @@ func (x *NeedPreSigs_PerInput) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use NeedPreSigs_PerInput.ProtoReflect.Descriptor instead.
 func (*NeedPreSigs_PerInput) Descriptor() ([]byte, []int) {
-	return file_pong_proto_rawDescGZIP(), []int{4, 0}
+	return file_pong_proto_rawDescGZIP(), []int{3, 0}
 }
 
 func (x *NeedPreSigs_PerInput) GetInputId() string {
@@ -3305,15 +2926,15 @@ func (x *NeedPreSigs_PerInput) GetTCompressed() []byte {
 type PreSigBatch_Sig struct {
 	state         protoimpl.MessageState `protogen:"open.v1"`
 	InputId       string                 `protobuf:"bytes,1,opt,name=input_id,json=inputId,proto3" json:"input_id,omitempty"`
-	Rprime32      []byte                 `protobuf:"bytes,2,opt,name=rprime32,proto3" json:"rprime32,omitempty"` // 32B
-	Sprime32      []byte                 `protobuf:"bytes,3,opt,name=sprime32,proto3" json:"sprime32,omitempty"` // 32B
+	Rprime32      []byte                 `protobuf:"bytes,2,opt,name=rprime32,proto3" json:"rprime32,omitempty"` // 32B (Deprecated; use PreSig with full R')
+	Sprime32      []byte                 `protobuf:"bytes,3,opt,name=sprime32,proto3" json:"sprime32,omitempty"` // 32B (Deprecated; use PreSig)
 	unknownFields protoimpl.UnknownFields
 	sizeCache     protoimpl.SizeCache
 }
 
 func (x *PreSigBatch_Sig) Reset() {
 	*x = PreSigBatch_Sig{}
-	mi := &file_pong_proto_msgTypes[48]
+	mi := &file_pong_proto_msgTypes[44]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -3325,7 +2946,7 @@ func (x *PreSigBatch_Sig) String() string {
 func (*PreSigBatch_Sig) ProtoMessage() {}
 
 func (x *PreSigBatch_Sig) ProtoReflect() protoreflect.Message {
-	mi := &file_pong_proto_msgTypes[48]
+	mi := &file_pong_proto_msgTypes[44]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -3338,7 +2959,7 @@ func (x *PreSigBatch_Sig) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use PreSigBatch_Sig.ProtoReflect.Descriptor instead.
 func (*PreSigBatch_Sig) Descriptor() ([]byte, []int) {
-	return file_pong_proto_rawDescGZIP(), []int{5, 0}
+	return file_pong_proto_rawDescGZIP(), []int{6, 0}
 }
 
 func (x *PreSigBatch_Sig) GetInputId() string {
@@ -3367,38 +2988,29 @@ var File_pong_proto protoreflect.FileDescriptor
 const file_pong_proto_rawDesc = "" +
 	"\n" +
 	"\n" +
-	"pong.proto\x12\x04pong\"\xa1\x01\n" +
+	"pong.proto\x12\x04pong\"\xd0\x01\n" +
 	"\tClientMsg\x12\x19\n" +
 	"\bmatch_id\x18\x01 \x01(\tR\amatchId\x12#\n" +
 	"\x05hello\x18\n" +
 	" \x01(\v2\v.pong.HelloH\x00R\x05hello\x12-\n" +
 	"\apresigs\x18\v \x01(\v2\x11.pong.PreSigBatchH\x00R\apresigs\x12\x1d\n" +
-	"\x03ack\x18\f \x01(\v2\t.pong.AckH\x00R\x03ackB\x06\n" +
-	"\x04kind\"\xcc\x01\n" +
+	"\x03ack\x18\f \x01(\v2\t.pong.AckH\x00R\x03ack\x12-\n" +
+	"\tverify_ok\x18\r \x01(\v2\x0e.pong.VerifyOkH\x00R\bverifyOkB\x06\n" +
+	"\x04kind\"\xc6\x01\n" +
 	"\tServerMsg\x12\x19\n" +
-	"\bmatch_id\x18\x01 \x01(\tR\amatchId\x12&\n" +
-	"\x04role\x18\n" +
-	" \x01(\v2\x10.pong.AssignRoleH\x00R\x04role\x12%\n" +
+	"\bmatch_id\x18\x01 \x01(\tR\amatchId\x12%\n" +
 	"\x03req\x18\v \x01(\v2\x11.pong.NeedPreSigsH\x00R\x03req\x12+\n" +
 	"\x06reveal\x18\f \x01(\v2\x11.pong.RevealGammaH\x00R\x06reveal\x12 \n" +
 	"\x04info\x18\r \x01(\v2\n" +
-	".pong.InfoH\x00R\x04infoB\x06\n" +
-	"\x04kind\"O\n" +
-	"\x05Hello\x12\x1f\n" +
-	"\vcomp_pubkey\x18\x01 \x01(\fR\n" +
+	".pong.InfoH\x00R\x04info\x12 \n" +
+	"\x02ok\x18\x0e \x01(\v2\x0e.pong.ServerOkH\x00R\x02okB\x06\n" +
+	"\x04kind\"j\n" +
+	"\x05Hello\x12\x19\n" +
+	"\bmatch_id\x18\x01 \x01(\tR\amatchId\x12\x1f\n" +
+	"\vcomp_pubkey\x18\x02 \x01(\fR\n" +
 	"compPubkey\x12%\n" +
-	"\x0eclient_version\x18\x02 \x01(\tR\rclientVersion\"\xb3\x01\n" +
-	"\n" +
-	"AssignRole\x12)\n" +
-	"\x04role\x18\x01 \x01(\x0e2\x15.pong.AssignRole.RoleR\x04role\x12%\n" +
-	"\x0erequired_atoms\x18\x02 \x01(\x04R\rrequiredAtoms\x120\n" +
-	"\x14deposit_pkscript_hex\x18\x03 \x01(\tR\x12depositPkscriptHex\"!\n" +
-	"\x04Role\x12\v\n" +
-	"\aUNKNOWN\x10\x00\x12\x05\n" +
-	"\x01A\x10\x01\x12\x05\n" +
-	"\x01B\x10\x02\"\x95\x02\n" +
-	"\vNeedPreSigs\x12$\n" +
-	"\x06branch\x18\x01 \x01(\x0e2\f.pong.BranchR\x06branch\x12 \n" +
+	"\x0eclient_version\x18\x03 \x01(\tR\rclientVersion\"\xef\x01\n" +
+	"\vNeedPreSigs\x12 \n" +
 	"\fdraft_tx_hex\x18\x02 \x01(\tR\n" +
 	"draftTxHex\x122\n" +
 	"\x06inputs\x18\x04 \x03(\v2\x1a.pong.NeedPreSigs.PerInputR\x06inputs\x1a\x89\x01\n" +
@@ -3406,9 +3018,16 @@ const file_pong_proto_rawDesc = "" +
 	"\binput_id\x18\x01 \x01(\tR\ainputId\x12*\n" +
 	"\x11redeem_script_hex\x18\x02 \x01(\tR\x0fredeemScriptHex\x12\x13\n" +
 	"\x05m_hex\x18\x03 \x01(\tR\x04mHex\x12!\n" +
-	"\fT_compressed\x18\x04 \x01(\fR\vTCompressed\"\xbe\x01\n" +
-	"\vPreSigBatch\x12$\n" +
-	"\x06branch\x18\x01 \x01(\x0e2\f.pong.BranchR\x06branch\x12/\n" +
+	"\fT_compressed\x18\x04 \x01(\fR\vTCompressed\"Q\n" +
+	"\bVerifyOk\x12\x1d\n" +
+	"\n" +
+	"ack_digest\x18\x01 \x01(\fR\tackDigest\x12&\n" +
+	"\apresigs\x18\x02 \x03(\v2\f.pong.PreSigR\apresigs\"l\n" +
+	"\x06PreSig\x12\x19\n" +
+	"\binput_id\x18\x01 \x01(\tR\ainputId\x12+\n" +
+	"\x11Rprime_compressed\x18\x02 \x01(\fR\x10RprimeCompressed\x12\x1a\n" +
+	"\bsprime32\x18\x03 \x01(\fR\bsprime32\"\x98\x01\n" +
+	"\vPreSigBatch\x12/\n" +
 	"\apresigs\x18\x02 \x03(\v2\x15.pong.PreSigBatch.SigR\apresigs\x1aX\n" +
 	"\x03Sig\x12\x19\n" +
 	"\binput_id\x18\x01 \x01(\tR\ainputId\x12\x1a\n" +
@@ -3419,7 +3038,29 @@ const file_pong_proto_rawDesc = "" +
 	"\x03Ack\x12\x12\n" +
 	"\x04note\x18\x01 \x01(\tR\x04note\"\x1a\n" +
 	"\x04Info\x12\x12\n" +
-	"\x04text\x18\x01 \x01(\tR\x04text\"H\n" +
+	"\x04text\x18\x01 \x01(\tR\x04text\")\n" +
+	"\bServerOk\x12\x1d\n" +
+	"\n" +
+	"ack_digest\x18\x01 \x01(\fR\tackDigest\"\x8d\x01\n" +
+	"\x11OpenEscrowRequest\x12\x1b\n" +
+	"\towner_uid\x18\x01 \x01(\tR\bownerUid\x12\x1f\n" +
+	"\vcomp_pubkey\x18\x02 \x01(\fR\n" +
+	"compPubkey\x12\x1b\n" +
+	"\tbet_atoms\x18\x03 \x01(\x04R\bbetAtoms\x12\x1d\n" +
+	"\n" +
+	"csv_blocks\x18\x04 \x01(\rR\tcsvBlocks\"~\n" +
+	"\x12OpenEscrowResponse\x12\x1b\n" +
+	"\tescrow_id\x18\x01 \x01(\tR\bescrowId\x12'\n" +
+	"\x0fdeposit_address\x18\x02 \x01(\tR\x0edepositAddress\x12\"\n" +
+	"\rpk_script_hex\x18\x03 \x01(\tR\vpkScriptHex\"7\n" +
+	"\x18WaitEscrowFundingRequest\x12\x1b\n" +
+	"\tescrow_id\x18\x01 \x01(\tR\bescrowId\"\x89\x01\n" +
+	"\x17WaitEscrowFundingUpdate\x12\x16\n" +
+	"\x06funded\x18\x01 \x01(\bR\x06funded\x12\x1c\n" +
+	"\tconfirmed\x18\x02 \x01(\bR\tconfirmed\x12\x17\n" +
+	"\autxo_id\x18\x03 \x01(\tR\x06utxoId\x12\x1f\n" +
+	"\vvalue_atoms\x18\x04 \x01(\x04R\n" +
+	"valueAtoms\"H\n" +
 	"\x12CreateMatchRequest\x12\x0f\n" +
 	"\x03a_c\x18\x01 \x01(\tR\x02aC\x12\x0f\n" +
 	"\x03b_c\x18\x02 \x01(\tR\x02bC\x12\x10\n" +
@@ -3443,74 +3084,26 @@ const file_pong_proto_rawDesc = "" +
 	"\x05value\x18\x03 \x01(\x04R\x05value\x12*\n" +
 	"\x11redeem_script_hex\x18\x04 \x01(\tR\x0fredeemScriptHex\x12\"\n" +
 	"\rpk_script_hex\x18\x05 \x01(\tR\vpkScriptHex\x12\x14\n" +
-	"\x05owner\x18\x06 \x01(\tR\x05owner\"]\n" +
-	"\x14SubmitFundingRequest\x12\x19\n" +
-	"\bmatch_id\x18\x01 \x01(\tR\amatchId\x12*\n" +
-	"\aescrows\x18\x02 \x03(\v2\x10.pong.EscrowUTXOR\aescrows\"'\n" +
-	"\x15SubmitFundingResponse\x12\x0e\n" +
-	"\x02ok\x18\x01 \x01(\bR\x02ok\"E\n" +
-	"\x12RevealAdaptorEntry\x12\x19\n" +
-	"\binput_id\x18\x01 \x01(\tR\ainputId\x12\x14\n" +
-	"\x05gamma\x18\x02 \x01(\tR\x05gamma\"X\n" +
-	"\x15RevealAdaptorsRequest\x12\x19\n" +
-	"\bmatch_id\x18\x01 \x01(\tR\amatchId\x12$\n" +
-	"\x06branch\x18\x02 \x01(\x0e2\f.pong.BranchR\x06branch\"r\n" +
-	"\x16RevealAdaptorsResponse\x12$\n" +
-	"\x06branch\x18\x01 \x01(\x0e2\f.pong.BranchR\x06branch\x122\n" +
-	"\aentries\x18\x02 \x03(\v2\x18.pong.RevealAdaptorEntryR\aentries\"U\n" +
-	"\x14AllocateMatchRequest\x12\x0f\n" +
-	"\x03a_c\x18\x01 \x01(\tR\x02aC\x12\x0f\n" +
-	"\x03b_c\x18\x02 \x01(\tR\x02bC\x12\x1b\n" +
-	"\tbet_atoms\x18\x03 \x01(\x04R\bbetAtoms\"\x82\x03\n" +
-	"\x15AllocateMatchResponse\x12\x19\n" +
-	"\bmatch_id\x18\x01 \x01(\tR\amatchId\x12\x10\n" +
-	"\x03csv\x18\x02 \x01(\rR\x03csv\x12\x1b\n" +
-	"\tbet_atoms\x18\x03 \x01(\x04R\bbetAtoms\x12\x1b\n" +
-	"\tfee_atoms\x18\x04 \x01(\x04R\bfeeAtoms\x12-\n" +
-	"\x13a_redeem_script_hex\x18\x05 \x01(\tR\x10aRedeemScriptHex\x12%\n" +
-	"\x0fa_pk_script_hex\x18\x06 \x01(\tR\faPkScriptHex\x12*\n" +
-	"\x11a_deposit_address\x18\a \x01(\tR\x0faDepositAddress\x12-\n" +
-	"\x13b_redeem_script_hex\x18\b \x01(\tR\x10bRedeemScriptHex\x12%\n" +
-	"\x0fb_pk_script_hex\x18\t \x01(\tR\fbPkScriptHex\x12*\n" +
-	"\x11b_deposit_address\x18\n" +
-	" \x01(\tR\x0fbDepositAddress\"/\n" +
-	"\x12WaitFundingRequest\x12\x19\n" +
-	"\bmatch_id\x18\x01 \x01(\tR\amatchId\"\xb7\x01\n" +
-	"\x13WaitFundingResponse\x12\x1c\n" +
-	"\tconfirmed\x18\x01 \x01(\bR\tconfirmed\x12\x17\n" +
-	"\aconfs_a\x18\x02 \x01(\rR\x06confsA\x12\x17\n" +
-	"\aconfs_b\x18\x03 \x01(\rR\x06confsB\x12'\n" +
-	"\x06utxo_a\x18\x04 \x01(\v2\x10.pong.EscrowUTXOR\x05utxoA\x12'\n" +
-	"\x06utxo_b\x18\x05 \x01(\v2\x10.pong.EscrowUTXOR\x05utxoB\"t\n" +
-	"\x15AllocateEscrowRequest\x12\x1b\n" +
-	"\tplayer_id\x18\x01 \x01(\tR\bplayerId\x12\x0f\n" +
-	"\x03a_c\x18\x02 \x01(\tR\x02aC\x12\x1b\n" +
-	"\tbet_atoms\x18\x03 \x01(\x04R\bbetAtoms\x12\x10\n" +
-	"\x03csv\x18\x04 \x01(\rR\x03csv\"\xdc\x02\n" +
-	"\x16AllocateEscrowResponse\x12\x19\n" +
-	"\bmatch_id\x18\x01 \x01(\tR\amatchId\x12 \n" +
-	"\x04role\x18\x02 \x01(\x0e2\f.pong.BranchR\x04role\x12\x0f\n" +
-	"\x03a_a\x18\x03 \x01(\tR\x02aA\x12\x0f\n" +
-	"\x03a_b\x18\x04 \x01(\tR\x02aB\x12\x0f\n" +
-	"\x03a_s\x18\x05 \x01(\tR\x02aS\x12\x0f\n" +
-	"\x03x_a\x18\x06 \x01(\tR\x02xA\x12\x0f\n" +
-	"\x03x_b\x18\a \x01(\tR\x02xB\x12\x10\n" +
-	"\x03csv\x18\b \x01(\rR\x03csv\x12'\n" +
-	"\x0fdeposit_address\x18\t \x01(\tR\x0edepositAddress\x12*\n" +
-	"\x11redeem_script_hex\x18\n" +
-	" \x01(\tR\x0fredeemScriptHex\x12\"\n" +
-	"\rpk_script_hex\x18\v \x01(\tR\vpkScriptHex\x12%\n" +
-	"\x0erequired_atoms\x18\f \x01(\x04R\rrequiredAtoms\"X\n" +
-	"\x15FinalizeWinnerRequest\x12\x19\n" +
-	"\bmatch_id\x18\x01 \x01(\tR\amatchId\x12$\n" +
-	"\x06branch\x18\x02 \x01(\x0e2\f.pong.BranchR\x06branch\"?\n" +
-	"\x16FinalizeWinnerResponse\x12%\n" +
-	"\x0ebroadcast_txid\x18\x01 \x01(\tR\rbroadcastTxid\"7\n" +
+	"\x05owner\x18\x06 \x01(\tR\x05owner\"1\n" +
+	"\x12WaitFundingRequest\x12\x1b\n" +
+	"\tescrow_id\x18\x01 \x01(\tR\bescrowId\"g\n" +
+	"\x13WaitFundingResponse\x12\x14\n" +
+	"\x05confs\x18\x01 \x01(\rR\x05confs\x12\x14\n" +
+	"\x05value\x18\x02 \x01(\x04R\x05value\x12$\n" +
+	"\x04utxo\x18\x03 \x01(\v2\x10.pong.EscrowUTXOR\x04utxo\"\xb2\x01\n" +
+	"\x12MatchAllocatedNtfn\x12\x19\n" +
+	"\bmatch_id\x18\x01 \x01(\tR\amatchId\x12\x17\n" +
+	"\aroom_id\x18\x02 \x01(\tR\x06roomId\x12\x1b\n" +
+	"\tbet_atoms\x18\x03 \x01(\x04R\bbetAtoms\x12\x1d\n" +
+	"\n" +
+	"csv_blocks\x18\x04 \x01(\rR\tcsvBlocks\x12\x15\n" +
+	"\x06a_comp\x18\x05 \x01(\fR\x05aComp\x12\x15\n" +
+	"\x06b_comp\x18\x06 \x01(\fR\x05bComp\"7\n" +
 	"\x18UnreadyGameStreamRequest\x12\x1b\n" +
 	"\tclient_id\x18\x01 \x01(\tR\bclientId\"\x1b\n" +
 	"\x19UnreadyGameStreamResponse\"5\n" +
 	"\x16StartNtfnStreamRequest\x12\x1b\n" +
-	"\tclient_id\x18\x01 \x01(\tR\bclientId\"\xd2\x02\n" +
+	"\tclient_id\x18\x01 \x01(\tR\bclientId\"\x8d\x03\n" +
 	"\x12NtfnStreamResponse\x12C\n" +
 	"\x11notification_type\x18\x01 \x01(\x0e2\x16.pong.NotificationTypeR\x10notificationType\x12\x18\n" +
 	"\astarted\x18\x02 \x01(\bR\astarted\x12\x17\n" +
@@ -3522,19 +3115,23 @@ const file_pong_proto_rawDesc = "" +
 	"\aroom_id\x18\b \x01(\tR\x06roomId\x12!\n" +
 	"\x02wr\x18\t \x01(\v2\x11.pong.WaitingRoomR\x02wr\x12\x14\n" +
 	"\x05ready\x18\n" +
-	" \x01(\bR\x05ready\".\n" +
+	" \x01(\bR\x05ready\x129\n" +
+	"\vmatch_alloc\x18\v \x01(\v2\x18.pong.MatchAllocatedNtfnR\n" +
+	"matchAlloc\".\n" +
 	"\x13WaitingRoomsRequest\x12\x17\n" +
 	"\aroom_id\x18\x01 \x01(\tR\x06roomId\"9\n" +
 	"\x14WaitingRoomsResponse\x12!\n" +
-	"\x02wr\x18\x01 \x03(\v2\x11.pong.WaitingRoomR\x02wr\"N\n" +
+	"\x02wr\x18\x01 \x03(\v2\x11.pong.WaitingRoomR\x02wr\"k\n" +
 	"\x16JoinWaitingRoomRequest\x12\x17\n" +
 	"\aroom_id\x18\x01 \x01(\tR\x06roomId\x12\x1b\n" +
-	"\tclient_id\x18\x02 \x01(\tR\bclientId\"<\n" +
+	"\tclient_id\x18\x02 \x01(\tR\bclientId\x12\x1b\n" +
+	"\tescrow_id\x18\x03 \x01(\tR\bescrowId\"<\n" +
 	"\x17JoinWaitingRoomResponse\x12!\n" +
-	"\x02wr\x18\x01 \x01(\v2\x11.pong.WaitingRoomR\x02wr\"K\n" +
+	"\x02wr\x18\x01 \x01(\v2\x11.pong.WaitingRoomR\x02wr\"h\n" +
 	"\x18CreateWaitingRoomRequest\x12\x17\n" +
 	"\ahost_id\x18\x01 \x01(\tR\x06hostId\x12\x16\n" +
-	"\x06betAmt\x18\x02 \x01(\x03R\x06betAmt\">\n" +
+	"\x06betAmt\x18\x02 \x01(\x03R\x06betAmt\x12\x1b\n" +
+	"\tescrow_id\x18\x03 \x01(\tR\bescrowId\">\n" +
 	"\x19CreateWaitingRoomResponse\x12!\n" +
 	"\x02wr\x18\x01 \x01(\v2\x11.pong.WaitingRoomR\x02wr\"w\n" +
 	"\vWaitingRoom\x12\x0e\n" +
@@ -3602,11 +3199,7 @@ const file_pong_proto_rawDesc = "" +
 	"\agame_id\x18\x02 \x01(\tR\x06gameId\"O\n" +
 	"\x19SignalReadyToPlayResponse\x12\x18\n" +
 	"\asuccess\x18\x01 \x01(\bR\asuccess\x12\x18\n" +
-	"\amessage\x18\x02 \x01(\tR\amessage*<\n" +
-	"\x06Branch\x12\x16\n" +
-	"\x12BRANCH_UNSPECIFIED\x10\x00\x12\f\n" +
-	"\bBRANCH_A\x10\x01\x12\f\n" +
-	"\bBRANCH_B\x10\x02*\x8f\x02\n" +
+	"\amessage\x18\x02 \x01(\tR\amessage*\xa4\x02\n" +
 	"\x10NotificationType\x12\v\n" +
 	"\aUNKNOWN\x10\x00\x12\v\n" +
 	"\aMESSAGE\x10\x01\x12\x0e\n" +
@@ -3622,7 +3215,8 @@ const file_pong_proto_rawDesc = "" +
 	"\x0ePLAYER_LEFT_WR\x10\n" +
 	"\x12\x14\n" +
 	"\x10COUNTDOWN_UPDATE\x10\v\x12\x16\n" +
-	"\x12GAME_READY_TO_PLAY\x10\f2\x8b\x06\n" +
+	"\x12GAME_READY_TO_PLAY\x10\f\x12\x13\n" +
+	"\x0fMATCH_ALLOCATED\x10\r2\x8b\x06\n" +
 	"\bPongGame\x122\n" +
 	"\tSendInput\x12\x11.pong.PlayerInput\x1a\x10.pong.GameUpdate\"\x00\x12H\n" +
 	"\x0fStartGameStream\x12\x1c.pong.StartGameStreamRequest\x1a\x15.pong.GameUpdateBytes0\x01\x12K\n" +
@@ -3633,14 +3227,11 @@ const file_pong_proto_rawDesc = "" +
 	"\x0fGetWaitingRooms\x12\x19.pong.WaitingRoomsRequest\x1a\x1a.pong.WaitingRoomsResponse\x12T\n" +
 	"\x11CreateWaitingRoom\x12\x1e.pong.CreateWaitingRoomRequest\x1a\x1f.pong.CreateWaitingRoomResponse\x12N\n" +
 	"\x0fJoinWaitingRoom\x12\x1c.pong.JoinWaitingRoomRequest\x1a\x1d.pong.JoinWaitingRoomResponse\x12Q\n" +
-	"\x10LeaveWaitingRoom\x12\x1d.pong.LeaveWaitingRoomRequest\x1a\x1e.pong.LeaveWaitingRoomResponse2\xcc\x04\n" +
+	"\x10LeaveWaitingRoom\x12\x1d.pong.LeaveWaitingRoomRequest\x1a\x1e.pong.LeaveWaitingRoomResponse2\xee\x02\n" +
 	"\vPongReferee\x12B\n" +
-	"\vCreateMatch\x12\x18.pong.CreateMatchRequest\x1a\x19.pong.CreateMatchResponse\x12H\n" +
-	"\rSubmitFunding\x12\x1a.pong.SubmitFundingRequest\x1a\x1b.pong.SubmitFundingResponse\x12K\n" +
-	"\x0eRevealAdaptors\x12\x1b.pong.RevealAdaptorsRequest\x1a\x1c.pong.RevealAdaptorsResponse\x12K\n" +
-	"\x0eAllocateEscrow\x12\x1b.pong.AllocateEscrowRequest\x1a\x1c.pong.AllocateEscrowResponse\x12K\n" +
-	"\x0eFinalizeWinner\x12\x1b.pong.FinalizeWinnerRequest\x1a\x1c.pong.FinalizeWinnerResponse\x12H\n" +
-	"\rAllocateMatch\x12\x1a.pong.AllocateMatchRequest\x1a\x1b.pong.AllocateMatchResponse\x12D\n" +
+	"\rRefOpenEscrow\x12\x17.pong.OpenEscrowRequest\x1a\x18.pong.OpenEscrowResponse\x12W\n" +
+	"\x14RefWaitEscrowFunding\x12\x1e.pong.WaitEscrowFundingRequest\x1a\x1d.pong.WaitEscrowFundingUpdate0\x01\x12B\n" +
+	"\vCreateMatch\x12\x18.pong.CreateMatchRequest\x1a\x19.pong.CreateMatchResponse\x12D\n" +
 	"\vWaitFunding\x12\x18.pong.WaitFundingRequest\x1a\x19.pong.WaitFundingResponse0\x01\x128\n" +
 	"\x10SettlementStream\x12\x0f.pong.ClientMsg\x1a\x0f.pong.ServerMsg(\x010\x01B\vZ\tgrpc/pongb\x06proto3"
 
@@ -3656,131 +3247,112 @@ func file_pong_proto_rawDescGZIP() []byte {
 	return file_pong_proto_rawDescData
 }
 
-var file_pong_proto_enumTypes = make([]protoimpl.EnumInfo, 3)
-var file_pong_proto_msgTypes = make([]protoimpl.MessageInfo, 49)
+var file_pong_proto_enumTypes = make([]protoimpl.EnumInfo, 1)
+var file_pong_proto_msgTypes = make([]protoimpl.MessageInfo, 45)
 var file_pong_proto_goTypes = []any{
-	(Branch)(0),                       // 0: pong.Branch
-	(NotificationType)(0),             // 1: pong.NotificationType
-	(AssignRole_Role)(0),              // 2: pong.AssignRole.Role
-	(*ClientMsg)(nil),                 // 3: pong.ClientMsg
-	(*ServerMsg)(nil),                 // 4: pong.ServerMsg
-	(*Hello)(nil),                     // 5: pong.Hello
-	(*AssignRole)(nil),                // 6: pong.AssignRole
-	(*NeedPreSigs)(nil),               // 7: pong.NeedPreSigs
-	(*PreSigBatch)(nil),               // 8: pong.PreSigBatch
-	(*RevealGamma)(nil),               // 9: pong.RevealGamma
-	(*Ack)(nil),                       // 10: pong.Ack
-	(*Info)(nil),                      // 11: pong.Info
-	(*CreateMatchRequest)(nil),        // 12: pong.CreateMatchRequest
-	(*CreateMatchResponse)(nil),       // 13: pong.CreateMatchResponse
-	(*EscrowUTXO)(nil),                // 14: pong.EscrowUTXO
-	(*SubmitFundingRequest)(nil),      // 15: pong.SubmitFundingRequest
-	(*SubmitFundingResponse)(nil),     // 16: pong.SubmitFundingResponse
-	(*RevealAdaptorEntry)(nil),        // 17: pong.RevealAdaptorEntry
-	(*RevealAdaptorsRequest)(nil),     // 18: pong.RevealAdaptorsRequest
-	(*RevealAdaptorsResponse)(nil),    // 19: pong.RevealAdaptorsResponse
-	(*AllocateMatchRequest)(nil),      // 20: pong.AllocateMatchRequest
-	(*AllocateMatchResponse)(nil),     // 21: pong.AllocateMatchResponse
-	(*WaitFundingRequest)(nil),        // 22: pong.WaitFundingRequest
-	(*WaitFundingResponse)(nil),       // 23: pong.WaitFundingResponse
-	(*AllocateEscrowRequest)(nil),     // 24: pong.AllocateEscrowRequest
-	(*AllocateEscrowResponse)(nil),    // 25: pong.AllocateEscrowResponse
-	(*FinalizeWinnerRequest)(nil),     // 26: pong.FinalizeWinnerRequest
-	(*FinalizeWinnerResponse)(nil),    // 27: pong.FinalizeWinnerResponse
-	(*UnreadyGameStreamRequest)(nil),  // 28: pong.UnreadyGameStreamRequest
-	(*UnreadyGameStreamResponse)(nil), // 29: pong.UnreadyGameStreamResponse
-	(*StartNtfnStreamRequest)(nil),    // 30: pong.StartNtfnStreamRequest
-	(*NtfnStreamResponse)(nil),        // 31: pong.NtfnStreamResponse
-	(*WaitingRoomsRequest)(nil),       // 32: pong.WaitingRoomsRequest
-	(*WaitingRoomsResponse)(nil),      // 33: pong.WaitingRoomsResponse
-	(*JoinWaitingRoomRequest)(nil),    // 34: pong.JoinWaitingRoomRequest
-	(*JoinWaitingRoomResponse)(nil),   // 35: pong.JoinWaitingRoomResponse
-	(*CreateWaitingRoomRequest)(nil),  // 36: pong.CreateWaitingRoomRequest
-	(*CreateWaitingRoomResponse)(nil), // 37: pong.CreateWaitingRoomResponse
-	(*WaitingRoom)(nil),               // 38: pong.WaitingRoom
-	(*WaitingRoomRequest)(nil),        // 39: pong.WaitingRoomRequest
-	(*WaitingRoomResponse)(nil),       // 40: pong.WaitingRoomResponse
-	(*Player)(nil),                    // 41: pong.Player
-	(*StartGameStreamRequest)(nil),    // 42: pong.StartGameStreamRequest
-	(*GameUpdateBytes)(nil),           // 43: pong.GameUpdateBytes
-	(*PlayerInput)(nil),               // 44: pong.PlayerInput
-	(*GameUpdate)(nil),                // 45: pong.GameUpdate
-	(*LeaveWaitingRoomRequest)(nil),   // 46: pong.LeaveWaitingRoomRequest
-	(*LeaveWaitingRoomResponse)(nil),  // 47: pong.LeaveWaitingRoomResponse
-	(*SignalReadyToPlayRequest)(nil),  // 48: pong.SignalReadyToPlayRequest
-	(*SignalReadyToPlayResponse)(nil), // 49: pong.SignalReadyToPlayResponse
-	(*NeedPreSigs_PerInput)(nil),      // 50: pong.NeedPreSigs.PerInput
-	(*PreSigBatch_Sig)(nil),           // 51: pong.PreSigBatch.Sig
+	(NotificationType)(0),             // 0: pong.NotificationType
+	(*ClientMsg)(nil),                 // 1: pong.ClientMsg
+	(*ServerMsg)(nil),                 // 2: pong.ServerMsg
+	(*Hello)(nil),                     // 3: pong.Hello
+	(*NeedPreSigs)(nil),               // 4: pong.NeedPreSigs
+	(*VerifyOk)(nil),                  // 5: pong.VerifyOk
+	(*PreSig)(nil),                    // 6: pong.PreSig
+	(*PreSigBatch)(nil),               // 7: pong.PreSigBatch
+	(*RevealGamma)(nil),               // 8: pong.RevealGamma
+	(*Ack)(nil),                       // 9: pong.Ack
+	(*Info)(nil),                      // 10: pong.Info
+	(*ServerOk)(nil),                  // 11: pong.ServerOk
+	(*OpenEscrowRequest)(nil),         // 12: pong.OpenEscrowRequest
+	(*OpenEscrowResponse)(nil),        // 13: pong.OpenEscrowResponse
+	(*WaitEscrowFundingRequest)(nil),  // 14: pong.WaitEscrowFundingRequest
+	(*WaitEscrowFundingUpdate)(nil),   // 15: pong.WaitEscrowFundingUpdate
+	(*CreateMatchRequest)(nil),        // 16: pong.CreateMatchRequest
+	(*CreateMatchResponse)(nil),       // 17: pong.CreateMatchResponse
+	(*EscrowUTXO)(nil),                // 18: pong.EscrowUTXO
+	(*WaitFundingRequest)(nil),        // 19: pong.WaitFundingRequest
+	(*WaitFundingResponse)(nil),       // 20: pong.WaitFundingResponse
+	(*MatchAllocatedNtfn)(nil),        // 21: pong.MatchAllocatedNtfn
+	(*UnreadyGameStreamRequest)(nil),  // 22: pong.UnreadyGameStreamRequest
+	(*UnreadyGameStreamResponse)(nil), // 23: pong.UnreadyGameStreamResponse
+	(*StartNtfnStreamRequest)(nil),    // 24: pong.StartNtfnStreamRequest
+	(*NtfnStreamResponse)(nil),        // 25: pong.NtfnStreamResponse
+	(*WaitingRoomsRequest)(nil),       // 26: pong.WaitingRoomsRequest
+	(*WaitingRoomsResponse)(nil),      // 27: pong.WaitingRoomsResponse
+	(*JoinWaitingRoomRequest)(nil),    // 28: pong.JoinWaitingRoomRequest
+	(*JoinWaitingRoomResponse)(nil),   // 29: pong.JoinWaitingRoomResponse
+	(*CreateWaitingRoomRequest)(nil),  // 30: pong.CreateWaitingRoomRequest
+	(*CreateWaitingRoomResponse)(nil), // 31: pong.CreateWaitingRoomResponse
+	(*WaitingRoom)(nil),               // 32: pong.WaitingRoom
+	(*WaitingRoomRequest)(nil),        // 33: pong.WaitingRoomRequest
+	(*WaitingRoomResponse)(nil),       // 34: pong.WaitingRoomResponse
+	(*Player)(nil),                    // 35: pong.Player
+	(*StartGameStreamRequest)(nil),    // 36: pong.StartGameStreamRequest
+	(*GameUpdateBytes)(nil),           // 37: pong.GameUpdateBytes
+	(*PlayerInput)(nil),               // 38: pong.PlayerInput
+	(*GameUpdate)(nil),                // 39: pong.GameUpdate
+	(*LeaveWaitingRoomRequest)(nil),   // 40: pong.LeaveWaitingRoomRequest
+	(*LeaveWaitingRoomResponse)(nil),  // 41: pong.LeaveWaitingRoomResponse
+	(*SignalReadyToPlayRequest)(nil),  // 42: pong.SignalReadyToPlayRequest
+	(*SignalReadyToPlayResponse)(nil), // 43: pong.SignalReadyToPlayResponse
+	(*NeedPreSigs_PerInput)(nil),      // 44: pong.NeedPreSigs.PerInput
+	(*PreSigBatch_Sig)(nil),           // 45: pong.PreSigBatch.Sig
 }
 var file_pong_proto_depIdxs = []int32{
-	5,  // 0: pong.ClientMsg.hello:type_name -> pong.Hello
-	8,  // 1: pong.ClientMsg.presigs:type_name -> pong.PreSigBatch
-	10, // 2: pong.ClientMsg.ack:type_name -> pong.Ack
-	6,  // 3: pong.ServerMsg.role:type_name -> pong.AssignRole
-	7,  // 4: pong.ServerMsg.req:type_name -> pong.NeedPreSigs
-	9,  // 5: pong.ServerMsg.reveal:type_name -> pong.RevealGamma
-	11, // 6: pong.ServerMsg.info:type_name -> pong.Info
-	2,  // 7: pong.AssignRole.role:type_name -> pong.AssignRole.Role
-	0,  // 8: pong.NeedPreSigs.branch:type_name -> pong.Branch
-	50, // 9: pong.NeedPreSigs.inputs:type_name -> pong.NeedPreSigs.PerInput
-	0,  // 10: pong.PreSigBatch.branch:type_name -> pong.Branch
-	51, // 11: pong.PreSigBatch.presigs:type_name -> pong.PreSigBatch.Sig
-	14, // 12: pong.SubmitFundingRequest.escrows:type_name -> pong.EscrowUTXO
-	0,  // 13: pong.RevealAdaptorsRequest.branch:type_name -> pong.Branch
-	0,  // 14: pong.RevealAdaptorsResponse.branch:type_name -> pong.Branch
-	17, // 15: pong.RevealAdaptorsResponse.entries:type_name -> pong.RevealAdaptorEntry
-	14, // 16: pong.WaitFundingResponse.utxo_a:type_name -> pong.EscrowUTXO
-	14, // 17: pong.WaitFundingResponse.utxo_b:type_name -> pong.EscrowUTXO
-	0,  // 18: pong.AllocateEscrowResponse.role:type_name -> pong.Branch
-	0,  // 19: pong.FinalizeWinnerRequest.branch:type_name -> pong.Branch
-	1,  // 20: pong.NtfnStreamResponse.notification_type:type_name -> pong.NotificationType
-	38, // 21: pong.NtfnStreamResponse.wr:type_name -> pong.WaitingRoom
-	38, // 22: pong.WaitingRoomsResponse.wr:type_name -> pong.WaitingRoom
-	38, // 23: pong.JoinWaitingRoomResponse.wr:type_name -> pong.WaitingRoom
-	38, // 24: pong.CreateWaitingRoomResponse.wr:type_name -> pong.WaitingRoom
-	41, // 25: pong.WaitingRoom.players:type_name -> pong.Player
-	41, // 26: pong.WaitingRoomResponse.players:type_name -> pong.Player
-	44, // 27: pong.PongGame.SendInput:input_type -> pong.PlayerInput
-	42, // 28: pong.PongGame.StartGameStream:input_type -> pong.StartGameStreamRequest
-	30, // 29: pong.PongGame.StartNtfnStream:input_type -> pong.StartNtfnStreamRequest
-	28, // 30: pong.PongGame.UnreadyGameStream:input_type -> pong.UnreadyGameStreamRequest
-	48, // 31: pong.PongGame.SignalReadyToPlay:input_type -> pong.SignalReadyToPlayRequest
-	39, // 32: pong.PongGame.GetWaitingRoom:input_type -> pong.WaitingRoomRequest
-	32, // 33: pong.PongGame.GetWaitingRooms:input_type -> pong.WaitingRoomsRequest
-	36, // 34: pong.PongGame.CreateWaitingRoom:input_type -> pong.CreateWaitingRoomRequest
-	34, // 35: pong.PongGame.JoinWaitingRoom:input_type -> pong.JoinWaitingRoomRequest
-	46, // 36: pong.PongGame.LeaveWaitingRoom:input_type -> pong.LeaveWaitingRoomRequest
-	12, // 37: pong.PongReferee.CreateMatch:input_type -> pong.CreateMatchRequest
-	15, // 38: pong.PongReferee.SubmitFunding:input_type -> pong.SubmitFundingRequest
-	18, // 39: pong.PongReferee.RevealAdaptors:input_type -> pong.RevealAdaptorsRequest
-	24, // 40: pong.PongReferee.AllocateEscrow:input_type -> pong.AllocateEscrowRequest
-	26, // 41: pong.PongReferee.FinalizeWinner:input_type -> pong.FinalizeWinnerRequest
-	20, // 42: pong.PongReferee.AllocateMatch:input_type -> pong.AllocateMatchRequest
-	22, // 43: pong.PongReferee.WaitFunding:input_type -> pong.WaitFundingRequest
-	3,  // 44: pong.PongReferee.SettlementStream:input_type -> pong.ClientMsg
-	45, // 45: pong.PongGame.SendInput:output_type -> pong.GameUpdate
-	43, // 46: pong.PongGame.StartGameStream:output_type -> pong.GameUpdateBytes
-	31, // 47: pong.PongGame.StartNtfnStream:output_type -> pong.NtfnStreamResponse
-	29, // 48: pong.PongGame.UnreadyGameStream:output_type -> pong.UnreadyGameStreamResponse
-	49, // 49: pong.PongGame.SignalReadyToPlay:output_type -> pong.SignalReadyToPlayResponse
-	40, // 50: pong.PongGame.GetWaitingRoom:output_type -> pong.WaitingRoomResponse
-	33, // 51: pong.PongGame.GetWaitingRooms:output_type -> pong.WaitingRoomsResponse
-	37, // 52: pong.PongGame.CreateWaitingRoom:output_type -> pong.CreateWaitingRoomResponse
-	35, // 53: pong.PongGame.JoinWaitingRoom:output_type -> pong.JoinWaitingRoomResponse
-	47, // 54: pong.PongGame.LeaveWaitingRoom:output_type -> pong.LeaveWaitingRoomResponse
-	13, // 55: pong.PongReferee.CreateMatch:output_type -> pong.CreateMatchResponse
-	16, // 56: pong.PongReferee.SubmitFunding:output_type -> pong.SubmitFundingResponse
-	19, // 57: pong.PongReferee.RevealAdaptors:output_type -> pong.RevealAdaptorsResponse
-	25, // 58: pong.PongReferee.AllocateEscrow:output_type -> pong.AllocateEscrowResponse
-	27, // 59: pong.PongReferee.FinalizeWinner:output_type -> pong.FinalizeWinnerResponse
-	21, // 60: pong.PongReferee.AllocateMatch:output_type -> pong.AllocateMatchResponse
-	23, // 61: pong.PongReferee.WaitFunding:output_type -> pong.WaitFundingResponse
-	4,  // 62: pong.PongReferee.SettlementStream:output_type -> pong.ServerMsg
-	45, // [45:63] is the sub-list for method output_type
-	27, // [27:45] is the sub-list for method input_type
-	27, // [27:27] is the sub-list for extension type_name
-	27, // [27:27] is the sub-list for extension extendee
-	0,  // [0:27] is the sub-list for field type_name
+	3,  // 0: pong.ClientMsg.hello:type_name -> pong.Hello
+	7,  // 1: pong.ClientMsg.presigs:type_name -> pong.PreSigBatch
+	9,  // 2: pong.ClientMsg.ack:type_name -> pong.Ack
+	5,  // 3: pong.ClientMsg.verify_ok:type_name -> pong.VerifyOk
+	4,  // 4: pong.ServerMsg.req:type_name -> pong.NeedPreSigs
+	8,  // 5: pong.ServerMsg.reveal:type_name -> pong.RevealGamma
+	10, // 6: pong.ServerMsg.info:type_name -> pong.Info
+	11, // 7: pong.ServerMsg.ok:type_name -> pong.ServerOk
+	44, // 8: pong.NeedPreSigs.inputs:type_name -> pong.NeedPreSigs.PerInput
+	6,  // 9: pong.VerifyOk.presigs:type_name -> pong.PreSig
+	45, // 10: pong.PreSigBatch.presigs:type_name -> pong.PreSigBatch.Sig
+	18, // 11: pong.WaitFundingResponse.utxo:type_name -> pong.EscrowUTXO
+	0,  // 12: pong.NtfnStreamResponse.notification_type:type_name -> pong.NotificationType
+	32, // 13: pong.NtfnStreamResponse.wr:type_name -> pong.WaitingRoom
+	21, // 14: pong.NtfnStreamResponse.match_alloc:type_name -> pong.MatchAllocatedNtfn
+	32, // 15: pong.WaitingRoomsResponse.wr:type_name -> pong.WaitingRoom
+	32, // 16: pong.JoinWaitingRoomResponse.wr:type_name -> pong.WaitingRoom
+	32, // 17: pong.CreateWaitingRoomResponse.wr:type_name -> pong.WaitingRoom
+	35, // 18: pong.WaitingRoom.players:type_name -> pong.Player
+	35, // 19: pong.WaitingRoomResponse.players:type_name -> pong.Player
+	38, // 20: pong.PongGame.SendInput:input_type -> pong.PlayerInput
+	36, // 21: pong.PongGame.StartGameStream:input_type -> pong.StartGameStreamRequest
+	24, // 22: pong.PongGame.StartNtfnStream:input_type -> pong.StartNtfnStreamRequest
+	22, // 23: pong.PongGame.UnreadyGameStream:input_type -> pong.UnreadyGameStreamRequest
+	42, // 24: pong.PongGame.SignalReadyToPlay:input_type -> pong.SignalReadyToPlayRequest
+	33, // 25: pong.PongGame.GetWaitingRoom:input_type -> pong.WaitingRoomRequest
+	26, // 26: pong.PongGame.GetWaitingRooms:input_type -> pong.WaitingRoomsRequest
+	30, // 27: pong.PongGame.CreateWaitingRoom:input_type -> pong.CreateWaitingRoomRequest
+	28, // 28: pong.PongGame.JoinWaitingRoom:input_type -> pong.JoinWaitingRoomRequest
+	40, // 29: pong.PongGame.LeaveWaitingRoom:input_type -> pong.LeaveWaitingRoomRequest
+	12, // 30: pong.PongReferee.RefOpenEscrow:input_type -> pong.OpenEscrowRequest
+	14, // 31: pong.PongReferee.RefWaitEscrowFunding:input_type -> pong.WaitEscrowFundingRequest
+	16, // 32: pong.PongReferee.CreateMatch:input_type -> pong.CreateMatchRequest
+	19, // 33: pong.PongReferee.WaitFunding:input_type -> pong.WaitFundingRequest
+	1,  // 34: pong.PongReferee.SettlementStream:input_type -> pong.ClientMsg
+	39, // 35: pong.PongGame.SendInput:output_type -> pong.GameUpdate
+	37, // 36: pong.PongGame.StartGameStream:output_type -> pong.GameUpdateBytes
+	25, // 37: pong.PongGame.StartNtfnStream:output_type -> pong.NtfnStreamResponse
+	23, // 38: pong.PongGame.UnreadyGameStream:output_type -> pong.UnreadyGameStreamResponse
+	43, // 39: pong.PongGame.SignalReadyToPlay:output_type -> pong.SignalReadyToPlayResponse
+	34, // 40: pong.PongGame.GetWaitingRoom:output_type -> pong.WaitingRoomResponse
+	27, // 41: pong.PongGame.GetWaitingRooms:output_type -> pong.WaitingRoomsResponse
+	31, // 42: pong.PongGame.CreateWaitingRoom:output_type -> pong.CreateWaitingRoomResponse
+	29, // 43: pong.PongGame.JoinWaitingRoom:output_type -> pong.JoinWaitingRoomResponse
+	41, // 44: pong.PongGame.LeaveWaitingRoom:output_type -> pong.LeaveWaitingRoomResponse
+	13, // 45: pong.PongReferee.RefOpenEscrow:output_type -> pong.OpenEscrowResponse
+	15, // 46: pong.PongReferee.RefWaitEscrowFunding:output_type -> pong.WaitEscrowFundingUpdate
+	17, // 47: pong.PongReferee.CreateMatch:output_type -> pong.CreateMatchResponse
+	20, // 48: pong.PongReferee.WaitFunding:output_type -> pong.WaitFundingResponse
+	2,  // 49: pong.PongReferee.SettlementStream:output_type -> pong.ServerMsg
+	35, // [35:50] is the sub-list for method output_type
+	20, // [20:35] is the sub-list for method input_type
+	20, // [20:20] is the sub-list for extension type_name
+	20, // [20:20] is the sub-list for extension extendee
+	0,  // [0:20] is the sub-list for field type_name
 }
 
 func init() { file_pong_proto_init() }
@@ -3792,20 +3364,21 @@ func file_pong_proto_init() {
 		(*ClientMsg_Hello)(nil),
 		(*ClientMsg_Presigs)(nil),
 		(*ClientMsg_Ack)(nil),
+		(*ClientMsg_VerifyOk)(nil),
 	}
 	file_pong_proto_msgTypes[1].OneofWrappers = []any{
-		(*ServerMsg_Role)(nil),
 		(*ServerMsg_Req)(nil),
 		(*ServerMsg_Reveal)(nil),
 		(*ServerMsg_Info)(nil),
+		(*ServerMsg_Ok)(nil),
 	}
 	type x struct{}
 	out := protoimpl.TypeBuilder{
 		File: protoimpl.DescBuilder{
 			GoPackagePath: reflect.TypeOf(x{}).PkgPath(),
 			RawDescriptor: unsafe.Slice(unsafe.StringData(file_pong_proto_rawDesc), len(file_pong_proto_rawDesc)),
-			NumEnums:      3,
-			NumMessages:   49,
+			NumEnums:      1,
+			NumMessages:   45,
 			NumExtensions: 0,
 			NumServices:   2,
 		},

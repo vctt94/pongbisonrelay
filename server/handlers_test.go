@@ -71,3 +71,34 @@ func TestAdaptorDerivationDeterminismAndEvenY(t *testing.T) {
 		t.Fatalf("T not even-Y: prefix=%x", Tb[0])
 	}
 }
+
+// Ensure redeem script depends only on depositor pubkey and CSV, not XA/XB.
+func TestRedeemScriptNoOpponentKey(t *testing.T) {
+	// Same depositor key and CSV
+	acHex := "03cccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccc"
+	ac, _ := hex.DecodeString(acHex)
+
+	xa1Hex := "02aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"
+	xb1Hex := "02bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb"
+	xa2Hex := "020101010101010101010101010101010101010101010101010101010101010101"
+	xb2Hex := "020202020202020202020202020202020202020202020202020202020202020202"
+	xa1, _ := hex.DecodeString(xa1Hex)
+	xb1, _ := hex.DecodeString(xb1Hex)
+	xa2, _ := hex.DecodeString(xa2Hex)
+	xb2, _ := hex.DecodeString(xb2Hex)
+
+	s1 := &refMatchState{csv: 10, xa: xa1, xb: xb1}
+	s2 := &refMatchState{csv: 10, xa: xa2, xb: xb2}
+
+	r1, err := buildEscrowRedeemScript(s1, ac)
+	if err != nil {
+		t.Fatalf("buildEscrowRedeemScript s1: %v", err)
+	}
+	r2, err := buildEscrowRedeemScript(s2, ac)
+	if err != nil {
+		t.Fatalf("buildEscrowRedeemScript s2: %v", err)
+	}
+	if hex.EncodeToString(r1) != hex.EncodeToString(r2) {
+		t.Fatalf("redeem differs with different XA/XB; got %s vs %s", hex.EncodeToString(r1), hex.EncodeToString(r2))
+	}
+}

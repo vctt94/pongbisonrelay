@@ -84,16 +84,85 @@ type Server struct {
 	// chain watcher for tip + mempool
 	watcher *chainWatcher
 
-	// Referee state
-	refereeKeyOnce         sync.Once
-	refereePrivInitialized bool
-	refereePrivKeyHex      string
-	refereePubCompressed   string
-	matches                map[string]*refMatchState
-	refAllocByPlayer       map[string]string
+	// Escrow-first funding state
+	escrows     map[string]*escrowSession
+	escrowByKey map[string]string            // owner|comp|bet|csv -> escrowID
+	roomEscrows map[string]map[string]string // roomID -> owner_uid -> escrow_id
 	// v0-min defaults
 	pocCSV      uint32
 	pocFeeAtoms uint64
+}
+
+// escrowSession represents a pre-match funding session for a single player.
+type escrowSession struct {
+	escrowID        string
+	ownerUID        string
+	compPubkey      []byte // 33 bytes
+	betAtoms        uint64
+	csvBlocks       uint32
+	redeemScriptHex string
+	pkScriptHex     string
+	depositAddress  string
+	confs           uint32
+	createdAt       time.Time
+	updatedAt       time.Time
+}
+
+// pickConfirmedEscrow returns a CONFIRMED escrow session for the given owner.
+// If escrowID is provided, validates and returns it. Otherwise, returns the
+// most recently updated CONFIRMED escrow for that owner. Returns error if none.
+func (s *Server) pickConfirmedEscrow(ownerUID string, escrowID string) (*escrowSession, error) {
+	s.RLock()
+	defer s.RUnlock()
+	ensureConfirmed := func(es *escrowSession, tag string) *escrowSession {
+		if es == nil {
+			return nil
+		}
+
+		// Require watcher to see a UTXO (0-conf unlock). If no watcher or no pkScript, treat as not yet funded.
+		if s.watcher == nil || es.pkScriptHex == "" {
+			return nil
+		}
+		// Query watcher and accept when chain/mempool shows a UTXO for this script (0-conf OK)
+		s.watcher.registerDeposit(es.pkScriptHex, es.redeemScriptHex, tag)
+		utxos, confs, ok := s.watcher.queryDeposit(es.pkScriptHex)
+		if ok && len(utxos) > 0 {
+			// Promote and update timestamps/confs
+			s.RUnlock()
+			s.Lock()
+			es.confs = confs
+			es.updatedAt = time.Now()
+			s.Unlock()
+			s.RLock()
+			return es
+		}
+		return nil
+	}
+	if escrowID != "" {
+		es := ensureConfirmed(s.escrows[escrowID], escrowID)
+		if es == nil {
+			return nil, fmt.Errorf("escrow not yet funded (0-conf required)")
+		}
+		if es.ownerUID != ownerUID {
+			return nil, fmt.Errorf("escrow not owned by user")
+		}
+
+		return es, nil
+	}
+	var best *escrowSession
+	for id, es := range s.escrows {
+		es = ensureConfirmed(es, id)
+		if es == nil || es.ownerUID != ownerUID {
+			continue
+		}
+		if best == nil || es.updatedAt.After(best.updatedAt) {
+			best = es
+		}
+	}
+	if best == nil {
+		return nil, fmt.Errorf("no funded escrow for user (0-conf)")
+	}
+	return best, nil
 }
 
 func NewServer(id *zkidentity.ShortID, cfg ServerConfig) (*Server, error) {
@@ -134,10 +203,11 @@ func NewServer(id *zkidentity.ShortID, cfg ServerConfig) (*Server, error) {
 			Log:            logGM,
 			PlayerGameMap:  make(map[zkidentity.ShortID]*ponggame.GameInstance),
 		},
-		matches:          make(map[string]*refMatchState),
-		refAllocByPlayer: make(map[string]string),
-		pocCSV:           csvBlocks,
-		pocFeeAtoms:      0,
+		escrows:     make(map[string]*escrowSession),
+		escrowByKey: make(map[string]string),
+		roomEscrows: make(map[string]map[string]string),
+		pocCSV:      csvBlocks,
+		pocFeeAtoms: 0,
 	}
 	s.gameManager.OnWaitingRoomRemoved = s.handleWaitingRoomRemoved
 
@@ -218,29 +288,7 @@ func (s *Server) StartGameStream(req *pong.StartGameStreamRequest, stream pong.P
 		return fmt.Errorf("game stream is already set for id %s", clientID)
 	}
 
-	// In paid mode, require confirmed funding before allowing readiness
-	if !s.isF2P {
-		pid := clientID.String()
-		matchID, ok := s.refAllocByPlayer[pid]
-		if !ok {
-			if mid, err := s.db.FetchRefAlloc(ctx, pid); err == nil && mid != "" {
-				matchID = mid
-				s.Lock()
-				s.refAllocByPlayer[pid] = mid
-				s.Unlock()
-			}
-		}
-		if matchID == "" {
-			return fmt.Errorf("cannot mark ready: no escrow match; allocate escrow first")
-		}
-		confirmed, err := s.isPlayerFundingConfirmed(ctx, pid, matchID)
-		if err != nil {
-			return err
-		}
-		if !confirmed {
-			return fmt.Errorf("cannot mark ready: funding not yet confirmed")
-		}
-	}
+	// Escrow-first: readiness decoupled from legacy match-bound funding checks
 
 	player.GameStream = stream
 	player.Ready = true
@@ -317,24 +365,7 @@ func (s *Server) StartNtfnStream(req *pong.StartNtfnStreamRequest, stream pong.P
 	s.users[clientID] = player
 	s.Unlock()
 
-	// Fetch unprocessed tips
-	totalDcrAmount, _, err := s.handleFetchTotalUnprocessedTips(ctx, clientID)
-	if err != nil {
-		s.log.Errorf("Failed to fetch unprocessed tips for client %s: %v", clientID, err)
-		return err
-	}
-
-	// Update player's bet amount and notify
-	if player.BetAmt != totalDcrAmount {
-		player.BetAmt = totalDcrAmount
-		s.log.Debugf("Pending payments applied to client %s, total amount: %.8f", clientID, float64(totalDcrAmount)/1e11)
-
-		s.users[clientID].NotifierStream.Send(&pong.NtfnStreamResponse{
-			NotificationType: pong.NotificationType_BET_AMOUNT_UPDATE,
-			BetAmt:           player.BetAmt,
-			PlayerId:         player.ID.String(),
-		})
-	}
+	// Escrow-first: remove legacy tips-based bet sync
 	// Wait for disconnection
 	<-ctx.Done()
 	s.log.Debugf("Client %s disconnected", clientID)
@@ -362,27 +393,12 @@ func (s *Server) ManageWaitingRoom(ctx context.Context, wr *ponggame.WaitingRoom
 				if !s.isF2P {
 					// Derive matchID from any player mapping (A/B mapping uses player->match)
 					var matchID string
-					for _, p := range players {
-						if mid, ok := s.refAllocByPlayer[p.ID.String()]; ok && mid != "" {
-							matchID = mid
-							break
-						}
-					}
+
 					if matchID == "" {
 						// No mapping; requeue and continue waiting
 						continue
 					}
-					s.RLock()
-					st := s.matches[matchID]
-					s.RUnlock()
-					if st == nil {
-						continue
-					}
-					aDone, bDone := s.presigsComplete(st)
-					if !(aDone && bDone) {
-						// Not all presigs in; keep waiting (players stay ready)
-						continue
-					}
+
 				}
 
 				s.log.Infof("Game starting with players: %v and %v", players[0].ID, players[1].ID)
@@ -491,54 +507,9 @@ func (s *Server) JoinWaitingRoom(ctx context.Context, req *pong.JoinWaitingRoomR
 	}
 	s.gameManager.Unlock()
 
-	// In paid mode, require that a deposit UTXO exists (0-conf allowed) before joining
-	if !s.isF2P {
-		pid := req.ClientId
-		// Resolve match and state (similar to isPlayerFundingConfirmed but allow 0 conf)
-		s.RLock()
-		matchID := s.refAllocByPlayer[pid]
-		s.RUnlock()
-		if matchID == "" {
-			if mid, err := s.db.FetchRefAlloc(ctx, pid); err == nil && mid != "" {
-				matchID = mid
-				s.Lock()
-				s.refAllocByPlayer[pid] = mid
-				s.Unlock()
-			}
-		}
-		if matchID == "" {
-			return nil, fmt.Errorf("cannot join: no escrow match; allocate escrow first")
-		}
-		// Load state and query watcher
-		s.RLock()
-		state, ok := s.matches[matchID]
-		s.RUnlock()
-		if !ok {
-			rec, err := s.db.FetchRefMatch(ctx, matchID)
-			if err != nil || rec == nil {
-				return nil, fmt.Errorf("cannot join: unknown match id %s", matchID)
-			}
-			state = &refMatchState{
-				matchID:                rec.MatchID,
-				depositPkScriptHex:     rec.DepositPkScriptHex,
-				depositRedeemScriptHex: rec.DepositRedeemScriptHex,
-			}
-			s.Lock()
-			s.matches[matchID] = state
-			if s.watcher != nil && state.depositPkScriptHex != "" {
-				s.watcher.registerDeposit(state.depositPkScriptHex, state.depositRedeemScriptHex, state.matchID)
-			}
-			s.Unlock()
-		}
-		if s.watcher == nil || state.depositPkScriptHex == "" {
-			return nil, fmt.Errorf("cannot join: chain watcher not initialized or deposit script missing")
-		}
-		// Ensure registration, then check UTXO presence regardless of confirmations
-		s.watcher.registerDeposit(state.depositPkScriptHex, state.depositRedeemScriptHex, state.matchID)
-		utxos, _, ok := s.watcher.queryDeposit(state.depositPkScriptHex)
-		if !ok || len(utxos) == 0 {
-			return nil, fmt.Errorf("cannot join: no deposit detected for player")
-		}
+	// Escrow-first gating: require a funded escrow (0-conf) for the joining player
+	if _, err := s.pickConfirmedEscrow(uid.String(), req.EscrowId); err != nil {
+		return nil, fmt.Errorf("require funded escrow to join room: %w", err)
 	}
 
 	wr := s.gameManager.GetWaitingRoom(req.RoomId)
@@ -547,6 +518,18 @@ func (s *Server) JoinWaitingRoom(ctx context.Context, req *pong.JoinWaitingRoomR
 	}
 
 	wr.AddPlayer(player)
+	// Optional: record player's escrow selection for this room
+	if req.EscrowId != "" {
+		s.Lock()
+		if s.roomEscrows == nil {
+			s.roomEscrows = make(map[string]map[string]string)
+		}
+		if s.roomEscrows[wr.ID] == nil {
+			s.roomEscrows[wr.ID] = make(map[string]string)
+		}
+		s.roomEscrows[wr.ID][player.ID.String()] = req.EscrowId
+		s.Unlock()
+	}
 	player.WR = wr
 
 	pwr, err := wr.Marshal()
@@ -572,45 +555,6 @@ func (s *Server) JoinWaitingRoom(ctx context.Context, req *pong.JoinWaitingRoomR
 	}, nil
 }
 
-// isPlayerFundingConfirmed returns true if the player's current escrow allocation
-// has at least 1 confirmation on-chain.
-func (s *Server) isPlayerFundingConfirmed(ctx context.Context, playerID, matchID string) (bool, error) {
-	// Load or restore match state
-	s.RLock()
-	state, ok := s.matches[matchID]
-	s.RUnlock()
-	if !ok {
-		rec, err := s.db.FetchRefMatch(ctx, matchID)
-		if err != nil || rec == nil {
-			return false, fmt.Errorf("unknown match id %s", matchID)
-		}
-		state = &refMatchState{
-			matchID:                rec.MatchID,
-			depositPkScriptHex:     rec.DepositPkScriptHex,
-			depositRedeemScriptHex: rec.DepositRedeemScriptHex,
-		}
-		s.Lock()
-		s.matches[matchID] = state
-		if s.watcher != nil && state.depositPkScriptHex != "" {
-			s.watcher.registerDeposit(state.depositPkScriptHex, state.depositRedeemScriptHex, state.matchID)
-		}
-		s.Unlock()
-	}
-	if s.watcher == nil {
-		return false, fmt.Errorf("chain watcher not initialized")
-	}
-	if state.depositPkScriptHex == "" {
-		return false, fmt.Errorf("deposit script not set for match %s", matchID)
-	}
-	// Ensure registration; idempotent
-	s.watcher.registerDeposit(state.depositPkScriptHex, state.depositRedeemScriptHex, state.matchID)
-	utxos, confs, ok := s.watcher.queryDeposit(state.depositPkScriptHex)
-	if !ok || len(utxos) == 0 {
-		return false, nil
-	}
-	return confs >= 1, nil
-}
-
 func (s *Server) CreateWaitingRoom(ctx context.Context, req *pong.CreateWaitingRoomRequest) (*pong.CreateWaitingRoomResponse, error) {
 	var hostID zkidentity.ShortID
 	err := hostID.FromString(req.HostId)
@@ -633,13 +577,45 @@ func (s *Server) CreateWaitingRoom(ctx context.Context, req *pong.CreateWaitingR
 
 	s.log.Debugf("creating waiting room. Host ID: %s", hostID)
 
-	// Create waiting room for escrow-based lobbies (no tip reservation)
-	wr, err := ponggame.NewWaitingRoom(hostPlayer, req.BetAmt)
+	// Escrow-first gating: require a funded escrow (0-conf) for the host.
+	es, err := s.pickConfirmedEscrow(hostID.String(), req.EscrowId)
+	if err != nil {
+		return nil, fmt.Errorf("require funded escrow to create room: %w", err)
+	}
+
+	// Create waiting room; betAmt comes from host's escrow value expectation
+	wr, err := ponggame.NewWaitingRoom(hostPlayer, int64(es.betAtoms))
 	if err != nil {
 		return nil, fmt.Errorf("failed to create waiting room: %v", err)
 	}
 
 	hostPlayer.WR = wr
+
+	// Optional: store escrow selection by room and owner when provided
+	if req.EscrowId != "" {
+		s.Lock()
+		if s.roomEscrows == nil {
+			s.roomEscrows = make(map[string]map[string]string)
+		}
+		if s.roomEscrows[wr.ID] == nil {
+			s.roomEscrows[wr.ID] = make(map[string]string)
+		}
+		s.roomEscrows[wr.ID][hostID.String()] = req.EscrowId
+		s.Unlock()
+	}
+
+	// Optional: store escrow selection by room and owner when provided
+	if req.EscrowId != "" {
+		s.Lock()
+		if s.roomEscrows == nil {
+			s.roomEscrows = make(map[string]map[string]string)
+		}
+		if s.roomEscrows[wr.ID] == nil {
+			s.roomEscrows[wr.ID] = make(map[string]string)
+		}
+		s.roomEscrows[wr.ID][hostID.String()] = req.EscrowId
+		s.Unlock()
+	}
 
 	// append to WaitingRooms slice
 	s.gameManager.Lock()

@@ -3,7 +3,6 @@ package server
 import (
 	"encoding/hex"
 	"fmt"
-	"strings"
 
 	"github.com/decred/dcrd/chaincfg/v3"
 	"github.com/decred/dcrd/crypto/blake256"
@@ -25,27 +24,68 @@ func atomsToMatoms(a int64) int64 { return a * MatomsPerAtom }
 func matomsToDCR(m int64) float64 { return float64(m) / float64(MatomsPerDCR) }
 func atomsToDCR(a int64) float64  { return float64(a) / float64(AtomsPerDCR) }
 
-// setDepositFromRedeemLocked normalizes redeem hex, derives the corresponding
-// standard P2SH (v0) pkScript, lowercases both, and stores in the match state.
-// Caller must hold the appropriate lock protecting the state.
-func setDepositFromRedeemLocked(state *refMatchState, redeemHex string) error {
-	norm := strings.ToLower(redeemHex)
-	rb, err := hex.DecodeString(norm)
-	if err != nil {
-		return err
+// buildPerDepositorRedeemScript builds a per-depositor redeem script that does NOT
+// depend on the opponent's key. Winner path accepts a valid Schnorr (alt) sig
+// under depositor's compressed pubkey; timeout path lets depositor recover after CSV.
+//
+// Spend patterns (scriptSig / witness items pushed by spender, last item is top):
+//   - Winner path:  <sig_final> 1
+//   - Timeout path: <sig_owner> <csvBlocks> 0
+//
+// Script (pseudocode):
+//
+//	OP_IF
+//	  <P_c> OP_CHECKSIGALTVERIFY
+//	  OP_TRUE
+//	OP_ELSE
+//	  <csv> OP_CHECKSEQUENCEVERIFY OP_DROP
+//	  <P_c> OP_CHECKSIGALTVERIFY
+//	  OP_TRUE
+//	OP_ENDIF
+func buildPerDepositorRedeemScript(comp33 []byte, csvBlocks uint32) ([]byte, error) {
+	if len(comp33) != 33 {
+		return nil, fmt.Errorf("need 33-byte compressed pubkey")
 	}
-	h := stdaddr.Hash160(rb)
-	pkb, err := txscript.NewScriptBuilder().
-		AddOp(txscript.OP_HASH160).
-		AddData(h[:]).
-		AddOp(txscript.OP_EQUAL).
-		Script()
+	b := txscript.NewScriptBuilder()
+
+	b.AddOp(txscript.OP_IF).
+		AddData(comp33).
+		AddOp(txscript.OP_CHECKSIGALTVERIFY).
+		AddOp(txscript.OP_TRUE).
+		AddOp(txscript.OP_ELSE).
+		AddInt64(int64(csvBlocks)).
+		AddOp(txscript.OP_CHECKSEQUENCEVERIFY).
+		AddOp(txscript.OP_DROP).
+		AddData(comp33).
+		AddOp(txscript.OP_CHECKSIGALTVERIFY).
+		AddOp(txscript.OP_TRUE).
+		AddOp(txscript.OP_ENDIF)
+
+	scr, err := b.Script()
 	if err != nil {
-		return err
+		return nil, err
 	}
-	state.depositRedeemScriptHex = strings.ToLower(hex.EncodeToString(rb))
-	state.depositPkScriptHex = strings.ToLower(hex.EncodeToString(pkb))
-	return nil
+	return scr, nil
+}
+
+// pkScriptAndAddrFromRedeem takes a raw redeem script and returns the P2SH pkScript (hex)
+// and its human-readable address for the given Decred network params.
+// Build P2SH pkScript+address from a redeem script.
+// NOTE: stdaddr wants (scriptVersion, redeem, params), then use addr.PaymentScript().
+func pkScriptAndAddrFromRedeem(redeem []byte, params stdaddr.AddressParams) (pkScriptHex, addr string, err error) {
+	if len(redeem) == 0 {
+		return "", "", fmt.Errorf("empty redeem script")
+	}
+	// v0 script version for Decred standard scripts.
+	a, err := stdaddr.NewAddressScriptHash(0, redeem, params)
+	if err != nil {
+		return "", "", fmt.Errorf("NewAddressScriptHash: %w", err)
+	}
+	sv, pkScript := a.PaymentScript() // returns (version, script)
+	if sv != 0 {
+		return "", "", fmt.Errorf("unexpected script version %d", sv)
+	}
+	return hex.EncodeToString(pkScript), a.String(), nil
 }
 
 // addrFromPkScript returns the canonical address encoded by a v0 P2SH pkScript.
@@ -122,4 +162,28 @@ func deriveAdaptorGamma(matchID, inputID string, branch int32, sighashHex string
 	gammaHex = hex.EncodeToString(g[:])
 	TCompHex = hex.EncodeToString(comp)
 	return
+}
+
+// addPoints returns R+S as a *secp256k1.PublicKey using Jacobian add and affine conversion.
+func addPoints(R, S *secp256k1.PublicKey) (*secp256k1.PublicKey, error) {
+	var rj, sj, sum secp256k1.JacobianPoint
+	R.AsJacobian(&rj)
+	S.AsJacobian(&sj)
+
+	// sum = rj + sj (Jacobian)
+	secp256k1.AddNonConst(&rj, &sj, &sum)
+
+	// Infinity if Z == 0 in Jacobian coords.
+	if sum.Z.IsZero() {
+		return nil, fmt.Errorf("R' is point at infinity")
+	}
+
+	// Convert in place to affine, then build a PublicKey.
+	sum.ToAffine()
+
+	var ax, ay secp256k1.FieldVal
+	ax.Set(&sum.X)
+	ay.Set(&sum.Y)
+
+	return secp256k1.NewPublicKey(&ax, &ay), nil
 }
