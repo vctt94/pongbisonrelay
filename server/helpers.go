@@ -43,8 +43,8 @@ func setDepositFromRedeemLocked(state *refMatchState, redeemHex string) error {
 	if err != nil {
 		return err
 	}
-	state.DepositRedeemScriptHex = strings.ToLower(hex.EncodeToString(rb))
-	state.DepositPkScriptHex = strings.ToLower(hex.EncodeToString(pkb))
+	state.depositRedeemScriptHex = strings.ToLower(hex.EncodeToString(rb))
+	state.depositPkScriptHex = strings.ToLower(hex.EncodeToString(pkb))
 	return nil
 }
 

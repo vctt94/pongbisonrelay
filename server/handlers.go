@@ -21,6 +21,8 @@ import (
 	"github.com/vctt94/pong-bisonrelay/ponggame"
 	"github.com/vctt94/pong-bisonrelay/pongrpc/grpc/pong"
 	"github.com/vctt94/pong-bisonrelay/server/serverdb"
+	"google.golang.org/grpc/codes"
+	"google.golang.org/grpc/status"
 )
 
 // --- Referee service state and handlers ---
@@ -49,36 +51,178 @@ type refAdaptor struct {
 type refMatchState struct {
 	mu sync.RWMutex
 
-	// Stable identifiers
-	MatchID string
+	// match id identifiers
+	matchID string
 
-	// Players' compressed pubkeys (hex, 33B)
-	AComp string
-	BComp string
+	// Players' 33-byte compressed pubkeys (33 bytes)
+	aComp []byte
+	bComp []byte
+	xa    []byte
+	xb    []byte
 
-	CSV      uint32
-	XA       string
-	XB       string
-	Escrows  []refEscrowUTXO
-	FeeAtoms uint64
+	csv      uint32
+	reqAtoms uint64
+	feeAtoms uint64
 
-	// Branch-scoped authoring state
-	BrDraft map[pong.Branch]string // branch -> draft tx hex
+	// Funding/escrow
+	escrows []refEscrowUTXO
 
-	// Collected presigs per branch (inputID -> presig)
-	PreSigsA map[string]refInputPreSig
-	PreSigsB map[string]refInputPreSig
+	brDraft map[pong.Branch]string    // branch -> tx hex
+	preSigA map[string]refInputPreSig // inputID -> presig (branch A)
+	preSigB map[string]refInputPreSig // inputID -> presig (branch B)
 
-	// Legacy single-deposit (kept for compatibility with existing code)
-	DepositPkScriptHex     string
-	DepositRedeemScriptHex string
-	RequiredAtoms          uint64 // per-player deposit amount
+	// hex fields kept for watcher/DB edges
+	depositPkScriptHex      string
+	depositRedeemScriptHex  string
+	aDepositPkScriptHex     string
+	aDepositRedeemScriptHex string
+	bDepositPkScriptHex     string
+	bDepositRedeemScriptHex string
+}
 
-	// Per-player deposits (v0-min)
-	ADepositPkScriptHex     string
-	ADepositRedeemScriptHex string
-	BDepositPkScriptHex     string
-	BDepositRedeemScriptHex string
+// Safe getters (return copies so callers can't mutate internal slices).
+func (s *refMatchState) AComp() []byte {
+	s.mu.RLock()
+	defer s.mu.RUnlock()
+	return append([]byte(nil), s.aComp...)
+}
+func (s *refMatchState) BComp() []byte {
+	s.mu.RLock()
+	defer s.mu.RUnlock()
+	return append([]byte(nil), s.bComp...)
+}
+func (s *refMatchState) XA() []byte {
+	s.mu.RLock()
+	defer s.mu.RUnlock()
+	return append([]byte(nil), s.xa...)
+}
+func (s *refMatchState) XB() []byte {
+	s.mu.RLock()
+	defer s.mu.RUnlock()
+	return append([]byte(nil), s.xb...)
+}
+func (s *refMatchState) CSV() uint32           { s.mu.RLock(); defer s.mu.RUnlock(); return s.csv }
+func (s *refMatchState) RequiredAtoms() uint64 { s.mu.RLock(); defer s.mu.RUnlock(); return s.reqAtoms }
+func (s *refMatchState) FeeAtoms() uint64      { s.mu.RLock(); defer s.mu.RUnlock(); return s.feeAtoms }
+
+// Deposit script getters (byte copies; decode errors return nil)
+func (s *refMatchState) DepositPkScript() []byte {
+	s.mu.RLock()
+	defer s.mu.RUnlock()
+	b, err := hex.DecodeString(s.depositPkScriptHex)
+	if err != nil {
+		return nil
+	}
+	return append([]byte(nil), b...)
+}
+func (s *refMatchState) DepositRedeemScript() []byte {
+	s.mu.RLock()
+	defer s.mu.RUnlock()
+	b, err := hex.DecodeString(s.depositRedeemScriptHex)
+	if err != nil {
+		return nil
+	}
+	return append([]byte(nil), b...)
+}
+func (s *refMatchState) ADepositPkScript() []byte {
+	s.mu.RLock()
+	defer s.mu.RUnlock()
+	b, err := hex.DecodeString(s.aDepositPkScriptHex)
+	if err != nil {
+		return nil
+	}
+	return append([]byte(nil), b...)
+}
+func (s *refMatchState) BDepositPkScript() []byte {
+	s.mu.RLock()
+	defer s.mu.RUnlock()
+	b, err := hex.DecodeString(s.bDepositPkScriptHex)
+	if err != nil {
+		return nil
+	}
+	return append([]byte(nil), b...)
+}
+
+// Setters (validate & copy)
+func (s *refMatchState) SetXA(b []byte) error {
+	if len(b) != 33 {
+		return fmt.Errorf("XA must be 33 bytes")
+	}
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	s.xa = append([]byte(nil), b...)
+	return nil
+}
+func (s *refMatchState) SetXB(b []byte) error {
+	if len(b) != 33 {
+		return fmt.Errorf("XB must be 33 bytes")
+	}
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	s.xb = append([]byte(nil), b...)
+	return nil
+}
+func (s *refMatchState) SetAComp(b []byte) error {
+	if len(b) != 33 {
+		return fmt.Errorf("AComp must be 33 bytes")
+	}
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	s.aComp = append([]byte(nil), b...)
+	return nil
+}
+func (s *refMatchState) SetBComp(b []byte) error {
+	if len(b) != 33 {
+		return fmt.Errorf("BComp must be 33 bytes")
+	}
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	s.bComp = append([]byte(nil), b...)
+	return nil
+}
+
+// Draft / presig helpers
+func (s *refMatchState) SetDraft(br pong.Branch, txHex string) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	if s.brDraft == nil {
+		s.brDraft = make(map[pong.Branch]string)
+	}
+	s.brDraft[br] = txHex
+}
+func (s *refMatchState) Draft(br pong.Branch) (string, bool) {
+	s.mu.RLock()
+	defer s.mu.RUnlock()
+	h, ok := s.brDraft[br]
+	return h, ok
+}
+func (s *refMatchState) AddPreSig(br pong.Branch, inID string, ps refInputPreSig) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	if br == pong.Branch_BRANCH_A {
+		if s.preSigA == nil {
+			s.preSigA = make(map[string]refInputPreSig)
+		}
+		s.preSigA[inID] = ps
+		return
+	}
+	if s.preSigB == nil {
+		s.preSigB = make(map[string]refInputPreSig)
+	}
+	s.preSigB[inID] = ps
+}
+func (s *refMatchState) PreSigs(br pong.Branch) map[string]refInputPreSig {
+	s.mu.RLock()
+	defer s.mu.RUnlock()
+	src := s.preSigA
+	if br == pong.Branch_BRANCH_B {
+		src = s.preSigB
+	}
+	out := make(map[string]refInputPreSig, len(src))
+	for k, v := range src {
+		out[k] = v
+	}
+	return out
 }
 
 type branchStore struct {
@@ -87,9 +231,9 @@ type branchStore struct {
 
 func (st *refMatchState) storeFor(br pong.Branch) branchStore {
 	if br == pong.Branch_BRANCH_A {
-		return branchStore{st.PreSigsA}
+		return branchStore{st.preSigA}
 	}
-	return branchStore{st.PreSigsB}
+	return branchStore{st.preSigB}
 }
 
 func (s *Server) handleReturnUnprocessedTips(ctx context.Context, clientID zkidentity.ShortID) error {
@@ -198,34 +342,32 @@ func (s *Server) ensureRefereeKey() {
 }
 
 // buildEscrowRedeemScript builds the redeemScript for an escrow owned by ownerComp (33b compressed pubkey hex).
-func buildEscrowRedeemScript(state *refMatchState, ownerCompHex string) ([]byte, error) {
+// buildEscrowRedeemScript builds the redeemScript using XA/XB/owner compressed pubkeys (33 bytes).
+func buildEscrowRedeemScript(state *refMatchState, ownerComp []byte) ([]byte, error) {
 	const STSchnorrSecp256k1 int64 = 2
 
-	xa, err := hex.DecodeString(state.XA)
-	if err != nil || len(xa) != 33 {
-		return nil, fmt.Errorf("XA must be 33-byte compressed pubkey hex: %w", err)
+	if len(state.xa) != 33 {
+		return nil, fmt.Errorf("XA must be 33-byte compressed pubkey")
 	}
-	xb, err := hex.DecodeString(state.XB)
-	if err != nil || len(xb) != 33 {
-		return nil, fmt.Errorf("XB must be 33-byte compressed pubkey hex: %w", err)
+	if len(state.xb) != 33 {
+		return nil, fmt.Errorf("XB must be 33-byte compressed pubkey")
 	}
-	owner, err := hex.DecodeString(ownerCompHex)
-	if err != nil || len(owner) != 33 {
-		return nil, fmt.Errorf("owner must be 33-byte compressed pubkey hex: %w", err)
+	if len(ownerComp) != 33 {
+		return nil, fmt.Errorf("owner must be 33-byte compressed pubkey")
 	}
-	if state.CSV <= 0 {
+	if state.csv == 0 {
 		return nil, fmt.Errorf("CSV must be > 0")
 	}
 
 	b := txscript.NewScriptBuilder()
 	b.AddOp(txscript.OP_IF).
-		AddData(xa).AddInt64(STSchnorrSecp256k1).AddOp(txscript.OP_CHECKSIGALT).
+		AddData(state.xa).AddInt64(STSchnorrSecp256k1).AddOp(txscript.OP_CHECKSIGALT).
 		AddOp(txscript.OP_ELSE).
 		AddOp(txscript.OP_IF).
-		AddData(xb).AddInt64(STSchnorrSecp256k1).AddOp(txscript.OP_CHECKSIGALT).
+		AddData(state.xb).AddInt64(STSchnorrSecp256k1).AddOp(txscript.OP_CHECKSIGALT).
 		AddOp(txscript.OP_ELSE).
-		AddInt64(int64(state.CSV)).AddOp(txscript.OP_CHECKSEQUENCEVERIFY).AddOp(txscript.OP_DROP).
-		AddData(owner).AddInt64(STSchnorrSecp256k1).AddOp(txscript.OP_CHECKSIGALT).
+		AddInt64(int64(state.csv)).AddOp(txscript.OP_CHECKSEQUENCEVERIFY).AddOp(txscript.OP_DROP).
+		AddData(ownerComp).AddInt64(STSchnorrSecp256k1).AddOp(txscript.OP_CHECKSIGALT).
 		AddOp(txscript.OP_ENDIF).
 		AddOp(txscript.OP_ENDIF)
 
@@ -241,10 +383,7 @@ func buildEscrowRedeemScript(state *refMatchState, ownerCompHex string) ([]byte,
 func (s *Server) RevealAdaptors(ctx context.Context, req *pong.RevealAdaptorsRequest) (*pong.RevealAdaptorsResponse, error) {
 	var out *pong.RevealAdaptorsResponse
 	err := s.withMatch(ctx, req.MatchId, func(st *refMatchState) error {
-		bdHex := ""
-		if st.BrDraft != nil {
-			bdHex = st.BrDraft[req.Branch]
-		}
+		bdHex, _ := st.Draft(req.Branch)
 		if bdHex == "" {
 			return fmt.Errorf("no draft for branch")
 		}
@@ -256,9 +395,8 @@ func (s *Server) RevealAdaptors(ctx context.Context, req *pong.RevealAdaptorsReq
 		if err := tx.Deserialize(bytes.NewReader(txb)); err != nil {
 			return fmt.Errorf("bad tx")
 		}
-		bstore := st.storeFor(req.Branch)
-		entries := make([]*pong.RevealAdaptorEntry, 0, len(bstore.pre))
-		for id := range bstore.pre {
+		entries := make([]*pong.RevealAdaptorEntry, 0)
+		for id := range st.PreSigs(req.Branch) {
 			parts := strings.Split(id, ":")
 			if len(parts) != 2 {
 				return fmt.Errorf("bad input id: %s", id)
@@ -277,14 +415,14 @@ func (s *Server) RevealAdaptors(ctx context.Context, req *pong.RevealAdaptorsReq
 			if idx < 0 {
 				return fmt.Errorf("input not in draft: %s", id)
 			}
-			redeemA, _ := buildEscrowRedeemScript(st, st.AComp)
-			redeemB, _ := buildEscrowRedeemScript(st, st.BComp)
+			redeemA, _ := buildEscrowRedeemScript(st, st.AComp())
+			redeemB, _ := buildEscrowRedeemScript(st, st.BComp())
 			mA, _ := txscript.CalcSignatureHash(redeemA, txscript.SigHashAll, &tx, idx, nil)
 			mB, _ := txscript.CalcSignatureHash(redeemB, txscript.SigHashAll, &tx, idx, nil)
-			gammaHexA, _ := deriveAdaptorGamma(st.MatchID, id, int32(req.Branch), hex.EncodeToString(mA), s.refereePrivKeyHex)
+			gammaHexA, _ := deriveAdaptorGamma(st.matchID, id, int32(req.Branch), hex.EncodeToString(mA), s.refereePrivKeyHex)
 			gammaHex := gammaHexA
 			if gammaHex == "" {
-				gammaHex, _ = deriveAdaptorGamma(st.MatchID, id, int32(req.Branch), hex.EncodeToString(mB), s.refereePrivKeyHex)
+				gammaHex, _ = deriveAdaptorGamma(st.matchID, id, int32(req.Branch), hex.EncodeToString(mB), s.refereePrivKeyHex)
 			}
 			entries = append(entries, &pong.RevealAdaptorEntry{InputId: id, Gamma: gammaHex})
 		}
@@ -294,10 +432,106 @@ func (s *Server) RevealAdaptors(ctx context.Context, req *pong.RevealAdaptorsReq
 	return out, err
 }
 
+// buildBranchForStream builds a single-branch draft and NeedPreSigs inputs for the stream.
+func (s *Server) buildBranchForStream(ctx context.Context, matchID string, br pong.Branch) (string, []*pong.NeedPreSigs_PerInput, error) {
+	s.RLock()
+	state, ok := s.matches[matchID]
+	s.RUnlock()
+	if !ok {
+		return "", nil, fmt.Errorf("unknown match id")
+	}
+	s.ensureRefereeKey()
+	var escrows []refEscrowUTXO
+	if state.aDepositPkScriptHex != "" {
+		if us, _, ok := s.watcher.queryDeposit(state.aDepositPkScriptHex); ok && len(us) > 0 {
+			e := us[0]
+			escrows = append(escrows, refEscrowUTXO{TxID: e.Txid, Vout: e.Vout, Value: e.Value, RedeemScriptHex: e.RedeemScriptHex, PkScriptHex: e.PkScriptHex, Owner: "A"})
+		}
+	}
+	if state.bDepositPkScriptHex != "" {
+		if us, _, ok := s.watcher.queryDeposit(state.bDepositPkScriptHex); ok && len(us) > 0 {
+			e := us[0]
+			escrows = append(escrows, refEscrowUTXO{TxID: e.Txid, Vout: e.Vout, Value: e.Value, RedeemScriptHex: e.RedeemScriptHex, PkScriptHex: e.PkScriptHex, Owner: "B"})
+		}
+	}
+	if len(escrows) != 2 {
+		return "", nil, fmt.Errorf("need 2 deposits")
+	}
+
+	// Build the branch draft paying to XA (A) or XB (B)
+	build := func(payoutX []byte) (string, error) {
+		tx := wire.NewMsgTx()
+		totalIn := int64(0)
+		for _, e := range escrows {
+			var h chainhash.Hash
+			_ = chainhash.Decode(&h, e.TxID)
+			op := wire.NewOutPoint(&h, e.Vout, 0)
+			tx.AddTxIn(wire.NewTxIn(op, int64(e.Value), nil))
+			totalIn += int64(e.Value)
+		}
+		fee := state.FeeAtoms()
+		if totalIn < int64(fee) {
+			return "", fmt.Errorf("fee exceeds total inputs")
+		}
+		pay := totalIn - int64(fee)
+		pkAlt, _ := txscript.NewScriptBuilder().AddData(payoutX).AddInt64(2).AddOp(txscript.OP_CHECKSIGALT).Script()
+		tx.AddTxOut(&wire.TxOut{Value: pay, Version: 0, PkScript: pkAlt})
+		var buf bytes.Buffer
+		_ = tx.Serialize(&buf)
+		return hex.EncodeToString(buf.Bytes()), nil
+	}
+
+	var payout []byte
+	if br == pong.Branch_BRANCH_A {
+		payout = state.XA()
+	} else {
+		payout = state.XB()
+	}
+	txHex, err := build(payout)
+	if err != nil {
+		return "", nil, err
+	}
+	state.SetDraft(br, txHex)
+
+	// Per-input values (m, T) for this branch only
+	out := make([]*pong.NeedPreSigs_PerInput, 0, len(escrows))
+	for idx, e := range escrows {
+		redeemOwner := state.AComp()
+		if e.Owner == "B" {
+			redeemOwner = state.BComp()
+		}
+		redeem, err := buildEscrowRedeemScript(state, redeemOwner)
+		if err != nil {
+			return "", nil, fmt.Errorf("buildEscrowRedeemScript: %w", err)
+		}
+		// Sighash for this input
+		var tx wire.MsgTx
+		if b, err := hex.DecodeString(txHex); err == nil {
+			if err := tx.Deserialize(bytes.NewReader(b)); err != nil {
+				return "", nil, fmt.Errorf("bad tx hex")
+			}
+		} else {
+			return "", nil, fmt.Errorf("bad tx hex")
+		}
+		m, err := txscript.CalcSignatureHash(redeem, txscript.SigHashAll, &tx, idx, nil)
+		if err != nil || len(m) != 32 {
+			return "", nil, fmt.Errorf("sighash")
+		}
+		id := fmt.Sprintf("%s:%d", e.TxID, e.Vout)
+		_, TCompHex := deriveAdaptorGamma(state.matchID, id, int32(br), hex.EncodeToString(m), s.refereePrivKeyHex)
+		entry := &pong.NeedPreSigs_PerInput{InputId: id, RedeemScriptHex: hex.EncodeToString(redeem)}
+		entry.MHex = hex.EncodeToString(m)
+		entry.TCompressed, _ = hex.DecodeString(TCompHex)
+		out = append(out, entry)
+	}
+	return txHex, out, nil
+}
+
 // SettlementStream
 func (s *Server) SettlementStream(stream pong.PongReferee_SettlementStreamServer) error {
 	ctx := stream.Context()
 	var matchID string
+	var roleForStream pong.Branch
 	for {
 		in, err := stream.Recv()
 		if err != nil {
@@ -312,32 +546,43 @@ func (s *Server) SettlementStream(stream pong.PongReferee_SettlementStreamServer
 			s.RLock()
 			st := s.matches[matchID]
 			s.RUnlock()
-			if st != nil {
-				reqAtoms = st.RequiredAtoms
-				pkHex = st.DepositPkScriptHex
+			if st == nil {
+				return status.Errorf(codes.NotFound, "unknown match")
 			}
-			_ = stream.Send(&pong.ServerMsg{MatchId: matchID, Kind: &pong.ServerMsg_Role{Role: &pong.AssignRole{Role: pong.AssignRole_A, RequiredAtoms: reqAtoms, DepositPkscriptHex: pkHex}}})
+			// Determine role from client's compressed pubkey
+			if bytes.Equal(h.CompPubkey, st.AComp()) {
+				roleForStream = pong.Branch_BRANCH_A
+			} else if bytes.Equal(h.CompPubkey, st.BComp()) {
+				roleForStream = pong.Branch_BRANCH_B
+			} else {
+				return status.Errorf(codes.PermissionDenied, "pubkey not part of match")
+			}
+			reqAtoms = st.RequiredAtoms()
+			pkHex = st.depositPkScriptHex
 
-			aHex, bHex, inputs, err := s.buildBothBranchesForStream(ctx, matchID)
+			_ = stream.Send(&pong.ServerMsg{MatchId: matchID, Kind: &pong.ServerMsg_Role{Role: &pong.AssignRole{Role: pong.AssignRole_Role(roleForStream), RequiredAtoms: reqAtoms, DepositPkscriptHex: pkHex}}})
+
+			txHex, inputs, err := s.buildBranchForStream(ctx, matchID, roleForStream)
 			if err != nil {
-				_ = stream.Send(&pong.ServerMsg{MatchId: matchID, Kind: &pong.ServerMsg_Info{Info: &pong.Info{Text: "error building drafts"}}})
+				_ = stream.Send(&pong.ServerMsg{MatchId: matchID, Kind: &pong.ServerMsg_Info{Info: &pong.Info{Text: err.Error()}}})
 				continue
 			}
-			nps := &pong.NeedPreSigs{BranchesToPresign: []pong.Branch{pong.Branch_BRANCH_A, pong.Branch_BRANCH_B}, DraftAwinsTxHex: aHex, DraftBwinsTxHex: bHex, Inputs: inputs}
+			nps := &pong.NeedPreSigs{Branch: roleForStream, DraftTxHex: txHex, Inputs: inputs}
+			fmt.Printf("nps: %v\n", nps)
 			_ = stream.Send(&pong.ServerMsg{MatchId: matchID, Kind: &pong.ServerMsg_Req{Req: nps}})
 			continue
 		}
 		// The client computes R' locally in computePreSig(xPrivHex, mHex, TCompHex string),
 		//  extracts r' = x(R'), and sends only (r', s').
 		if pb := in.GetPresigs(); pb != nil {
+			if pb.Branch != roleForStream {
+				return status.Errorf(codes.PermissionDenied, "client cannot presign branch %v", pb.Branch)
+			}
 			s.withMatch(ctx, matchID, func(st *refMatchState) error {
-				bs := st.storeFor(pb.Branch)
 				for _, sig := range pb.Presigs {
 					rx := hex.EncodeToString(sig.Rprime32)
 					sp := hex.EncodeToString(sig.Sprime32)
-					st.mu.Lock()
-					bs.pre[sig.InputId] = refInputPreSig{InputID: sig.InputId, RX: rx, SPrime: sp}
-					st.mu.Unlock()
+					st.AddPreSig(pb.Branch, sig.InputId, refInputPreSig{InputID: sig.InputId, RX: rx, SPrime: sp})
 				}
 				return nil
 			})
@@ -351,106 +596,6 @@ func (s *Server) SettlementStream(stream pong.PongReferee_SettlementStreamServer
 	}
 }
 
-// buildBothBranchesForStream builds both branch drafts and NeedPreSigs inputs for the stream.
-func (s *Server) buildBothBranchesForStream(ctx context.Context, matchID string) (string, string, []*pong.NeedPreSigs_PerInput, error) {
-	s.RLock()
-	state, ok := s.matches[matchID]
-	s.RUnlock()
-	if !ok {
-		return "", "", nil, fmt.Errorf("unknown match id")
-	}
-	s.ensureRefereeKey()
-	var escrows []refEscrowUTXO
-	if state.ADepositPkScriptHex != "" {
-		if us, _, ok := s.watcher.queryDeposit(state.ADepositPkScriptHex); ok && len(us) > 0 {
-			e := us[0]
-			escrows = append(escrows, refEscrowUTXO{TxID: e.Txid, Vout: e.Vout, Value: e.Value, RedeemScriptHex: e.RedeemScriptHex, PkScriptHex: e.PkScriptHex, Owner: "A"})
-		}
-	}
-	if state.BDepositPkScriptHex != "" {
-		if us, _, ok := s.watcher.queryDeposit(state.BDepositPkScriptHex); ok && len(us) > 0 {
-			e := us[0]
-			escrows = append(escrows, refEscrowUTXO{TxID: e.Txid, Vout: e.Vout, Value: e.Value, RedeemScriptHex: e.RedeemScriptHex, PkScriptHex: e.PkScriptHex, Owner: "B"})
-		}
-	}
-	if len(escrows) != 2 {
-		return "", "", nil, fmt.Errorf("need 2 deposits")
-	}
-	build := func(branch pong.Branch, payoutX string) (string, map[string]struct{ m, t string }, error) {
-		tx := wire.NewMsgTx()
-		totalIn := int64(0)
-		for _, e := range escrows {
-			var h chainhash.Hash
-			_ = chainhash.Decode(&h, e.TxID)
-			op := wire.NewOutPoint(&h, e.Vout, 0)
-			tx.AddTxIn(wire.NewTxIn(op, int64(e.Value), nil))
-			totalIn += int64(e.Value)
-		}
-		fee := state.FeeAtoms
-		if totalIn < int64(fee) {
-			return "", nil, fmt.Errorf("fee exceeds total inputs")
-		}
-		pay := totalIn - int64(fee)
-		x, _ := hex.DecodeString(payoutX)
-		pkAlt, _ := txscript.NewScriptBuilder().AddData(x).AddInt64(2).AddOp(txscript.OP_CHECKSIGALT).Script()
-		tx.AddTxOut(&wire.TxOut{Value: pay, Version: 0, PkScript: pkAlt})
-		var buf bytes.Buffer
-		_ = tx.Serialize(&buf)
-		txHex := hex.EncodeToString(buf.Bytes())
-		perInput := make(map[string]struct{ m, t string })
-		for idx, e := range escrows {
-			ownerComp := state.AComp
-			if e.Owner == "B" {
-				ownerComp = state.BComp
-			}
-			redeem, err := buildEscrowRedeemScript(state, ownerComp)
-			if err != nil {
-				return "", nil, fmt.Errorf("buildEscrowRedeemScript: %w", err)
-			}
-			m, err := txscript.CalcSignatureHash(redeem, txscript.SigHashAll, tx, idx, nil)
-			if err != nil || len(m) != 32 {
-				return "", nil, fmt.Errorf("sighash")
-			}
-			id := fmt.Sprintf("%s:%d", e.TxID, e.Vout)
-			_, TCompHex := deriveAdaptorGamma(state.MatchID, id, int32(branch), hex.EncodeToString(m), s.refereePrivKeyHex)
-			perInput[id] = struct{ m, t string }{m: hex.EncodeToString(m), t: TCompHex}
-		}
-		return txHex, perInput, nil
-	}
-	aHex, aInputs, err := build(pong.Branch_BRANCH_A, state.XA)
-	if err != nil {
-		return "", "", nil, err
-	}
-	bHex, bInputs, err := build(pong.Branch_BRANCH_B, state.XB)
-	if err != nil {
-		return "", "", nil, err
-	}
-	state.mu.Lock()
-	state.Escrows = escrows
-	if state.BrDraft == nil {
-		state.BrDraft = make(map[pong.Branch]string)
-	}
-	state.BrDraft[pong.Branch_BRANCH_A] = aHex
-	state.BrDraft[pong.Branch_BRANCH_B] = bHex
-	state.mu.Unlock()
-	var out []*pong.NeedPreSigs_PerInput
-	for _, e := range escrows {
-		id := fmt.Sprintf("%s:%d", e.TxID, e.Vout)
-		redeemOwner := state.AComp
-		if e.Owner == "B" {
-			redeemOwner = state.BComp
-		}
-		redeem, err := buildEscrowRedeemScript(state, redeemOwner)
-		if err != nil {
-			return "", "", nil, fmt.Errorf("buildEscrowRedeemScript: %w", err)
-		}
-		tA, _ := hex.DecodeString(aInputs[id].t)
-		tB, _ := hex.DecodeString(bInputs[id].t)
-		out = append(out, &pong.NeedPreSigs_PerInput{InputId: id, RedeemScriptHex: hex.EncodeToString(redeem), MAwinsHex: aInputs[id].m, TAwinsCompressed: tA, MBwinsHex: bInputs[id].m, TBwinsCompressed: tB})
-	}
-	return aHex, bHex, out, nil
-}
-
 // v0-min: AllocateMatch builds per-player deposit scripts/addresses with fixed CSV and stores minimal state.
 func (s *Server) AllocateMatch(ctx context.Context, req *pong.AllocateMatchRequest) (*pong.AllocateMatchResponse, error) {
 	s.ensureRefereeKey()
@@ -458,24 +603,26 @@ func (s *Server) AllocateMatch(ctx context.Context, req *pong.AllocateMatchReque
 		return nil, fmt.Errorf("invalid request")
 	}
 	matchID := fmt.Sprintf("%d", time.Now().UnixNano())
+	aComp, _ := hex.DecodeString(req.AC)
+	bComp, _ := hex.DecodeString(req.BC)
 	state := &refMatchState{
-		MatchID:       matchID,
-		AComp:         req.AC,
-		BComp:         req.BC,
-		CSV:           64,
-		XA:            req.AC,
-		XB:            req.BC,
-		PreSigsA:      make(map[string]refInputPreSig),
-		PreSigsB:      make(map[string]refInputPreSig),
-		RequiredAtoms: req.BetAtoms,
-		FeeAtoms:      s.pocFeeAtoms,
+		matchID:  matchID,
+		aComp:    aComp,
+		bComp:    bComp,
+		csv:      64,
+		xa:       aComp,
+		xb:       bComp,
+		preSigA:  make(map[string]refInputPreSig),
+		preSigB:  make(map[string]refInputPreSig),
+		reqAtoms: req.BetAtoms,
+		feeAtoms: s.pocFeeAtoms,
 	}
 	// Build redeem scripts for each player using shared XA/XB and distinct P_i
-	redeema, err := buildEscrowRedeemScript(state, state.AComp)
+	redeema, err := buildEscrowRedeemScript(state, state.AComp())
 	if err != nil {
 		return nil, fmt.Errorf("buildEscrowRedeemScript: %w", err)
 	}
-	redeemb, err := buildEscrowRedeemScript(state, state.BComp)
+	redeemb, err := buildEscrowRedeemScript(state, state.BComp())
 	if err != nil {
 		return nil, fmt.Errorf("buildEscrowRedeemScript: %w", err)
 	}
@@ -483,27 +630,27 @@ func (s *Server) AllocateMatch(ctx context.Context, req *pong.AllocateMatchReque
 	s.matches[matchID] = state
 	// Store per-player deposit scripts
 	if err := setDepositFromRedeemLocked(state, hex.EncodeToString(redeema)); err == nil {
-		state.ADepositRedeemScriptHex = state.DepositRedeemScriptHex
-		state.ADepositPkScriptHex = state.DepositPkScriptHex
+		state.aDepositRedeemScriptHex = state.depositRedeemScriptHex
+		state.aDepositPkScriptHex = state.depositPkScriptHex
 	}
 	if err := setDepositFromRedeemLocked(state, hex.EncodeToString(redeemb)); err == nil {
-		state.BDepositRedeemScriptHex = state.DepositRedeemScriptHex
-		state.BDepositPkScriptHex = state.DepositPkScriptHex
+		state.bDepositRedeemScriptHex = state.depositRedeemScriptHex
+		state.bDepositPkScriptHex = state.depositPkScriptHex
 	}
 	s.Unlock()
 	// Addresses
-	addrA, _ := addrFromPkScript(state.ADepositPkScriptHex, chaincfg.TestNet3Params())
-	addrB, _ := addrFromPkScript(state.BDepositPkScriptHex, chaincfg.TestNet3Params())
+	addrA, _ := addrFromPkScript(state.aDepositPkScriptHex, chaincfg.TestNet3Params())
+	addrB, _ := addrFromPkScript(state.bDepositPkScriptHex, chaincfg.TestNet3Params())
 	return &pong.AllocateMatchResponse{
 		MatchId:          matchID,
 		Csv:              64,
 		BetAtoms:         req.BetAtoms,
 		FeeAtoms:         s.pocFeeAtoms,
-		ARedeemScriptHex: state.ADepositRedeemScriptHex,
-		APkScriptHex:     state.ADepositPkScriptHex,
+		ARedeemScriptHex: state.aDepositRedeemScriptHex,
+		APkScriptHex:     state.aDepositPkScriptHex,
 		ADepositAddress:  addrA,
-		BRedeemScriptHex: state.BDepositRedeemScriptHex,
-		BPkScriptHex:     state.BDepositPkScriptHex,
+		BRedeemScriptHex: state.bDepositRedeemScriptHex,
+		BPkScriptHex:     state.bDepositPkScriptHex,
 		BDepositAddress:  addrB,
 	}, nil
 }
@@ -528,14 +675,14 @@ func (s *Server) WaitFunding(req *pong.WaitFundingRequest, stream pong.PongRefer
 				return fmt.Errorf("chain access not configured")
 			}
 			// Ensure watcher has both scripts registered
-			if state.ADepositPkScriptHex != "" {
-				s.watcher.registerDeposit(state.ADepositPkScriptHex, state.ADepositRedeemScriptHex, state.MatchID+"/A")
+			if state.aDepositPkScriptHex != "" {
+				s.watcher.registerDeposit(state.aDepositPkScriptHex, state.aDepositRedeemScriptHex, state.matchID+"/A")
 			}
-			if state.BDepositPkScriptHex != "" {
-				s.watcher.registerDeposit(state.BDepositPkScriptHex, state.BDepositRedeemScriptHex, state.MatchID+"/B")
+			if state.bDepositPkScriptHex != "" {
+				s.watcher.registerDeposit(state.bDepositPkScriptHex, state.bDepositRedeemScriptHex, state.matchID+"/B")
 			}
-			utxosA, confA, _ := s.watcher.queryDeposit(state.ADepositPkScriptHex)
-			utxosB, confB, _ := s.watcher.queryDeposit(state.BDepositPkScriptHex)
+			utxosA, confA, _ := s.watcher.queryDeposit(state.aDepositPkScriptHex)
+			utxosB, confB, _ := s.watcher.queryDeposit(state.bDepositPkScriptHex)
 			var ua, ub *pong.EscrowUTXO
 			if len(utxosA) > 0 {
 				ua = utxosA[0]
@@ -580,25 +727,25 @@ func (s *Server) AllocateEscrow(ctx context.Context, req *pong.AllocateEscrowReq
 		if !ok {
 			if rec, err := s.db.FetchRefMatch(ctx, matchID); err == nil && rec != nil {
 				rs := &refMatchState{
-					MatchID:                rec.MatchID,
-					AComp:                  rec.AComp,
-					BComp:                  rec.BComp,
-					CSV:                    rec.CSV,
-					XA:                     rec.XA,
-					XB:                     rec.XB,
-					PreSigsA:               make(map[string]refInputPreSig),
-					PreSigsB:               make(map[string]refInputPreSig),
-					DepositPkScriptHex:     rec.DepositPkScriptHex,
-					DepositRedeemScriptHex: rec.DepositRedeemScriptHex,
-					RequiredAtoms:          rec.RequiredAtoms,
+					matchID:                rec.MatchID,
+					aComp:                  append([]byte(nil), rec.AComp...),
+					bComp:                  append([]byte(nil), rec.BComp...),
+					csv:                    rec.CSV,
+					xa:                     append([]byte(nil), rec.XA...),
+					xb:                     append([]byte(nil), rec.XB...),
+					preSigA:                make(map[string]refInputPreSig),
+					preSigB:                make(map[string]refInputPreSig),
+					depositPkScriptHex:     rec.DepositPkScriptHex,
+					depositRedeemScriptHex: rec.DepositRedeemScriptHex,
+					reqAtoms:               rec.RequiredAtoms,
 				}
 				// Mirror deposit into A-deposit fields for funding queries
-				rs.ADepositPkScriptHex = rs.DepositPkScriptHex
-				rs.ADepositRedeemScriptHex = rs.DepositRedeemScriptHex
+				rs.aDepositPkScriptHex = rs.depositPkScriptHex
+				rs.aDepositRedeemScriptHex = rs.depositRedeemScriptHex
 				s.Lock()
 				s.matches[matchID] = rs
-				if s.dcrd != nil && s.watcher != nil && rs.DepositPkScriptHex != "" {
-					s.watcher.registerDeposit(rs.DepositPkScriptHex, rs.DepositRedeemScriptHex, rs.MatchID)
+				if s.dcrd != nil && s.watcher != nil && rs.depositPkScriptHex != "" {
+					s.watcher.registerDeposit(rs.depositPkScriptHex, rs.depositRedeemScriptHex, rs.matchID)
 				}
 				s.Unlock()
 				state = rs
@@ -609,16 +756,16 @@ func (s *Server) AllocateEscrow(ctx context.Context, req *pong.AllocateEscrowReq
 			resp := &pong.AllocateEscrowResponse{
 				MatchId:         matchID,
 				Role:            pong.Branch_BRANCH_A,
-				XA:              state.XA,
-				XB:              state.XB,
-				Csv:             state.CSV,
+				XA:              hex.EncodeToString(state.XA()),
+				XB:              hex.EncodeToString(state.XB()),
+				Csv:             state.CSV(),
 				DepositAddress:  "",
-				RedeemScriptHex: state.DepositRedeemScriptHex,
-				PkScriptHex:     state.DepositPkScriptHex,
-				RequiredAtoms:   state.RequiredAtoms,
+				RedeemScriptHex: state.depositRedeemScriptHex,
+				PkScriptHex:     state.depositPkScriptHex,
+				RequiredAtoms:   state.RequiredAtoms(),
 			}
-			if state.DepositPkScriptHex != "" {
-				if addr, err := addrFromPkScript(state.DepositPkScriptHex, chaincfg.TestNet3Params()); err == nil {
+			if state.depositPkScriptHex != "" {
+				if addr, err := addrFromPkScript(state.depositPkScriptHex, chaincfg.TestNet3Params()); err == nil {
 					resp.DepositAddress = addr
 				} else {
 					s.log.Warnf("AllocateEscrow restore: cannot extract address: %v", err)
@@ -639,23 +786,25 @@ func (s *Server) AllocateEscrow(ctx context.Context, req *pong.AllocateEscrowReq
 	// Ensure distinct branch keys for PoC: A-branch uses player's key; B-branch uses placeholder server key until pairing is implemented.
 	xA := req.AC
 	xB := s.refereePubCompressed
-
+	xAb, _ := hex.DecodeString(xA)
+	xBb, _ := hex.DecodeString(xB)
+	aCb, _ := hex.DecodeString(req.AC)
 	state := &refMatchState{
-		MatchID:  matchID,
-		AComp:    req.AC,
-		BComp:    s.refereePubCompressed, // placeholder until paired
-		CSV:      req.Csv,
-		XA:       xA,
-		XB:       xB,
-		PreSigsA: make(map[string]refInputPreSig),
-		PreSigsB: make(map[string]refInputPreSig),
+		matchID: matchID,
+		aComp:   aCb,
+		bComp:   xBb, // placeholder until paired
+		csv:     req.Csv,
+		xa:      xAb,
+		xb:      xBb,
+		preSigA: make(map[string]refInputPreSig),
+		preSigB: make(map[string]refInputPreSig),
 	}
 	s.Lock()
 	s.matches[matchID] = state
 	s.Unlock()
 
 	// Build redeemScript for role A and persist via helper under lock
-	redeem, err := buildEscrowRedeemScript(state, req.AC)
+	redeem, err := buildEscrowRedeemScript(state, aCb)
 	if err != nil {
 		return nil, fmt.Errorf("buildEscrowRedeemScript: %w", err)
 	}
@@ -665,11 +814,11 @@ func (s *Server) AllocateEscrow(ctx context.Context, req *pong.AllocateEscrowReq
 		return nil, err
 	}
 	// Mirror legacy single-deposit into A-deposit fields so WaitFunding can track it.
-	state.ADepositRedeemScriptHex = state.DepositRedeemScriptHex
-	state.ADepositPkScriptHex = state.DepositPkScriptHex
-	state.RequiredAtoms = req.BetAtoms
+	state.aDepositRedeemScriptHex = state.depositRedeemScriptHex
+	state.aDepositPkScriptHex = state.depositPkScriptHex
+	state.reqAtoms = req.BetAtoms
 	if s.dcrd != nil && s.watcher != nil {
-		s.watcher.registerDeposit(state.DepositPkScriptHex, state.DepositRedeemScriptHex, state.MatchID)
+		s.watcher.registerDeposit(state.depositPkScriptHex, state.depositRedeemScriptHex, state.matchID)
 	}
 	// Remember mapping so subsequent AllocateEscrow from same player reuses match
 	if req.PlayerId != "" {
@@ -683,22 +832,22 @@ func (s *Server) AllocateEscrow(ctx context.Context, req *pong.AllocateEscrowReq
 
 	// Persist minimal state and mapping AFTER deposit fields are set
 	_ = s.db.SaveRefMatch(ctx, &serverdb.RefMatchRecord{
-		MatchID:                state.MatchID,
-		AComp:                  state.AComp,
-		BComp:                  state.BComp,
-		CSV:                    state.CSV,
-		XA:                     state.XA,
-		XB:                     state.XB,
-		DepositPkScriptHex:     state.DepositPkScriptHex,
-		DepositRedeemScriptHex: state.DepositRedeemScriptHex,
-		RequiredAtoms:          state.RequiredAtoms,
+		MatchID:                state.matchID,
+		AComp:                  append([]byte(nil), state.AComp()...),
+		BComp:                  append([]byte(nil), state.BComp()...),
+		XA:                     append([]byte(nil), state.XA()...),
+		XB:                     append([]byte(nil), state.XB()...),
+		CSV:                    state.CSV(),
+		DepositPkScriptHex:     state.depositPkScriptHex,
+		DepositRedeemScriptHex: state.depositRedeemScriptHex,
+		RequiredAtoms:          state.RequiredAtoms(),
 	})
 	// v0-min: no SaveRefAlloc mapping by player
 
 	// Derive address strictly from pkScript using stdscript
 	depositAddress := ""
-	if state.DepositPkScriptHex != "" {
-		if a, err := addrFromPkScript(state.DepositPkScriptHex, chaincfg.TestNet3Params()); err == nil {
+	if state.depositPkScriptHex != "" {
+		if a, err := addrFromPkScript(state.depositPkScriptHex, chaincfg.TestNet3Params()); err == nil {
 			depositAddress = a
 		} else {
 			s.log.Warnf("AllocateEscrow: cannot extract address from pkScript: %v", err)
@@ -706,23 +855,23 @@ func (s *Server) AllocateEscrow(ctx context.Context, req *pong.AllocateEscrowReq
 	}
 
 	// Optional runtime guard: ensure pkScript length looks correct and log inconsistencies
-	if depositAddress != "" && state.DepositPkScriptHex != "" {
-		pk := strings.ToLower(state.DepositPkScriptHex)
+	if depositAddress != "" && state.depositPkScriptHex != "" {
+		pk := strings.ToLower(state.depositPkScriptHex)
 		if len(pk) != 46 { // 23 bytes * 2 hex
 			s.log.Warnf("pkScript unexpected length for match %s: %d", matchID, len(pk))
 		}
 	}
 
 	pkLen := 0
-	if state.DepositPkScriptHex != "" {
-		if pkb, err := hex.DecodeString(state.DepositPkScriptHex); err == nil {
+	if state.depositPkScriptHex != "" {
+		if pkb, err := hex.DecodeString(state.depositPkScriptHex); err == nil {
 			pkLen = len(pkb)
 		}
 	}
 	s.log.Infof("AllocateEscrow: match_id=%s deposit_address=%s redeem_len=%d pk_len=%d", matchID, depositAddress, len(redeem), pkLen)
 	// Diagnostics: also log pkScript used to derive the address
-	if state.DepositPkScriptHex != "" {
-		s.log.Infof("AllocateEscrow: pkScript=%s addr=%s", state.DepositPkScriptHex, depositAddress)
+	if state.depositPkScriptHex != "" {
+		s.log.Infof("AllocateEscrow: pkScript=%s addr=%s", state.depositPkScriptHex, depositAddress)
 	}
 
 	resp := &pong.AllocateEscrowResponse{
@@ -732,8 +881,8 @@ func (s *Server) AllocateEscrow(ctx context.Context, req *pong.AllocateEscrowReq
 		XB:              xB,
 		Csv:             req.Csv,
 		DepositAddress:  depositAddress,
-		RedeemScriptHex: state.DepositRedeemScriptHex,
-		PkScriptHex:     state.DepositPkScriptHex,
+		RedeemScriptHex: state.depositRedeemScriptHex,
+		PkScriptHex:     state.depositPkScriptHex,
 		RequiredAtoms:   req.BetAtoms,
 	}
 	return resp, nil
@@ -812,25 +961,25 @@ func (s *Server) setAutoReady(st *refMatchState, playerID string) {
 // queryFunding returns (utxos, minConf, err)
 func (s *Server) queryFunding(st *refMatchState) ([]*pong.EscrowUTXO, uint32, error) {
 	// Prefer watcher with per-player deposits (A/B). Fall back to escrows list if already set.
-	if st.ADepositPkScriptHex != "" || st.BDepositPkScriptHex != "" {
+	if st.aDepositPkScriptHex != "" || st.bDepositPkScriptHex != "" {
 		if s.watcher == nil {
 			return nil, 0, fmt.Errorf("watcher not initialized")
 		}
-		if st.ADepositPkScriptHex != "" {
-			s.watcher.registerDeposit(st.ADepositPkScriptHex, st.ADepositRedeemScriptHex, st.MatchID+"/A")
+		if st.aDepositPkScriptHex != "" {
+			s.watcher.registerDeposit(st.aDepositPkScriptHex, st.aDepositRedeemScriptHex, st.matchID+"/A")
 		}
-		if st.BDepositPkScriptHex != "" {
-			s.watcher.registerDeposit(st.BDepositPkScriptHex, st.BDepositRedeemScriptHex, st.MatchID+"/B")
+		if st.bDepositPkScriptHex != "" {
+			s.watcher.registerDeposit(st.bDepositPkScriptHex, st.bDepositRedeemScriptHex, st.matchID+"/B")
 		}
 		var all []*pong.EscrowUTXO
 		min := ^uint32(0)
-		if us, c, ok := s.watcher.queryDeposit(st.ADepositPkScriptHex); ok {
+		if us, c, ok := s.watcher.queryDeposit(st.aDepositPkScriptHex); ok {
 			all = append(all, us...)
 			if c < min {
 				min = c
 			}
 		}
-		if us, c, ok := s.watcher.queryDeposit(st.BDepositPkScriptHex); ok {
+		if us, c, ok := s.watcher.queryDeposit(st.bDepositPkScriptHex); ok {
 			all = append(all, us...)
 			if c < min {
 				min = c
@@ -846,12 +995,12 @@ func (s *Server) queryFunding(st *refMatchState) ([]*pong.EscrowUTXO, uint32, er
 	if s.dcrd == nil {
 		return nil, 0, fmt.Errorf("dcrd RPC not configured")
 	}
-	if len(st.Escrows) == 0 {
+	if len(st.escrows) == 0 {
 		return nil, 0, nil
 	}
-	utxos := make([]*pong.EscrowUTXO, 0, len(st.Escrows))
+	utxos := make([]*pong.EscrowUTXO, 0, len(st.escrows))
 	min := ^uint32(0)
-	for _, e := range st.Escrows {
+	for _, e := range st.escrows {
 		utxos = append(utxos, &pong.EscrowUTXO{Txid: e.TxID, Vout: e.Vout, Value: e.Value, RedeemScriptHex: e.RedeemScriptHex, PkScriptHex: e.PkScriptHex, Owner: e.Owner})
 		var h chainhash.Hash
 		if err := chainhash.Decode(&h, e.TxID); err != nil {
@@ -875,13 +1024,12 @@ func (s *Server) queryFunding(st *refMatchState) ([]*pong.EscrowUTXO, uint32, er
 func (s *Server) FinalizeWinner(ctx context.Context, req *pong.FinalizeWinnerRequest) (*pong.FinalizeWinnerResponse, error) {
 	var out *pong.FinalizeWinnerResponse
 	err := s.withMatch(ctx, req.MatchId, func(st *refMatchState) error {
-		bs := st.storeFor(req.Branch)
-		if len(bs.pre) == 0 {
+		pre := st.PreSigs(req.Branch)
+		if len(pre) == 0 {
 			return fmt.Errorf("no pre-sigs for branch")
 		}
-
 		st.mu.RLock()
-		for id, ps := range bs.pre {
+		for id, ps := range pre {
 			spb, _ := hex.DecodeString(ps.SPrime)
 			var s1 secp256k1.ModNScalar
 			s1.SetByteSlice(spb)
@@ -979,4 +1127,15 @@ func (s *Server) broadcastReady(players []*ponggame.Player, playerID, gameID, ms
 			Ready:            true,
 		})
 	}
+}
+
+// presigsComplete returns true if collected presigs cover all escrow inputs for both branches.
+func (s *Server) presigsComplete(st *refMatchState) (aDone, bDone bool) {
+	st.mu.RLock()
+	need := len(st.escrows)
+	st.mu.RUnlock()
+	if need == 0 {
+		return false, false
+	}
+	return len(st.PreSigs(pong.Branch_BRANCH_A)) >= need, len(st.PreSigs(pong.Branch_BRANCH_B)) >= need
 }

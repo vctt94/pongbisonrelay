@@ -144,9 +144,8 @@ final $typed_data.Uint8List assignRoleDescriptor = $convert.base64Decode(
 const NeedPreSigs$json = {
   '1': 'NeedPreSigs',
   '2': [
-    {'1': 'branches_to_presign', '3': 1, '4': 3, '5': 14, '6': '.pong.Branch', '10': 'branchesToPresign'},
-    {'1': 'draft_awins_tx_hex', '3': 2, '4': 1, '5': 9, '10': 'draftAwinsTxHex'},
-    {'1': 'draft_bwins_tx_hex', '3': 3, '4': 1, '5': 9, '10': 'draftBwinsTxHex'},
+    {'1': 'branch', '3': 1, '4': 1, '5': 14, '6': '.pong.Branch', '10': 'branch'},
+    {'1': 'draft_tx_hex', '3': 2, '4': 1, '5': 9, '10': 'draftTxHex'},
     {'1': 'inputs', '3': 4, '4': 3, '5': 11, '6': '.pong.NeedPreSigs.PerInput', '10': 'inputs'},
   ],
   '3': [NeedPreSigs_PerInput$json],
@@ -158,24 +157,19 @@ const NeedPreSigs_PerInput$json = {
   '2': [
     {'1': 'input_id', '3': 1, '4': 1, '5': 9, '10': 'inputId'},
     {'1': 'redeem_script_hex', '3': 2, '4': 1, '5': 9, '10': 'redeemScriptHex'},
-    {'1': 'm_awins_hex', '3': 3, '4': 1, '5': 9, '10': 'mAwinsHex'},
-    {'1': 'T_awins_compressed', '3': 4, '4': 1, '5': 12, '10': 'TAwinsCompressed'},
-    {'1': 'm_bwins_hex', '3': 5, '4': 1, '5': 9, '10': 'mBwinsHex'},
-    {'1': 'T_bwins_compressed', '3': 6, '4': 1, '5': 12, '10': 'TBwinsCompressed'},
+    {'1': 'm_hex', '3': 3, '4': 1, '5': 9, '10': 'mHex'},
+    {'1': 'T_compressed', '3': 4, '4': 1, '5': 12, '10': 'TCompressed'},
   ],
 };
 
 /// Descriptor for `NeedPreSigs`. Decode as a `google.protobuf.DescriptorProto`.
 final $typed_data.Uint8List needPreSigsDescriptor = $convert.base64Decode(
-    'CgtOZWVkUHJlU2lncxI8ChNicmFuY2hlc190b19wcmVzaWduGAEgAygOMgwucG9uZy5CcmFuY2'
-    'hSEWJyYW5jaGVzVG9QcmVzaWduEisKEmRyYWZ0X2F3aW5zX3R4X2hleBgCIAEoCVIPZHJhZnRB'
-    'd2luc1R4SGV4EisKEmRyYWZ0X2J3aW5zX3R4X2hleBgDIAEoCVIPZHJhZnRCd2luc1R4SGV4Ej'
-    'IKBmlucHV0cxgEIAMoCzIaLnBvbmcuTmVlZFByZVNpZ3MuUGVySW5wdXRSBmlucHV0cxrtAQoI'
-    'UGVySW5wdXQSGQoIaW5wdXRfaWQYASABKAlSB2lucHV0SWQSKgoRcmVkZWVtX3NjcmlwdF9oZX'
-    'gYAiABKAlSD3JlZGVlbVNjcmlwdEhleBIeCgttX2F3aW5zX2hleBgDIAEoCVIJbUF3aW5zSGV4'
-    'EiwKElRfYXdpbnNfY29tcHJlc3NlZBgEIAEoDFIQVEF3aW5zQ29tcHJlc3NlZBIeCgttX2J3aW'
-    '5zX2hleBgFIAEoCVIJbUJ3aW5zSGV4EiwKElRfYndpbnNfY29tcHJlc3NlZBgGIAEoDFIQVEJ3'
-    'aW5zQ29tcHJlc3NlZA==');
+    'CgtOZWVkUHJlU2lncxIkCgZicmFuY2gYASABKA4yDC5wb25nLkJyYW5jaFIGYnJhbmNoEiAKDG'
+    'RyYWZ0X3R4X2hleBgCIAEoCVIKZHJhZnRUeEhleBIyCgZpbnB1dHMYBCADKAsyGi5wb25nLk5l'
+    'ZWRQcmVTaWdzLlBlcklucHV0UgZpbnB1dHMaiQEKCFBlcklucHV0EhkKCGlucHV0X2lkGAEgAS'
+    'gJUgdpbnB1dElkEioKEXJlZGVlbV9zY3JpcHRfaGV4GAIgASgJUg9yZWRlZW1TY3JpcHRIZXgS'
+    'EwoFbV9oZXgYAyABKAlSBG1IZXgSIQoMVF9jb21wcmVzc2VkGAQgASgMUgtUQ29tcHJlc3NlZA'
+    '==');
 
 @$core.Deprecated('Use preSigBatchDescriptor instead')
 const PreSigBatch$json = {

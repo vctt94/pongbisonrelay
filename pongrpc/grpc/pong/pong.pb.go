@@ -541,13 +541,12 @@ func (x *AssignRole) GetDepositPkscriptHex() string {
 }
 
 type NeedPreSigs struct {
-	state             protoimpl.MessageState  `protogen:"open.v1"`
-	BranchesToPresign []Branch                `protobuf:"varint,1,rep,packed,name=branches_to_presign,json=branchesToPresign,proto3,enum=pong.Branch" json:"branches_to_presign,omitempty"` // e.g., [BRANCH_A, BRANCH_B]
-	DraftAwinsTxHex   string                  `protobuf:"bytes,2,opt,name=draft_awins_tx_hex,json=draftAwinsTxHex,proto3" json:"draft_awins_tx_hex,omitempty"`
-	DraftBwinsTxHex   string                  `protobuf:"bytes,3,opt,name=draft_bwins_tx_hex,json=draftBwinsTxHex,proto3" json:"draft_bwins_tx_hex,omitempty"`
-	Inputs            []*NeedPreSigs_PerInput `protobuf:"bytes,4,rep,name=inputs,proto3" json:"inputs,omitempty"`
-	unknownFields     protoimpl.UnknownFields
-	sizeCache         protoimpl.SizeCache
+	state         protoimpl.MessageState  `protogen:"open.v1"`
+	Branch        Branch                  `protobuf:"varint,1,opt,name=branch,proto3,enum=pong.Branch" json:"branch,omitempty"` // single branch to presign
+	DraftTxHex    string                  `protobuf:"bytes,2,opt,name=draft_tx_hex,json=draftTxHex,proto3" json:"draft_tx_hex,omitempty"`
+	Inputs        []*NeedPreSigs_PerInput `protobuf:"bytes,4,rep,name=inputs,proto3" json:"inputs,omitempty"`
+	unknownFields protoimpl.UnknownFields
+	sizeCache     protoimpl.SizeCache
 }
 
 func (x *NeedPreSigs) Reset() {
@@ -580,23 +579,16 @@ func (*NeedPreSigs) Descriptor() ([]byte, []int) {
 	return file_pong_proto_rawDescGZIP(), []int{4}
 }
 
-func (x *NeedPreSigs) GetBranchesToPresign() []Branch {
+func (x *NeedPreSigs) GetBranch() Branch {
 	if x != nil {
-		return x.BranchesToPresign
+		return x.Branch
 	}
-	return nil
+	return Branch_BRANCH_UNSPECIFIED
 }
 
-func (x *NeedPreSigs) GetDraftAwinsTxHex() string {
+func (x *NeedPreSigs) GetDraftTxHex() string {
 	if x != nil {
-		return x.DraftAwinsTxHex
-	}
-	return ""
-}
-
-func (x *NeedPreSigs) GetDraftBwinsTxHex() string {
-	if x != nil {
-		return x.DraftBwinsTxHex
+		return x.DraftTxHex
 	}
 	return ""
 }
@@ -3243,15 +3235,13 @@ func (x *SignalReadyToPlayResponse) GetMessage() string {
 }
 
 type NeedPreSigs_PerInput struct {
-	state            protoimpl.MessageState `protogen:"open.v1"`
-	InputId          string                 `protobuf:"bytes,1,opt,name=input_id,json=inputId,proto3" json:"input_id,omitempty"`
-	RedeemScriptHex  string                 `protobuf:"bytes,2,opt,name=redeem_script_hex,json=redeemScriptHex,proto3" json:"redeem_script_hex,omitempty"`
-	MAwinsHex        string                 `protobuf:"bytes,3,opt,name=m_awins_hex,json=mAwinsHex,proto3" json:"m_awins_hex,omitempty"`
-	TAwinsCompressed []byte                 `protobuf:"bytes,4,opt,name=T_awins_compressed,json=TAwinsCompressed,proto3" json:"T_awins_compressed,omitempty"` // 33B
-	MBwinsHex        string                 `protobuf:"bytes,5,opt,name=m_bwins_hex,json=mBwinsHex,proto3" json:"m_bwins_hex,omitempty"`
-	TBwinsCompressed []byte                 `protobuf:"bytes,6,opt,name=T_bwins_compressed,json=TBwinsCompressed,proto3" json:"T_bwins_compressed,omitempty"` // 33B
-	unknownFields    protoimpl.UnknownFields
-	sizeCache        protoimpl.SizeCache
+	state           protoimpl.MessageState `protogen:"open.v1"`
+	InputId         string                 `protobuf:"bytes,1,opt,name=input_id,json=inputId,proto3" json:"input_id,omitempty"`
+	RedeemScriptHex string                 `protobuf:"bytes,2,opt,name=redeem_script_hex,json=redeemScriptHex,proto3" json:"redeem_script_hex,omitempty"`
+	MHex            string                 `protobuf:"bytes,3,opt,name=m_hex,json=mHex,proto3" json:"m_hex,omitempty"`
+	TCompressed     []byte                 `protobuf:"bytes,4,opt,name=T_compressed,json=TCompressed,proto3" json:"T_compressed,omitempty"` // 33B
+	unknownFields   protoimpl.UnknownFields
+	sizeCache       protoimpl.SizeCache
 }
 
 func (x *NeedPreSigs_PerInput) Reset() {
@@ -3298,30 +3288,16 @@ func (x *NeedPreSigs_PerInput) GetRedeemScriptHex() string {
 	return ""
 }
 
-func (x *NeedPreSigs_PerInput) GetMAwinsHex() string {
+func (x *NeedPreSigs_PerInput) GetMHex() string {
 	if x != nil {
-		return x.MAwinsHex
+		return x.MHex
 	}
 	return ""
 }
 
-func (x *NeedPreSigs_PerInput) GetTAwinsCompressed() []byte {
+func (x *NeedPreSigs_PerInput) GetTCompressed() []byte {
 	if x != nil {
-		return x.TAwinsCompressed
-	}
-	return nil
-}
-
-func (x *NeedPreSigs_PerInput) GetMBwinsHex() string {
-	if x != nil {
-		return x.MBwinsHex
-	}
-	return ""
-}
-
-func (x *NeedPreSigs_PerInput) GetTBwinsCompressed() []byte {
-	if x != nil {
-		return x.TBwinsCompressed
+		return x.TCompressed
 	}
 	return nil
 }
@@ -3420,19 +3396,17 @@ const file_pong_proto_rawDesc = "" +
 	"\x04Role\x12\v\n" +
 	"\aUNKNOWN\x10\x00\x12\x05\n" +
 	"\x01A\x10\x01\x12\x05\n" +
-	"\x01B\x10\x02\"\xc9\x03\n" +
-	"\vNeedPreSigs\x12<\n" +
-	"\x13branches_to_presign\x18\x01 \x03(\x0e2\f.pong.BranchR\x11branchesToPresign\x12+\n" +
-	"\x12draft_awins_tx_hex\x18\x02 \x01(\tR\x0fdraftAwinsTxHex\x12+\n" +
-	"\x12draft_bwins_tx_hex\x18\x03 \x01(\tR\x0fdraftBwinsTxHex\x122\n" +
-	"\x06inputs\x18\x04 \x03(\v2\x1a.pong.NeedPreSigs.PerInputR\x06inputs\x1a\xed\x01\n" +
+	"\x01B\x10\x02\"\x95\x02\n" +
+	"\vNeedPreSigs\x12$\n" +
+	"\x06branch\x18\x01 \x01(\x0e2\f.pong.BranchR\x06branch\x12 \n" +
+	"\fdraft_tx_hex\x18\x02 \x01(\tR\n" +
+	"draftTxHex\x122\n" +
+	"\x06inputs\x18\x04 \x03(\v2\x1a.pong.NeedPreSigs.PerInputR\x06inputs\x1a\x89\x01\n" +
 	"\bPerInput\x12\x19\n" +
 	"\binput_id\x18\x01 \x01(\tR\ainputId\x12*\n" +
-	"\x11redeem_script_hex\x18\x02 \x01(\tR\x0fredeemScriptHex\x12\x1e\n" +
-	"\vm_awins_hex\x18\x03 \x01(\tR\tmAwinsHex\x12,\n" +
-	"\x12T_awins_compressed\x18\x04 \x01(\fR\x10TAwinsCompressed\x12\x1e\n" +
-	"\vm_bwins_hex\x18\x05 \x01(\tR\tmBwinsHex\x12,\n" +
-	"\x12T_bwins_compressed\x18\x06 \x01(\fR\x10TBwinsCompressed\"\xbe\x01\n" +
+	"\x11redeem_script_hex\x18\x02 \x01(\tR\x0fredeemScriptHex\x12\x13\n" +
+	"\x05m_hex\x18\x03 \x01(\tR\x04mHex\x12!\n" +
+	"\fT_compressed\x18\x04 \x01(\fR\vTCompressed\"\xbe\x01\n" +
 	"\vPreSigBatch\x12$\n" +
 	"\x06branch\x18\x01 \x01(\x0e2\f.pong.BranchR\x06branch\x12/\n" +
 	"\apresigs\x18\x02 \x03(\v2\x15.pong.PreSigBatch.SigR\apresigs\x1aX\n" +
@@ -3747,7 +3721,7 @@ var file_pong_proto_depIdxs = []int32{
 	9,  // 5: pong.ServerMsg.reveal:type_name -> pong.RevealGamma
 	11, // 6: pong.ServerMsg.info:type_name -> pong.Info
 	2,  // 7: pong.AssignRole.role:type_name -> pong.AssignRole.Role
-	0,  // 8: pong.NeedPreSigs.branches_to_presign:type_name -> pong.Branch
+	0,  // 8: pong.NeedPreSigs.branch:type_name -> pong.Branch
 	50, // 9: pong.NeedPreSigs.inputs:type_name -> pong.NeedPreSigs.PerInput
 	0,  // 10: pong.PreSigBatch.branch:type_name -> pong.Branch
 	51, // 11: pong.PreSigBatch.presigs:type_name -> pong.PreSigBatch.Sig

@@ -74,16 +74,13 @@ message AssignRole {
 }
 
 message NeedPreSigs {
-  repeated Branch branches_to_presign = 1; // e.g., [BRANCH_A, BRANCH_B]
-  string draft_awins_tx_hex = 2;
-  string draft_bwins_tx_hex = 3;
+  Branch branch = 1; // single branch to presign
+  string draft_tx_hex = 2;
   message PerInput {
     string input_id = 1;
     string redeem_script_hex = 2;
-    string m_awins_hex = 3;
-    bytes  T_awins_compressed = 4; // 33B
-    string m_bwins_hex = 5;
-    bytes  T_bwins_compressed = 6; // 33B
+    string m_hex = 3;
+    bytes  T_compressed = 4; // 33B
   }
   repeated PerInput inputs = 4;
 }

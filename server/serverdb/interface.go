@@ -41,15 +41,16 @@ type TipProgressRecord struct {
 
 // RefMatchRecord stores minimal state to restore a referee match after restart.
 type RefMatchRecord struct {
-	MatchID                string `json:"match_id"`
-	AComp                  string `json:"a_comp"`
-	BComp                  string `json:"b_comp"`
-	CSV                    uint32 `json:"csv"`
-	CoeffA                 string `json:"coef_a"`
-	CoeffB                 string `json:"coef_b"`
-	CoeffS                 string `json:"coef_s"`
-	XA                     string `json:"x_a"`
-	XB                     string `json:"x_b"`
+	MatchID string `json:"match_id"`
+	AComp   []byte `json:"a_comp"`
+	BComp   []byte `json:"b_comp"`
+	XA      []byte `json:"x_a"`
+	XB      []byte `json:"x_b"`
+	CSV     uint32 `json:"csv"`
+	CoeffA  string `json:"coef_a"`
+	CoeffB  string `json:"coef_b"`
+	CoeffS  string `json:"coef_s"`
+
 	DepositPkScriptHex     string `json:"pk_script_hex"`
 	DepositRedeemScriptHex string `json:"redeem_script_hex"`
 	RequiredAtoms          uint64 `json:"required_atoms"`

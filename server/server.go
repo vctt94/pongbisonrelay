@@ -218,6 +218,30 @@ func (s *Server) StartGameStream(req *pong.StartGameStreamRequest, stream pong.P
 		return fmt.Errorf("game stream is already set for id %s", clientID)
 	}
 
+	// In paid mode, require confirmed funding before allowing readiness
+	if !s.isF2P {
+		pid := clientID.String()
+		matchID, ok := s.refAllocByPlayer[pid]
+		if !ok {
+			if mid, err := s.db.FetchRefAlloc(ctx, pid); err == nil && mid != "" {
+				matchID = mid
+				s.Lock()
+				s.refAllocByPlayer[pid] = mid
+				s.Unlock()
+			}
+		}
+		if matchID == "" {
+			return fmt.Errorf("cannot mark ready: no escrow match; allocate escrow first")
+		}
+		confirmed, err := s.isPlayerFundingConfirmed(ctx, pid, matchID)
+		if err != nil {
+			return err
+		}
+		if !confirmed {
+			return fmt.Errorf("cannot mark ready: funding not yet confirmed")
+		}
+	}
+
 	player.GameStream = stream
 	player.Ready = true
 
@@ -334,6 +358,33 @@ func (s *Server) ManageWaitingRoom(ctx context.Context, wr *ponggame.WaitingRoom
 		case <-time.After(time.Second):
 			players, ready := wr.ReadyPlayers()
 			if ready {
+				// In paid mode, ensure presigs are complete before starting
+				if !s.isF2P {
+					// Derive matchID from any player mapping (A/B mapping uses player->match)
+					var matchID string
+					for _, p := range players {
+						if mid, ok := s.refAllocByPlayer[p.ID.String()]; ok && mid != "" {
+							matchID = mid
+							break
+						}
+					}
+					if matchID == "" {
+						// No mapping; requeue and continue waiting
+						continue
+					}
+					s.RLock()
+					st := s.matches[matchID]
+					s.RUnlock()
+					if st == nil {
+						continue
+					}
+					aDone, bDone := s.presigsComplete(st)
+					if !(aDone && bDone) {
+						// Not all presigs in; keep waiting (players stay ready)
+						continue
+					}
+				}
+
 				s.log.Infof("Game starting with players: %v and %v", players[0].ID, players[1].ID)
 
 				s.gameManager.RemoveWaitingRoom(wr.ID)
@@ -440,6 +491,56 @@ func (s *Server) JoinWaitingRoom(ctx context.Context, req *pong.JoinWaitingRoomR
 	}
 	s.gameManager.Unlock()
 
+	// In paid mode, require that a deposit UTXO exists (0-conf allowed) before joining
+	if !s.isF2P {
+		pid := req.ClientId
+		// Resolve match and state (similar to isPlayerFundingConfirmed but allow 0 conf)
+		s.RLock()
+		matchID := s.refAllocByPlayer[pid]
+		s.RUnlock()
+		if matchID == "" {
+			if mid, err := s.db.FetchRefAlloc(ctx, pid); err == nil && mid != "" {
+				matchID = mid
+				s.Lock()
+				s.refAllocByPlayer[pid] = mid
+				s.Unlock()
+			}
+		}
+		if matchID == "" {
+			return nil, fmt.Errorf("cannot join: no escrow match; allocate escrow first")
+		}
+		// Load state and query watcher
+		s.RLock()
+		state, ok := s.matches[matchID]
+		s.RUnlock()
+		if !ok {
+			rec, err := s.db.FetchRefMatch(ctx, matchID)
+			if err != nil || rec == nil {
+				return nil, fmt.Errorf("cannot join: unknown match id %s", matchID)
+			}
+			state = &refMatchState{
+				matchID:                rec.MatchID,
+				depositPkScriptHex:     rec.DepositPkScriptHex,
+				depositRedeemScriptHex: rec.DepositRedeemScriptHex,
+			}
+			s.Lock()
+			s.matches[matchID] = state
+			if s.watcher != nil && state.depositPkScriptHex != "" {
+				s.watcher.registerDeposit(state.depositPkScriptHex, state.depositRedeemScriptHex, state.matchID)
+			}
+			s.Unlock()
+		}
+		if s.watcher == nil || state.depositPkScriptHex == "" {
+			return nil, fmt.Errorf("cannot join: chain watcher not initialized or deposit script missing")
+		}
+		// Ensure registration, then check UTXO presence regardless of confirmations
+		s.watcher.registerDeposit(state.depositPkScriptHex, state.depositRedeemScriptHex, state.matchID)
+		utxos, _, ok := s.watcher.queryDeposit(state.depositPkScriptHex)
+		if !ok || len(utxos) == 0 {
+			return nil, fmt.Errorf("cannot join: no deposit detected for player")
+		}
+	}
+
 	wr := s.gameManager.GetWaitingRoom(req.RoomId)
 	if wr == nil {
 		return nil, fmt.Errorf("waiting room not found: %s", req.RoomId)
@@ -484,26 +585,26 @@ func (s *Server) isPlayerFundingConfirmed(ctx context.Context, playerID, matchID
 			return false, fmt.Errorf("unknown match id %s", matchID)
 		}
 		state = &refMatchState{
-			MatchID:                rec.MatchID,
-			DepositPkScriptHex:     rec.DepositPkScriptHex,
-			DepositRedeemScriptHex: rec.DepositRedeemScriptHex,
+			matchID:                rec.MatchID,
+			depositPkScriptHex:     rec.DepositPkScriptHex,
+			depositRedeemScriptHex: rec.DepositRedeemScriptHex,
 		}
 		s.Lock()
 		s.matches[matchID] = state
-		if s.watcher != nil && state.DepositPkScriptHex != "" {
-			s.watcher.registerDeposit(state.DepositPkScriptHex, state.DepositRedeemScriptHex, state.MatchID)
+		if s.watcher != nil && state.depositPkScriptHex != "" {
+			s.watcher.registerDeposit(state.depositPkScriptHex, state.depositRedeemScriptHex, state.matchID)
 		}
 		s.Unlock()
 	}
 	if s.watcher == nil {
 		return false, fmt.Errorf("chain watcher not initialized")
 	}
-	if state.DepositPkScriptHex == "" {
+	if state.depositPkScriptHex == "" {
 		return false, fmt.Errorf("deposit script not set for match %s", matchID)
 	}
 	// Ensure registration; idempotent
-	s.watcher.registerDeposit(state.DepositPkScriptHex, state.DepositRedeemScriptHex, state.MatchID)
-	utxos, confs, ok := s.watcher.queryDeposit(state.DepositPkScriptHex)
+	s.watcher.registerDeposit(state.depositPkScriptHex, state.depositRedeemScriptHex, state.matchID)
+	utxos, confs, ok := s.watcher.queryDeposit(state.depositPkScriptHex)
 	if !ok || len(utxos) == 0 {
 		return false, nil
 	}

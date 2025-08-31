@@ -413,10 +413,8 @@ class NeedPreSigs_PerInput extends $pb.GeneratedMessage {
   factory NeedPreSigs_PerInput({
     $core.String? inputId,
     $core.String? redeemScriptHex,
-    $core.String? mAwinsHex,
-    $core.List<$core.int>? tAwinsCompressed,
-    $core.String? mBwinsHex,
-    $core.List<$core.int>? tBwinsCompressed,
+    $core.String? mHex,
+    $core.List<$core.int>? tCompressed,
   }) {
     final $result = create();
     if (inputId != null) {
@@ -425,17 +423,11 @@ class NeedPreSigs_PerInput extends $pb.GeneratedMessage {
     if (redeemScriptHex != null) {
       $result.redeemScriptHex = redeemScriptHex;
     }
-    if (mAwinsHex != null) {
-      $result.mAwinsHex = mAwinsHex;
+    if (mHex != null) {
+      $result.mHex = mHex;
     }
-    if (tAwinsCompressed != null) {
-      $result.tAwinsCompressed = tAwinsCompressed;
-    }
-    if (mBwinsHex != null) {
-      $result.mBwinsHex = mBwinsHex;
-    }
-    if (tBwinsCompressed != null) {
-      $result.tBwinsCompressed = tBwinsCompressed;
+    if (tCompressed != null) {
+      $result.tCompressed = tCompressed;
     }
     return $result;
   }
@@ -446,10 +438,8 @@ class NeedPreSigs_PerInput extends $pb.GeneratedMessage {
   static final $pb.BuilderInfo _i = $pb.BuilderInfo(_omitMessageNames ? '' : 'NeedPreSigs.PerInput', package: const $pb.PackageName(_omitMessageNames ? '' : 'pong'), createEmptyInstance: create)
     ..aOS(1, _omitFieldNames ? '' : 'inputId')
     ..aOS(2, _omitFieldNames ? '' : 'redeemScriptHex')
-    ..aOS(3, _omitFieldNames ? '' : 'mAwinsHex')
-    ..a<$core.List<$core.int>>(4, _omitFieldNames ? '' : 'TAwinsCompressed', $pb.PbFieldType.OY, protoName: 'T_awins_compressed')
-    ..aOS(5, _omitFieldNames ? '' : 'mBwinsHex')
-    ..a<$core.List<$core.int>>(6, _omitFieldNames ? '' : 'TBwinsCompressed', $pb.PbFieldType.OY, protoName: 'T_bwins_compressed')
+    ..aOS(3, _omitFieldNames ? '' : 'mHex')
+    ..a<$core.List<$core.int>>(4, _omitFieldNames ? '' : 'TCompressed', $pb.PbFieldType.OY, protoName: 'T_compressed')
     ..hasRequiredFields = false
   ;
 
@@ -493,58 +483,36 @@ class NeedPreSigs_PerInput extends $pb.GeneratedMessage {
   void clearRedeemScriptHex() => clearField(2);
 
   @$pb.TagNumber(3)
-  $core.String get mAwinsHex => $_getSZ(2);
+  $core.String get mHex => $_getSZ(2);
   @$pb.TagNumber(3)
-  set mAwinsHex($core.String v) { $_setString(2, v); }
+  set mHex($core.String v) { $_setString(2, v); }
   @$pb.TagNumber(3)
-  $core.bool hasMAwinsHex() => $_has(2);
+  $core.bool hasMHex() => $_has(2);
   @$pb.TagNumber(3)
-  void clearMAwinsHex() => clearField(3);
+  void clearMHex() => clearField(3);
 
   @$pb.TagNumber(4)
-  $core.List<$core.int> get tAwinsCompressed => $_getN(3);
+  $core.List<$core.int> get tCompressed => $_getN(3);
   @$pb.TagNumber(4)
-  set tAwinsCompressed($core.List<$core.int> v) { $_setBytes(3, v); }
+  set tCompressed($core.List<$core.int> v) { $_setBytes(3, v); }
   @$pb.TagNumber(4)
-  $core.bool hasTAwinsCompressed() => $_has(3);
+  $core.bool hasTCompressed() => $_has(3);
   @$pb.TagNumber(4)
-  void clearTAwinsCompressed() => clearField(4);
-
-  @$pb.TagNumber(5)
-  $core.String get mBwinsHex => $_getSZ(4);
-  @$pb.TagNumber(5)
-  set mBwinsHex($core.String v) { $_setString(4, v); }
-  @$pb.TagNumber(5)
-  $core.bool hasMBwinsHex() => $_has(4);
-  @$pb.TagNumber(5)
-  void clearMBwinsHex() => clearField(5);
-
-  @$pb.TagNumber(6)
-  $core.List<$core.int> get tBwinsCompressed => $_getN(5);
-  @$pb.TagNumber(6)
-  set tBwinsCompressed($core.List<$core.int> v) { $_setBytes(5, v); }
-  @$pb.TagNumber(6)
-  $core.bool hasTBwinsCompressed() => $_has(5);
-  @$pb.TagNumber(6)
-  void clearTBwinsCompressed() => clearField(6);
+  void clearTCompressed() => clearField(4);
 }
 
 class NeedPreSigs extends $pb.GeneratedMessage {
   factory NeedPreSigs({
-    $core.Iterable<Branch>? branchesToPresign,
-    $core.String? draftAwinsTxHex,
-    $core.String? draftBwinsTxHex,
+    Branch? branch,
+    $core.String? draftTxHex,
     $core.Iterable<NeedPreSigs_PerInput>? inputs,
   }) {
     final $result = create();
-    if (branchesToPresign != null) {
-      $result.branchesToPresign.addAll(branchesToPresign);
+    if (branch != null) {
+      $result.branch = branch;
     }
-    if (draftAwinsTxHex != null) {
-      $result.draftAwinsTxHex = draftAwinsTxHex;
-    }
-    if (draftBwinsTxHex != null) {
-      $result.draftBwinsTxHex = draftBwinsTxHex;
+    if (draftTxHex != null) {
+      $result.draftTxHex = draftTxHex;
     }
     if (inputs != null) {
       $result.inputs.addAll(inputs);
@@ -556,9 +524,8 @@ class NeedPreSigs extends $pb.GeneratedMessage {
   factory NeedPreSigs.fromJson($core.String i, [$pb.ExtensionRegistry r = $pb.ExtensionRegistry.EMPTY]) => create()..mergeFromJson(i, r);
 
   static final $pb.BuilderInfo _i = $pb.BuilderInfo(_omitMessageNames ? '' : 'NeedPreSigs', package: const $pb.PackageName(_omitMessageNames ? '' : 'pong'), createEmptyInstance: create)
-    ..pc<Branch>(1, _omitFieldNames ? '' : 'branchesToPresign', $pb.PbFieldType.KE, valueOf: Branch.valueOf, enumValues: Branch.values, defaultEnumValue: Branch.BRANCH_UNSPECIFIED)
-    ..aOS(2, _omitFieldNames ? '' : 'draftAwinsTxHex')
-    ..aOS(3, _omitFieldNames ? '' : 'draftBwinsTxHex')
+    ..e<Branch>(1, _omitFieldNames ? '' : 'branch', $pb.PbFieldType.OE, defaultOrMaker: Branch.BRANCH_UNSPECIFIED, valueOf: Branch.valueOf, enumValues: Branch.values)
+    ..aOS(2, _omitFieldNames ? '' : 'draftTxHex')
     ..pc<NeedPreSigs_PerInput>(4, _omitFieldNames ? '' : 'inputs', $pb.PbFieldType.PM, subBuilder: NeedPreSigs_PerInput.create)
     ..hasRequiredFields = false
   ;
@@ -585,28 +552,25 @@ class NeedPreSigs extends $pb.GeneratedMessage {
   static NeedPreSigs? _defaultInstance;
 
   @$pb.TagNumber(1)
-  $core.List<Branch> get branchesToPresign => $_getList(0);
+  Branch get branch => $_getN(0);
+  @$pb.TagNumber(1)
+  set branch(Branch v) { setField(1, v); }
+  @$pb.TagNumber(1)
+  $core.bool hasBranch() => $_has(0);
+  @$pb.TagNumber(1)
+  void clearBranch() => clearField(1);
 
   @$pb.TagNumber(2)
-  $core.String get draftAwinsTxHex => $_getSZ(1);
+  $core.String get draftTxHex => $_getSZ(1);
   @$pb.TagNumber(2)
-  set draftAwinsTxHex($core.String v) { $_setString(1, v); }
+  set draftTxHex($core.String v) { $_setString(1, v); }
   @$pb.TagNumber(2)
-  $core.bool hasDraftAwinsTxHex() => $_has(1);
+  $core.bool hasDraftTxHex() => $_has(1);
   @$pb.TagNumber(2)
-  void clearDraftAwinsTxHex() => clearField(2);
-
-  @$pb.TagNumber(3)
-  $core.String get draftBwinsTxHex => $_getSZ(2);
-  @$pb.TagNumber(3)
-  set draftBwinsTxHex($core.String v) { $_setString(2, v); }
-  @$pb.TagNumber(3)
-  $core.bool hasDraftBwinsTxHex() => $_has(2);
-  @$pb.TagNumber(3)
-  void clearDraftBwinsTxHex() => clearField(3);
+  void clearDraftTxHex() => clearField(2);
 
   @$pb.TagNumber(4)
-  $core.List<NeedPreSigs_PerInput> get inputs => $_getList(3);
+  $core.List<NeedPreSigs_PerInput> get inputs => $_getList(2);
 }
 
 class PreSigBatch_Sig extends $pb.GeneratedMessage {
