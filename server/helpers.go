@@ -24,68 +24,47 @@ func atomsToMatoms(a int64) int64 { return a * MatomsPerAtom }
 func matomsToDCR(m int64) float64 { return float64(m) / float64(MatomsPerDCR) }
 func atomsToDCR(a int64) float64  { return float64(a) / float64(AtomsPerDCR) }
 
-// buildPerDepositorRedeemScript builds a per-depositor redeem script that does NOT
-// depend on the opponent's key. Winner path accepts a valid Schnorr (alt) sig
-// under depositor's compressed pubkey; timeout path lets depositor recover after CSV.
-//
-// Spend patterns (scriptSig / witness items pushed by spender, last item is top):
-//   - Winner path:  <sig_final> 1
-//   - Timeout path: <sig_owner> <csvBlocks> 0
-//
-// Script (pseudocode):
-//
-//	OP_IF
-//	  <P_c> OP_CHECKSIGALTVERIFY
-//	  OP_TRUE
-//	OP_ELSE
-//	  <csv> OP_CHECKSEQUENCEVERIFY OP_DROP
-//	  <P_c> OP_CHECKSIGALTVERIFY
-//	  OP_TRUE
-//	OP_ENDIF
 func buildPerDepositorRedeemScript(comp33 []byte, csvBlocks uint32) ([]byte, error) {
 	if len(comp33) != 33 {
 		return nil, fmt.Errorf("need 33-byte compressed pubkey")
 	}
 	b := txscript.NewScriptBuilder()
 
+	// Winner branch:
+	//   initial stack after P2SH/IF: [sig]
+	//   push <pub>, 2 -> [sig, pub, 2]
+	//   OP_CHECKSIGALTVERIFY pops (2, pub, sig) == (hashtype, pubkey, signature)
 	b.AddOp(txscript.OP_IF).
 		AddData(comp33).
+		AddInt64(2). // schnorr-secp256k1
 		AddOp(txscript.OP_CHECKSIGALTVERIFY).
 		AddOp(txscript.OP_TRUE).
+
+		// Timeout branch:
 		AddOp(txscript.OP_ELSE).
 		AddInt64(int64(csvBlocks)).
 		AddOp(txscript.OP_CHECKSEQUENCEVERIFY).
 		AddOp(txscript.OP_DROP).
 		AddData(comp33).
+		AddInt64(2). // schnorr-secp256k1
 		AddOp(txscript.OP_CHECKSIGALTVERIFY).
 		AddOp(txscript.OP_TRUE).
 		AddOp(txscript.OP_ENDIF)
 
-	scr, err := b.Script()
-	if err != nil {
-		return nil, err
-	}
-	return scr, nil
+	return b.Script()
 }
 
 // pkScriptAndAddrFromRedeem takes a raw redeem script and returns the P2SH pkScript (hex)
 // and its human-readable address for the given Decred network params.
 // Build P2SH pkScript+address from a redeem script.
 // NOTE: stdaddr wants (scriptVersion, redeem, params), then use addr.PaymentScript().
-func pkScriptAndAddrFromRedeem(redeem []byte, params stdaddr.AddressParams) (pkScriptHex, addr string, err error) {
-	if len(redeem) == 0 {
-		return "", "", fmt.Errorf("empty redeem script")
-	}
-	// v0 script version for Decred standard scripts.
+func pkScriptAndAddrFromRedeem(redeem []byte, params stdaddr.AddressParams) (string, string, error) {
 	a, err := stdaddr.NewAddressScriptHash(0, redeem, params)
 	if err != nil {
-		return "", "", fmt.Errorf("NewAddressScriptHash: %w", err)
+		return "", "", err
 	}
-	sv, pkScript := a.PaymentScript() // returns (version, script)
-	if sv != 0 {
-		return "", "", fmt.Errorf("unexpected script version %d", sv)
-	}
-	return hex.EncodeToString(pkScript), a.String(), nil
+	_, pk := a.PaymentScript()
+	return hex.EncodeToString(pk), a.String(), nil
 }
 
 // addrFromPkScript returns the canonical address encoded by a v0 P2SH pkScript.

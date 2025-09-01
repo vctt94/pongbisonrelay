@@ -106,6 +106,9 @@ type escrowSession struct {
 	confs           uint32
 	createdAt       time.Time
 	updatedAt       time.Time
+
+	// Pre-sign artifacts keyed by input_id ("txid:vout").
+	preSign map[string]*PreSignCtx
 }
 
 // pickConfirmedEscrow returns a CONFIRMED escrow session for the given owner.
@@ -389,18 +392,6 @@ func (s *Server) ManageWaitingRoom(ctx context.Context, wr *ponggame.WaitingRoom
 		case <-time.After(time.Second):
 			players, ready := wr.ReadyPlayers()
 			if ready {
-				// In paid mode, ensure presigs are complete before starting
-				if !s.isF2P {
-					// Derive matchID from any player mapping (A/B mapping uses player->match)
-					var matchID string
-
-					if matchID == "" {
-						// No mapping; requeue and continue waiting
-						continue
-					}
-
-				}
-
 				s.log.Infof("Game starting with players: %v and %v", players[0].ID, players[1].ID)
 
 				s.gameManager.RemoveWaitingRoom(wr.ID)

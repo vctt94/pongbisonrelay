@@ -111,6 +111,7 @@ func (pc *PongClient) StartNotifier(ctx context.Context) error {
 				case pong.NotificationType_ON_WR_CREATED:
 					pc.ntfns.notifyOnWRCreated(ntfn.Wr, time.Now())
 				case pong.NotificationType_MESSAGE:
+					pc.UpdatesCh <- ntfn
 				case pong.NotificationType_PLAYER_JOINED_WR:
 					pc.ntfns.notifyPlayerJoinedWR(ntfn.Wr, time.Now())
 				case pong.NotificationType_PLAYER_LEFT_WR:

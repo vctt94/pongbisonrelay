@@ -98,6 +98,40 @@ func (s *Server) handleGameEnd(ctx context.Context, game *ponggame.GameInstance,
 		// delete player from gameManager PlayerGameMap
 		delete(s.gameManager.PlayerGameMap, *player.ID)
 	}
+
+	// POC: deliver gamma to winner via NtfnStream for finalization
+	if winner != nil {
+		// Look up the exact PreSignCtx created during presign and reuse its
+		// DraftHex and MHex to derive gamma. Do NOT rebuild drafts here.
+		s.RLock()
+		var es *escrowSession
+		for _, e := range s.escrows {
+			if e != nil && e.ownerUID == winnerID {
+				es = e
+				break
+			}
+		}
+		s.RUnlock()
+		if es != nil && es.preSign != nil {
+			for _, ctxp := range es.preSign {
+				// bind gamma to the same input_id + m used during presign
+				const pocServerPrivHex = "11ee22dd33cc44bb55aa66ff77ee88dd99cc00bbaa11223344556677889900aa"
+				gammaHex, _ := deriveAdaptorGamma("", ctxp.InputID, 0, ctxp.MHex, pocServerPrivHex)
+				gb, err := hex.DecodeString(gammaHex)
+				if err != nil || len(gb) != 32 {
+					continue
+				}
+				w := s.gameManager.PlayerSessions.GetPlayer(*winner)
+				if w != nil && w.NotifierStream != nil {
+					w.NotifierStream.Send(&pong.NtfnStreamResponse{
+						NotificationType: pong.NotificationType_MESSAGE,
+						Message:          fmt.Sprintf("Gamma received; finalizing… (%x)\nResult draft tx hex: %s", gb, ctxp.DraftHex),
+					})
+				}
+				break
+			}
+		}
+	}
 }
 
 // --- waiting room handlers ---
@@ -396,13 +430,27 @@ func (s *Server) SettlementStream(stream pong.PongReferee_SettlementStreamServer
 	}
 	tx := wire.NewMsgTx()
 	tx.Version = 1
-	tx.AddTxIn(&wire.TxIn{PreviousOutPoint: wire.OutPoint{Hash: prev, Index: u.Vout}})
+	tx.AddTxIn(&wire.TxIn{
+		PreviousOutPoint: wire.OutPoint{Hash: prev, Index: u.Vout},
+		ValueIn:          int64(u.Value), // atoms of the UTXO you are spending
+		BlockHeight:      0,              // ok to leave 0 if unknown
+		BlockIndex:       0,              // ok to leave 0 if unknown
+	})
 	pkb, _ := hex.DecodeString(es.pkScriptHex)
-	tx.AddTxOut(&wire.TxOut{Value: int64(u.Value), PkScript: pkb})
+	// Deduct a minimal fee to make the draft broadcastable post-finalization
+	feeAtoms := s.pocFeeAtoms
+	if feeAtoms == 0 {
+		feeAtoms = 20000
+	}
+	val := int64(u.Value) - int64(feeAtoms)
+	if val <= 0 {
+		return status.Error(codes.FailedPrecondition, "utxo value too small to pay fee")
+	}
+	tx.AddTxOut(&wire.TxOut{Value: val, PkScript: pkb})
 	var buf bytes.Buffer
 	_ = tx.Serialize(&buf)
 	draftHex := hex.EncodeToString(buf.Bytes())
-	// Compute m for input 0 using the redeem script
+	// Compute m for input 0 using the redeem script (P2SH subscript semantics)
 	redeem, _ := hex.DecodeString(es.redeemScriptHex)
 	mBytes, err := txscript.CalcSignatureHash(redeem, txscript.SigHashAll, tx, 0, nil)
 	if err != nil || len(mBytes) != 32 {
@@ -453,6 +501,9 @@ func (s *Server) SettlementStream(stream pong.PongReferee_SettlementStreamServer
 		if len(ps.RprimeCompressed) != 33 || len(ps.Sprime32) != 32 {
 			return status.Error(codes.InvalidArgument, "bad presig sizes")
 		}
+		if ps.RprimeCompressed[0] != 0x02 {
+			return status.Error(codes.InvalidArgument, "R' must be even-Y (0x02)")
+		}
 		Rp, err := secp256k1.ParsePubKey(ps.RprimeCompressed)
 		if err != nil {
 			return status.Errorf(codes.InvalidArgument, "parse R': %v", err)
@@ -467,6 +518,9 @@ func (s *Server) SettlementStream(stream pong.PongReferee_SettlementStreamServer
 		}
 		if in == nil {
 			return status.Error(codes.InvalidArgument, "unknown input_id in presig")
+		}
+		if !bytes.Equal([]byte(in.MHex), []byte(mHex)) {
+			return status.Error(codes.InvalidArgument, "client m mismatch")
 		}
 		// Compute e = BLAKE256(r_x || m)
 		var r32 [32]byte
@@ -517,6 +571,27 @@ func (s *Server) SettlementStream(stream pong.PongReferee_SettlementStreamServer
 		// Check equality by bytes
 		if !bytes.Equal(lhs1.SerializeCompressed(), RminusT.SerializeCompressed()) {
 			return status.Error(codes.InvalidArgument, "adaptor relation failed")
+		}
+
+		// Persist PreSignCtx bound to this escrow and input so we can reuse the
+		// exact same draft and m during finalization. This avoids rebuilding the
+		// draft at game end and guarantees the same sighash domain.
+		if s.escrows != nil {
+			s.Lock()
+			if es.preSign == nil {
+				es.preSign = make(map[string]*PreSignCtx)
+			}
+			es.preSign[in.InputId] = &PreSignCtx{
+				InputID:          in.InputId,
+				RedeemScriptHex:  es.redeemScriptHex,
+				DraftHex:         req.DraftTxHex,
+				MHex:             in.MHex,
+				RPrimeCompressed: append([]byte(nil), ps.RprimeCompressed...),
+				SPrime32:         append([]byte(nil), ps.Sprime32...),
+				TCompressed:      append([]byte(nil), in.TCompressed...),
+				WinnerUID:        es.ownerUID,
+			}
+			s.Unlock()
 		}
 	}
 	// All good → send SERVER_OK and return

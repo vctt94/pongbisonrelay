@@ -21,6 +21,7 @@ import (
 	"google.golang.org/protobuf/proto"
 
 	"github.com/decred/dcrd/dcrec/secp256k1/v4"
+	"github.com/decred/dcrd/dcrutil/v4"
 	"github.com/decred/dcrd/txscript/v4"
 	"github.com/decred/dcrd/wire"
 
@@ -121,6 +122,11 @@ type appstate struct {
 		csvBlocks  uint32
 
 		activeEscrowID string
+
+		// Handshake artifacts for finalization
+		lastDraftHex string
+		lastInputs   []*pong.NeedPreSigs_PerInput
+		lastPresigs  map[string]*pong.PreSig // input_id -> presig
 	}
 
 	// In-memory generated key (optional helper)
@@ -282,6 +288,13 @@ func (m *appstate) handshakeOnce() {
 		_ = stream.CloseSend()
 		return
 	}
+	// Store artifacts for later finalization
+	m.settle.lastDraftHex = req.DraftTxHex
+	m.settle.lastInputs = req.Inputs
+	m.settle.lastPresigs = make(map[string]*pong.PreSig, len(verify.Presigs))
+	for _, p := range verify.Presigs {
+		m.settle.lastPresigs[p.InputId] = p
+	}
 	_ = stream.Send(&pong.ClientMsg{MatchId: m.settle.matchID, Kind: &pong.ClientMsg_VerifyOk{VerifyOk: verify}})
 
 	// Expect exactly one SERVER_OK and then close
@@ -373,6 +386,29 @@ func (m *appstate) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		case pong.NotificationType_ON_PLAYER_READY:
 			if msg.PlayerId != m.pc.ID {
 				m.notification = "Opponent is ready to play"
+			}
+		case pong.NotificationType_MESSAGE:
+			m.notification = msg.Message
+			// Try to parse gamma and draft hex from the message and finalize locally (no broadcast)
+			if strings.Contains(msg.Message, "Gamma received; finalizing…") && strings.Contains(msg.Message, "Result draft tx hex:") {
+				gammaHex := ""
+				draftHex := ""
+				// gamma between '(' and ')'
+				if i := strings.Index(msg.Message, "("); i >= 0 {
+					if j := strings.Index(msg.Message[i+1:], ")"); j > 0 {
+						gammaHex = strings.TrimSpace(msg.Message[i+1 : i+1+j])
+					}
+				}
+				if k := strings.Index(msg.Message, "Result draft tx hex:"); k >= 0 {
+					draftHex = strings.TrimSpace(msg.Message[k+len("Result draft tx hex:"):])
+				}
+				if gammaHex != "" && draftHex != "" {
+					if hexTx, err := m.finalizeWinner(gammaHex, draftHex); err == nil {
+						m.notification = "Finalized (not broadcast): " + hexTx
+					} else if err != nil {
+						m.notification = "Finalize failed: " + err.Error()
+					}
+				}
 			}
 		}
 		return m, m.waitForMsg()
@@ -825,6 +861,132 @@ func (m *appstate) signalReadyToPlay() error {
 	return nil
 }
 
+// finalizeWinner computes s = s' + gamma (mod n), builds sig65 = r||s||0x01,
+// attaches winner-path scriptSig = <sig65> OP_1 <redeem> for each presigned input,
+// and validates locally via the script engine (P2SH wrapper) to catch stack/order issues.
+func (m *appstate) finalizeWinner(gammaHex, draftHex string) (string, error) {
+	if m.settle.lastPresigs == nil || len(m.settle.lastPresigs) == 0 {
+		return "", fmt.Errorf("no presigs stored")
+	}
+
+	// Decode the exact draft that was used during presign.
+	raw, err := hex.DecodeString(strings.TrimSpace(draftHex))
+	if err != nil {
+		return "", fmt.Errorf("decode draft hex: %w", err)
+	}
+	var tx wire.MsgTx
+	if err := tx.Deserialize(bytes.NewReader(raw)); err != nil {
+		return "", fmt.Errorf("deserialize draft: %w", err)
+	}
+
+	// Map draft inputs -> index for deterministic lookup.
+	idxByID := make(map[string]int, len(tx.TxIn))
+	have := make([]string, 0, len(tx.TxIn))
+	for i, ti := range tx.TxIn {
+		k := strings.ToLower(fmt.Sprintf("%s:%d", ti.PreviousOutPoint.Hash.String(), ti.PreviousOutPoint.Index))
+		idxByID[k] = i
+		have = append(have, k)
+	}
+	sort.Strings(have)
+
+	// Build redeem lookup (input_id -> redeem hex) from what you stored at presign.
+	redeemByID := make(map[string]string, len(m.settle.lastInputs))
+	for _, in := range m.settle.lastInputs {
+		redeemByID[strings.ToLower(in.InputId)] = in.RedeemScriptHex
+	}
+
+	// Parse gamma.
+	gb, err := hex.DecodeString(strings.TrimSpace(gammaHex))
+	if err != nil || len(gb) != 32 {
+		return "", fmt.Errorf("bad gamma")
+	}
+	var gamma secp256k1.ModNScalar
+	if overflow := gamma.SetByteSlice(gb); overflow {
+		return "", fmt.Errorf("gamma overflow")
+	}
+
+	// Finalize each presigned input.
+	for id, ps := range m.settle.lastPresigs {
+		key := strings.ToLower(strings.TrimSpace(id))
+
+		// Ensure the draft actually has this input.
+		idx, ok := idxByID[key]
+		if !ok {
+			return "", fmt.Errorf("input %s not found in draft. draft has: %v", id, have)
+		}
+
+		// Get redeem script for this input.
+		redHex, ok := redeemByID[key]
+		if !ok {
+			return "", fmt.Errorf("no redeem script stored for input %s", id)
+		}
+		redeem, err := hex.DecodeString(redHex)
+		if err != nil {
+			return "", fmt.Errorf("decode redeem for %s: %w", id, err)
+		}
+
+		// Sanity: presig sizes and even-Y on R'.
+		if len(ps.RprimeCompressed) != 33 || len(ps.Sprime32) != 32 {
+			return "", fmt.Errorf("bad presig sizes for %s", id)
+		}
+		if ps.RprimeCompressed[0] != 0x02 {
+			return "", fmt.Errorf("R' must have even Y (0x02) for %s, got 0x%02x", id, ps.RprimeCompressed[0])
+		}
+
+		// s = s' + gamma (mod n)
+		var sPrime secp256k1.ModNScalar
+		if overflow := sPrime.SetByteSlice(ps.Sprime32); overflow {
+			return "", fmt.Errorf("s' overflow for %s", id)
+		}
+		sPrime.Add(&gamma)
+		sBytes := sPrime.Bytes()
+
+		// sig65 = r||s || 0x01 (SigHashAll)
+		rX := ps.RprimeCompressed[1:33]
+		sig65 := make([]byte, 0, 65)
+		sig65 = append(sig65, rX...)
+		sig65 = append(sig65, sBytes[:]...)
+		sig65 = append(sig65, byte(txscript.SigHashAll))
+
+		// Winner scriptSig: <sig65> OP_1 <redeem>
+		sb := txscript.NewScriptBuilder()
+		sb.AddData(sig65)
+		sb.AddOp(txscript.OP_1)
+		sb.AddData(redeem)
+		sigScript, err := sb.Script()
+		if err != nil {
+			return "", fmt.Errorf("build scriptSig for %s: %w", id, err)
+		}
+		tx.TxIn[idx].SignatureScript = sigScript
+
+		// --- Local VM verify (P2SH wrapper) ---
+		// Execute against OP_HASH160 <Hash160(redeem)> OP_EQUAL, not the redeem itself.
+		sh := dcrutil.Hash160(redeem)
+		pkScript, err := txscript.NewScriptBuilder().
+			AddOp(txscript.OP_HASH160).
+			AddData(sh).
+			AddOp(txscript.OP_EQUAL).
+			Script()
+		if err != nil {
+			return "", fmt.Errorf("build pkScript for %s: %w", id, err)
+		}
+
+		// scriptVersion 0, no special flags/sigcache while iterating.
+		vm, err := txscript.NewEngine(pkScript, &tx, idx, 0, 0, nil)
+		if err != nil {
+			return "", fmt.Errorf("engine init for %s: %w", id, err)
+		}
+		if err := vm.Execute(); err != nil {
+			return "", fmt.Errorf("local VM verify failed on %s: %w", id, err)
+		}
+	}
+
+	// Serialize finalized tx.
+	var out bytes.Buffer
+	_ = tx.Serialize(&out)
+	return hex.EncodeToString(out.Bytes()), nil
+}
+
 func (m *appstate) View() string {
 	var b strings.Builder
 
@@ -889,8 +1051,8 @@ func (m *appstate) View() string {
 			var gameView strings.Builder
 
 			// Calculate header and footer sizes
-			headerLines := countLines(b.String())
-			footerLines := 2 // For the score and any additional messages
+			headerLines := strings.Count(b.String(), "\n") + 1 // +1 because the last line might not have a newline character
+			footerLines := 2                                   // For the score and any additional messages
 
 			// Calculate available space
 			availableHeight := m.viewport.Height - headerLines - footerLines
