@@ -184,9 +184,11 @@ func (m *appstate) Init() tea.Cmd {
 }
 
 // handleSubmitPreSig triggers the streaming settlement flow (Phase 1 UX).
-func (m *appstate) handleSubmitPreSig() tea.Cmd {
+func (m *appstate) handlePreSig() tea.Cmd {
 	return func() tea.Msg {
-		m.startSettlement()
+		m.notification = "Starting presign"
+		m.msgCh <- client.UpdatedMsg{}
+		go m.preSign()
 		return client.UpdatedMsg{}
 	}
 }
@@ -302,19 +304,16 @@ func (m *appstate) startSettlement() {
 					m.notification = "Escrow seen (0-conf). You can create or join a room."
 					m.msgCh <- client.UpdatedMsg{}
 					cancel()
-					go m.handshakeOnce()
 					return
 				}
 			}
 		}()
 		return
 	}
-
-	go m.handshakeOnce()
 }
 
-// handshakeOnce performs HELLO -> REQ -> VERIFY_OK -> SERVER_OK and returns.
-func (m *appstate) handshakeOnce() {
+// preSign performs HELLO -> REQ -> VERIFY_OK -> SERVER_OK and returns.
+func (m *appstate) preSign() {
 	ctx := m.ctx
 	stream, err := m.pc.RefStartSettlementStream(ctx)
 	if err != nil {
@@ -502,6 +501,9 @@ func (m *appstate) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			m.selectedRoomIndex = 0
 			m.listWaitingRooms()
 			return m, nil
+		case "p":
+			// Allow presign from any mode when appropriate
+			return m, m.handlePreSig()
 		case "w", "up":
 			if m.mode == gameMode {
 				return m, m.handleGameInput(msg)
@@ -545,11 +547,6 @@ func (m *appstate) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 				}
 				return m, nil
 			}
-		case "p":
-			if m.mode == settlementMode {
-				return m, m.handleSubmitPreSig() // <--- retry uses the same entrypoint
-			}
-			return m, nil
 		case "x":
 			// Enter settlement mode and start streaming settlement
 			if m.mode == gameIdle {
@@ -931,126 +928,141 @@ func (m *appstate) signalReadyToPlay() error {
 // attaches winner-path scriptSig = <sig65> OP_1 <redeem> for each presigned input,
 // and validates locally via the script engine (P2SH wrapper) to catch stack/order issues.
 func (m *appstate) finalizeWinner(gammaHex, draftHex string) (string, error) {
-	if m.settle.lastPresigs == nil || len(m.settle.lastPresigs) == 0 {
-		return "", fmt.Errorf("no presigs stored")
-	}
-
-	// Decode the exact draft that was used during presign.
-	raw, err := hex.DecodeString(strings.TrimSpace(draftHex))
-	if err != nil {
-		return "", fmt.Errorf("decode draft hex: %w", err)
-	}
-	var tx wire.MsgTx
-	if err := tx.Deserialize(bytes.NewReader(raw)); err != nil {
-		return "", fmt.Errorf("deserialize draft: %w", err)
-	}
-
-	// Map draft inputs -> index for deterministic lookup.
-	idxByID := make(map[string]int, len(tx.TxIn))
-	have := make([]string, 0, len(tx.TxIn))
-	for i, ti := range tx.TxIn {
-		k := strings.ToLower(fmt.Sprintf("%s:%d", ti.PreviousOutPoint.Hash.String(), ti.PreviousOutPoint.Index))
-		idxByID[k] = i
-		have = append(have, k)
-	}
-	sort.Strings(have)
-
-	// Build redeem lookup (input_id -> redeem hex) from what you stored at presign.
-	redeemByID := make(map[string]string, len(m.settle.lastInputs))
-	for _, in := range m.settle.lastInputs {
-		redeemByID[strings.ToLower(in.InputId)] = in.RedeemScriptHex
-	}
-
-	// Parse gamma.
-	gb, err := hex.DecodeString(strings.TrimSpace(gammaHex))
-	if err != nil || len(gb) != 32 {
-		return "", fmt.Errorf("bad gamma")
-	}
-	var gamma secp256k1.ModNScalar
-	if overflow := gamma.SetByteSlice(gb); overflow {
-		return "", fmt.Errorf("gamma overflow")
-	}
-
-	// Finalize each presigned input.
-	for id, ps := range m.settle.lastPresigs {
-		key := strings.ToLower(strings.TrimSpace(id))
-
-		// Ensure the draft actually has this input.
-		idx, ok := idxByID[key]
-		if !ok {
-			return "", fmt.Errorf("input %s not found in draft. draft has: %v", id, have)
+	tryFinalize := func(dh string) (string, error) {
+		presigsForDraft := m.settle.draftPresigs[dh]
+		inputsForDraft := m.settle.draftInputs[dh]
+		if presigsForDraft == nil || len(presigsForDraft) == 0 || inputsForDraft == nil || len(inputsForDraft) == 0 {
+			return "", fmt.Errorf("no presigs stored for this draft")
 		}
 
-		// Get redeem script for this input.
-		redHex, ok := redeemByID[key]
-		if !ok {
-			return "", fmt.Errorf("no redeem script stored for input %s", id)
-		}
-		redeem, err := hex.DecodeString(redHex)
+		// Decode the exact draft that was used during presign.
+		raw, err := hex.DecodeString(strings.TrimSpace(dh))
 		if err != nil {
-			return "", fmt.Errorf("decode redeem for %s: %w", id, err)
+			return "", fmt.Errorf("decode draft hex: %w", err)
+		}
+		var tx wire.MsgTx
+		if err := tx.Deserialize(bytes.NewReader(raw)); err != nil {
+			return "", fmt.Errorf("deserialize draft: %w", err)
 		}
 
-		// Sanity: presig sizes and even-Y on R'.
-		if len(ps.RprimeCompressed) != 33 || len(ps.Sprime32) != 32 {
-			return "", fmt.Errorf("bad presig sizes for %s", id)
+		// Map draft inputs -> index for deterministic lookup.
+		idxByID := make(map[string]int, len(tx.TxIn))
+		have := make([]string, 0, len(tx.TxIn))
+		for i, ti := range tx.TxIn {
+			k := strings.ToLower(fmt.Sprintf("%s:%d", ti.PreviousOutPoint.Hash.String(), ti.PreviousOutPoint.Index))
+			idxByID[k] = i
+			have = append(have, k)
 		}
-		if ps.RprimeCompressed[0] != 0x02 {
-			return "", fmt.Errorf("R' must have even Y (0x02) for %s, got 0x%02x", id, ps.RprimeCompressed[0])
+		sort.Strings(have)
+
+		// Build redeem lookup (input_id -> redeem hex) from what you stored at presign for this draft.
+		redeemByID := make(map[string]string, len(inputsForDraft))
+		for _, in := range inputsForDraft {
+			redeemByID[strings.ToLower(in.InputId)] = in.RedeemScriptHex
 		}
 
-		// s = s' + gamma (mod n)
-		var sPrime secp256k1.ModNScalar
-		if overflow := sPrime.SetByteSlice(ps.Sprime32); overflow {
-			return "", fmt.Errorf("s' overflow for %s", id)
+		// Parse gamma.
+		gb, err := hex.DecodeString(strings.TrimSpace(gammaHex))
+		if err != nil || len(gb) != 32 {
+			return "", fmt.Errorf("bad gamma")
 		}
-		sPrime.Add(&gamma)
-		sBytes := sPrime.Bytes()
-
-		// sig65 = r||s || 0x01 (SigHashAll)
-		rX := ps.RprimeCompressed[1:33]
-		sig65 := make([]byte, 0, 65)
-		sig65 = append(sig65, rX...)
-		sig65 = append(sig65, sBytes[:]...)
-		sig65 = append(sig65, byte(txscript.SigHashAll))
-
-		// Winner scriptSig: <sig65> OP_1 <redeem>
-		sb := txscript.NewScriptBuilder()
-		sb.AddData(sig65)
-		sb.AddOp(txscript.OP_1)
-		sb.AddData(redeem)
-		sigScript, err := sb.Script()
-		if err != nil {
-			return "", fmt.Errorf("build scriptSig for %s: %w", id, err)
-		}
-		tx.TxIn[idx].SignatureScript = sigScript
-
-		// --- Local VM verify (P2SH wrapper) ---
-		// Execute against OP_HASH160 <Hash160(redeem)> OP_EQUAL, not the redeem itself.
-		sh := dcrutil.Hash160(redeem)
-		pkScript, err := txscript.NewScriptBuilder().
-			AddOp(txscript.OP_HASH160).
-			AddData(sh).
-			AddOp(txscript.OP_EQUAL).
-			Script()
-		if err != nil {
-			return "", fmt.Errorf("build pkScript for %s: %w", id, err)
+		var gamma secp256k1.ModNScalar
+		if overflow := gamma.SetByteSlice(gb); overflow {
+			return "", fmt.Errorf("gamma overflow")
 		}
 
-		// scriptVersion 0, no special flags/sigcache while iterating.
-		vm, err := txscript.NewEngine(pkScript, &tx, idx, 0, 0, nil)
-		if err != nil {
-			return "", fmt.Errorf("engine init for %s: %w", id, err)
+		// Finalize each presigned input for this draft.
+		for id, ps := range presigsForDraft {
+			key := strings.ToLower(strings.TrimSpace(id))
+
+			// Ensure the draft actually has this input.
+			idx, ok := idxByID[key]
+			if !ok {
+				return "", fmt.Errorf("input %s not found in draft. draft has: %v", id, have)
+			}
+
+			// Get redeem script for this input.
+			redHex, ok := redeemByID[key]
+			if !ok {
+				return "", fmt.Errorf("no redeem script stored for input %s", id)
+			}
+			redeem, err := hex.DecodeString(redHex)
+			if err != nil {
+				return "", fmt.Errorf("decode redeem for %s: %w", id, err)
+			}
+
+			// Sanity: presig sizes and even-Y on R'.
+			if len(ps.RprimeCompressed) != 33 || len(ps.Sprime32) != 32 {
+				return "", fmt.Errorf("bad presig sizes for %s", id)
+			}
+			if ps.RprimeCompressed[0] != 0x02 {
+				return "", fmt.Errorf("R' must have even Y (0x02) for %s, got 0x%02x", id, ps.RprimeCompressed[0])
+			}
+
+			// s = s' + gamma (mod n)
+			var sPrime secp256k1.ModNScalar
+			if overflow := sPrime.SetByteSlice(ps.Sprime32); overflow {
+				return "", fmt.Errorf("s' overflow for %s", id)
+			}
+			sPrime.Add(&gamma)
+			sBytes := sPrime.Bytes()
+
+			// sig65 = r||s || 0x01 (SigHashAll)
+			rX := ps.RprimeCompressed[1:33]
+			sig65 := make([]byte, 0, 65)
+			sig65 = append(sig65, rX...)
+			sig65 = append(sig65, sBytes[:]...)
+			sig65 = append(sig65, byte(txscript.SigHashAll))
+
+			// Winner scriptSig: <sig65> OP_1 <redeem>
+			sb := txscript.NewScriptBuilder()
+			sb.AddData(sig65)
+			sb.AddOp(txscript.OP_1)
+			sb.AddData(redeem)
+			sigScript, err := sb.Script()
+			if err != nil {
+				return "", fmt.Errorf("build scriptSig for %s: %w", id, err)
+			}
+			tx.TxIn[idx].SignatureScript = sigScript
+
+			// --- Local VM verify (P2SH wrapper) ---
+			// Execute against OP_HASH160 <Hash160(redeem)> OP_EQUAL, not the redeem itself.
+			sh := dcrutil.Hash160(redeem)
+			pkScript, err := txscript.NewScriptBuilder().
+				AddOp(txscript.OP_HASH160).
+				AddData(sh).
+				AddOp(txscript.OP_EQUAL).
+				Script()
+			if err != nil {
+				return "", fmt.Errorf("build pkScript for %s: %w", id, err)
+			}
+
+			// scriptVersion 0, no special flags/sigcache while iterating.
+			vm, err := txscript.NewEngine(pkScript, &tx, idx, 0, 0, nil)
+			if err != nil {
+				return "", fmt.Errorf("engine init for %s: %w", id, err)
+			}
+			if err := vm.Execute(); err != nil {
+				return "", fmt.Errorf("local VM verify failed on %s: %w", id, err)
+			}
 		}
-		if err := vm.Execute(); err != nil {
-			return "", fmt.Errorf("local VM verify failed on %s: %w", id, err)
-		}
+
+		// Serialize finalized tx.
+		var out bytes.Buffer
+		_ = tx.Serialize(&out)
+		return hex.EncodeToString(out.Bytes()), nil
 	}
 
-	// Serialize finalized tx.
-	var out bytes.Buffer
-	_ = tx.Serialize(&out)
-	return hex.EncodeToString(out.Bytes()), nil
+	if txHex, err := tryFinalize(draftHex); err == nil {
+		return txHex, nil
+	}
+	// Fallback: try all stored drafts with the given gamma, pick the first that verifies
+	for dh := range m.settle.draftPresigs {
+		if txHex, err := tryFinalize(dh); err == nil {
+			return txHex, nil
+		}
+	}
+	return "", fmt.Errorf("no presigs stored for this draft")
 }
 
 func (m *appstate) View() string {
@@ -1087,6 +1099,7 @@ func (m *appstate) View() string {
 		b.WriteString("[Q] - Leave current room\n")
 		b.WriteString("[V] - View logs\n")
 		b.WriteString("[X] - Settlement (escrow/referee) menu\n")
+		b.WriteString("[P] - Presign drafts when notified\n")
 		b.WriteString("[Ctrl+C] - Exit\n")
 		b.WriteString("====================\n\n")
 
