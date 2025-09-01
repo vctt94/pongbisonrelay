@@ -20,10 +20,13 @@ import (
 	"golang.org/x/sync/errgroup"
 	"google.golang.org/protobuf/proto"
 
+	"github.com/decred/dcrd/chaincfg/v3"
 	"github.com/decred/dcrd/dcrec/secp256k1/v4"
 	"github.com/decred/dcrd/dcrutil/v4"
 	"github.com/decred/dcrd/txscript/v4"
+	"github.com/decred/dcrd/txscript/v4/stdaddr"
 	"github.com/decred/dcrd/wire"
+	basecfg "github.com/vctt94/bisonbotkit/config"
 
 	"github.com/charmbracelet/bubbles/viewport"
 	tea "github.com/charmbracelet/bubbletea"
@@ -32,7 +35,6 @@ import (
 	"github.com/decred/dcrd/crypto/blake256"
 	"github.com/decred/slog"
 	"github.com/vctt94/bisonbotkit/botclient"
-	"github.com/vctt94/bisonbotkit/config"
 	"github.com/vctt94/bisonbotkit/logging"
 	"github.com/vctt94/bisonbotkit/utils"
 )
@@ -65,6 +67,7 @@ var (
 	rpcPass            = flag.String("rpcpass", "", "RPC password for basic authentication")
 	grpcServerCert     = flag.String("grpcservercert", "", "Path to grpc server.cert file")
 	refHTTP            = flag.String("refhttp", "", "Referee HTTP base URL, e.g. http://localhost:8080")
+	addressFlag        = flag.String("address", "", "33-byte compressed pubkey hex for winner payout")
 )
 
 type appstate struct {
@@ -126,7 +129,11 @@ type appstate struct {
 		// Handshake artifacts for finalization
 		lastDraftHex string
 		lastInputs   []*pong.NeedPreSigs_PerInput
-		lastPresigs  map[string]*pong.PreSig // input_id -> presig
+		lastPresigs  map[string]*pong.PreSig // input_id -> presig (for lastDraftHex)
+
+		// Per-draft contexts accumulated during handshake rounds
+		draftInputs  map[string][]*pong.NeedPreSigs_PerInput // draftHex -> inputs
+		draftPresigs map[string]map[string]*pong.PreSig      // draftHex -> (input_id -> presig)
 	}
 
 	// In-memory generated key (optional helper)
@@ -184,7 +191,53 @@ func (m *appstate) handleSubmitPreSig() tea.Cmd {
 	}
 }
 
-// startSettlement runs the minimal 4-message adaptor handshake.
+// payoutPubkeyFromConfHex reads payout pubkey from -address: accepts 33B hex or a DCR P2PK address
+func (m *appstate) payoutPubkeyFromConfHex() ([]byte, error) {
+	if addressFlag != nil && *addressFlag != "" {
+		s := strings.TrimSpace(*addressFlag)
+		// Try as hex compressed pubkey first
+		if b, err := hex.DecodeString(s); err == nil {
+			if len(b) == 33 {
+				return b, nil
+			}
+		}
+		// Try as Decred address (prefer testnet, then mainnet/simnet/regnet)
+		paramsList := []*chaincfg.Params{
+			chaincfg.TestNet3Params(),
+			chaincfg.MainNetParams(),
+			chaincfg.SimNetParams(),
+			chaincfg.RegNetParams(),
+		}
+		var lastErr error
+		for _, p := range paramsList {
+			addr, err := stdaddr.DecodeAddress(s, p)
+			if err != nil {
+				lastErr = err
+				continue
+			}
+			// Check if this is a P2PK (raw pubkey) address
+			type compressedPubKeyer interface{ SerializedPubKey() []byte }
+			if pk, ok := addr.(compressedPubKeyer); ok {
+				b := pk.SerializedPubKey()
+				if len(b) == 33 {
+					return b, nil
+				}
+				if len(b) == 65 {
+					pp, err := secp256k1.ParsePubKey(b)
+					if err != nil {
+						return nil, fmt.Errorf("invalid pubkey inside address: %v", err)
+					}
+					return pp.SerializeCompressed(), nil
+				}
+				return nil, fmt.Errorf("pubkey in address has unexpected length %d", len(b))
+			}
+			return nil, fmt.Errorf("address is not P2PK; pass a P2PK address or 33-byte pubkey hex")
+		}
+		return nil, fmt.Errorf("decode -address failed: %v", lastErr)
+	}
+	return nil, fmt.Errorf("missing -address flag")
+}
+
 func (m *appstate) startSettlement() {
 	// Ensure key and minimal allocation if needed
 	if m.genPrivHex == "" {
@@ -205,10 +258,16 @@ func (m *appstate) startSettlement() {
 			m.settle.csvBlocks = 64
 		}
 		pubBytes, _ := hex.DecodeString(m.settle.aCompHex)
+		payoutBytes, perr := m.payoutPubkeyFromConfHex()
+		if perr != nil {
+			m.notification = "address error: " + perr.Error()
+			m.msgCh <- client.UpdatedMsg{}
+			return
+		}
 		m.notification = "Opening escrow…"
 		m.msgCh <- client.UpdatedMsg{}
 		go func() {
-			res, err := m.pc.RefOpenEscrow(m.pc.ID, pubBytes, m.settle.betAtoms, m.settle.csvBlocks)
+			res, err := m.pc.RefOpenEscrow(m.pc.ID, pubBytes, payoutBytes, m.settle.betAtoms, m.settle.csvBlocks)
 			if err != nil {
 				m.notification = "OpenEscrow failed: " + err.Error()
 				m.msgCh <- client.UpdatedMsg{}
@@ -265,53 +324,54 @@ func (m *appstate) handshakeOnce() {
 	}
 	pubBytes, _ := hex.DecodeString(m.settle.aCompHex)
 	_ = stream.Send(&pong.ClientMsg{Kind: &pong.ClientMsg_Hello{Hello: &pong.Hello{CompPubkey: pubBytes, ClientVersion: "poc"}}})
-	// Expect exactly one REQ
-	in, err := stream.Recv()
-	if err != nil || in.GetReq() == nil {
+	// Expect one or more REQ rounds (A-branch, B-branch)
+	m.settle.draftInputs = make(map[string][]*pong.NeedPreSigs_PerInput)
+	m.settle.draftPresigs = make(map[string]map[string]*pong.PreSig)
+	for {
+		in, err := stream.Recv()
 		if err != nil {
 			m.notification = fmt.Sprintf("handshake recv error: %v", err)
-		} else {
-			m.notification = "unexpected handshake response"
+			m.msgCh <- client.UpdatedMsg{}
+			_ = stream.CloseSend()
+			return
 		}
-		m.msgCh <- client.UpdatedMsg{}
-		_ = stream.CloseSend()
-		return
-	}
-	req := in.GetReq()
-	m.notification = "Verifying draft & building pre-sigs…"
-	m.msgCh <- client.UpdatedMsg{}
+		if req := in.GetReq(); req != nil {
+			m.notification = "Verifying draft & building pre-sigs…"
+			m.msgCh <- client.UpdatedMsg{}
 
-	verify, err := m.buildVerifyOk(req)
-	if err != nil {
-		m.notification = "presig build failed: " + err.Error()
-		m.msgCh <- client.UpdatedMsg{}
-		_ = stream.CloseSend()
-		return
-	}
-	// Store artifacts for later finalization
-	m.settle.lastDraftHex = req.DraftTxHex
-	m.settle.lastInputs = req.Inputs
-	m.settle.lastPresigs = make(map[string]*pong.PreSig, len(verify.Presigs))
-	for _, p := range verify.Presigs {
-		m.settle.lastPresigs[p.InputId] = p
-	}
-	_ = stream.Send(&pong.ClientMsg{MatchId: m.settle.matchID, Kind: &pong.ClientMsg_VerifyOk{VerifyOk: verify}})
-
-	// Expect exactly one SERVER_OK and then close
-	in2, err := stream.Recv()
-	if err != nil || in2.GetOk() == nil {
-		if err != nil {
-			m.notification = fmt.Sprintf("server ok recv error: %v", err)
-		} else {
-			m.notification = "server did not ack presigs"
+			verify, err := m.buildVerifyOk(req)
+			if err != nil {
+				m.notification = "presig build failed: " + err.Error()
+				m.msgCh <- client.UpdatedMsg{}
+				_ = stream.CloseSend()
+				return
+			}
+			// Record per-draft artifacts
+			m.settle.draftInputs[req.DraftTxHex] = req.Inputs
+			if m.settle.draftPresigs[req.DraftTxHex] == nil {
+				m.settle.draftPresigs[req.DraftTxHex] = make(map[string]*pong.PreSig)
+			}
+			for _, p := range verify.Presigs {
+				m.settle.draftPresigs[req.DraftTxHex][p.InputId] = p
+			}
+			_ = stream.Send(&pong.ClientMsg{MatchId: m.settle.matchID, Kind: &pong.ClientMsg_VerifyOk{VerifyOk: verify}})
+			continue
 		}
-		m.msgCh <- client.UpdatedMsg{}
-		_ = stream.CloseSend()
-		return
+		if ok := in.GetOk(); ok != nil {
+			// Pick last seen draft as the immediate finalization target for UI preview
+			var lastDraft string
+			for dh := range m.settle.draftInputs {
+				lastDraft = dh
+			}
+			m.settle.lastDraftHex = lastDraft
+			m.settle.lastInputs = m.settle.draftInputs[lastDraft]
+			m.settle.lastPresigs = m.settle.draftPresigs[lastDraft]
+			_ = stream.CloseSend()
+			m.notification = "Verified & exchanged pre-sigs for both branches (server OK)."
+			m.msgCh <- client.UpdatedMsg{}
+			return
+		}
 	}
-	_ = stream.CloseSend()
-	m.notification = "Verified & exchanged pre-sigs (server OK)."
-	m.msgCh <- client.UpdatedMsg{}
 }
 
 // buildVerifyOk validates draft and inputs and constructs PreSig list and ack digest.
@@ -536,9 +596,15 @@ func (m *appstate) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 				if m.settle.csvBlocks == 0 {
 					m.settle.csvBlocks = 64
 				}
+				payoutBytes, perr := m.payoutPubkeyFromConfHex()
+				if perr != nil {
+					m.notification = "address error: " + perr.Error()
+					m.msgCh <- client.UpdatedMsg{}
+					return m, nil
+				}
 				go func() {
 					pubBytes, _ := hex.DecodeString(m.settle.aCompHex)
-					res, err := m.pc.RefOpenEscrow(m.pc.ID, pubBytes, m.settle.betAtoms, m.settle.csvBlocks)
+					res, err := m.pc.RefOpenEscrow(m.pc.ID, pubBytes, payoutBytes, m.settle.betAtoms, m.settle.csvBlocks)
 					if err != nil {
 						m.notification = err.Error()
 						m.msgCh <- client.UpdatedMsg{}
@@ -1237,7 +1303,7 @@ func realMain() error {
 	if *datadir == "" {
 		*datadir = utils.AppDataDir("pongclient", false)
 	}
-	cfg, err := config.LoadClientConfig(*datadir, "pongclient.conf")
+	cfg, err := basecfg.LoadClientConfig(*datadir, "pongclient.conf")
 	if err != nil {
 		fmt.Println("Error loading configuration:", err)
 		os.Exit(1)

@@ -1,6 +1,7 @@
 package server
 
 import (
+	"bytes"
 	"context"
 	crand "crypto/rand"
 	"encoding/hex"
@@ -8,17 +9,11 @@ import (
 	"sync"
 	"time"
 
-	"bytes"
-
-	"github.com/decred/dcrd/crypto/blake256"
-
 	"github.com/companyzero/bisonrelay/clientrpc/types"
 	"github.com/companyzero/bisonrelay/zkidentity"
-	"github.com/decred/dcrd/chaincfg/chainhash"
 	"github.com/decred/dcrd/chaincfg/v3"
+	"github.com/decred/dcrd/crypto/blake256"
 	"github.com/decred/dcrd/dcrec/secp256k1/v4"
-	"github.com/decred/dcrd/txscript/v4"
-	"github.com/decred/dcrd/wire"
 
 	"github.com/vctt94/pong-bisonrelay/ponggame"
 	"github.com/vctt94/pong-bisonrelay/pongrpc/grpc/pong"
@@ -150,15 +145,34 @@ func (s *Server) handleWaitingRoomRemoved(wr *pong.WaitingRoom) {
 }
 
 func (s *Server) RefOpenEscrow(ctx context.Context, req *pong.OpenEscrowRequest) (*pong.OpenEscrowResponse, error) {
-	if req.OwnerUid == "" || req.BetAtoms == 0 || req.CsvBlocks == 0 || len(req.CompPubkey) != 33 {
-		return nil, status.Errorf(codes.InvalidArgument, "invalid escrow open request")
+	if req.OwnerUid == "" {
+		return nil, status.Errorf(codes.InvalidArgument, "missing owner uid")
 	}
+	if req.BetAtoms == 0 {
+		return nil, status.Errorf(codes.InvalidArgument, "missing bet atoms")
+	}
+	if req.CsvBlocks == 0 {
+		return nil, status.Errorf(codes.InvalidArgument, "missing csv blocks")
+	}
+	if len(req.CompPubkey) != 33 {
+		return nil, status.Errorf(codes.InvalidArgument, "invalid compressed pubkey")
+	}
+	if len(req.PayoutPubkey) != 33 {
+		return nil, status.Errorf(codes.InvalidArgument, "invalid payout address")
+	}
+
 	// Canonicalize compressed pubkey.
 	pub, err := secp256k1.ParsePubKey(req.CompPubkey)
 	if err != nil {
 		return nil, status.Errorf(codes.InvalidArgument, "bad compressed pubkey: %v", err)
 	}
 	comp := pub.SerializeCompressed()
+	// Canonicalize payout compressed pubkey.
+	pp, err := secp256k1.ParsePubKey(req.PayoutPubkey)
+	if err != nil {
+		return nil, status.Errorf(codes.InvalidArgument, "bad payout compressed pubkey: %v", err)
+	}
+	payoutPubkey := pp.SerializeCompressed()
 
 	// Idempotency key: owner|comp|bet|csv
 	key := fmt.Sprintf("%s|%x|%d|%d", req.OwnerUid, comp, req.BetAtoms, req.CsvBlocks)
@@ -209,6 +223,7 @@ func (s *Server) RefOpenEscrow(ctx context.Context, req *pong.OpenEscrowRequest)
 		escrowID:        eid,
 		ownerUID:        req.OwnerUid,
 		compPubkey:      append([]byte(nil), comp...),
+		payoutPubkey:    append([]byte(nil), payoutPubkey...),
 		betAtoms:        req.BetAtoms,
 		csvBlocks:       req.CsvBlocks,
 		redeemScriptHex: hex.EncodeToString(redeem),
@@ -381,7 +396,6 @@ func (s *Server) broadcastReady(players []*ponggame.Player, playerID, gameID, ms
 }
 
 func (s *Server) SettlementStream(stream pong.PongReferee_SettlementStreamServer) error {
-	ctx := stream.Context()
 	// Step 1: receive HELLO
 	first, err := stream.Recv()
 	if err != nil || first.GetHello() == nil {
@@ -399,210 +413,140 @@ func (s *Server) SettlementStream(stream pong.PongReferee_SettlementStreamServer
 	Ac := X.SerializeCompressed()
 	_ = Ac
 
-	// Find a funded escrow session matching this comp pubkey
+	return s.settlementStreamTwoInputsAuto(stream, X, hel.CompPubkey)
+}
+
+// settlementStreamTwoInputs performs the two-branch, two-input presign handshake
+// with a single client. For each branch (A wins, B wins), it sends a presign
+// request containing only the client's own input. The opponent performs the
+// same handshake on their stream. The server persists both branches' presigs
+// and drafts for later finalization delivery to the winner.
+func (s *Server) settlementStreamTwoInputs(stream pong.PongReferee_SettlementStreamServer, X *secp256k1.PublicKey, myEscrow, oppEscrow *escrowSession, myUTXO, oppUTXO *pong.EscrowUTXO) error {
+	// Build two-branch drafts for both inputs.
+	drafts, err := s.buildTwoInputDrafts(myEscrow, myUTXO, oppEscrow, oppUTXO)
+	if err != nil {
+		return status.Errorf(codes.Internal, "build two-input drafts: %v", err)
+	}
+
+	// Helper to pick this client's PerInput from a full inputs slice.
+	pickMine := func(all []*pong.NeedPreSigs_PerInput) (*pong.NeedPreSigs_PerInput, error) {
+		want := fmt.Sprintf("%s:%d", myUTXO.Txid, myUTXO.Vout)
+		for _, in := range all {
+			if in.InputId == want {
+				return in, nil
+			}
+		}
+		return nil, fmt.Errorf("client input %s not found in draft inputs", want)
+	}
+
+	// Branch 0: A-wins (myEscrow as winner)
+	inA, err := pickMine(drafts.InputsA)
+	if err != nil {
+		return status.Errorf(codes.Internal, "pick input A: %v", err)
+	}
+	if err := stream.Send(&pong.ServerMsg{Kind: &pong.ServerMsg_Req{Req: &pong.NeedPreSigs{DraftTxHex: drafts.DraftHexA, Inputs: []*pong.NeedPreSigs_PerInput{inA}}}}); err != nil {
+		return status.Errorf(codes.Unavailable, "send req A: %v", err)
+	}
+	msgA, err := stream.Recv()
+	if err != nil || msgA.GetVerifyOk() == nil {
+		return status.Errorf(codes.InvalidArgument, "expected VERIFY_OK (A): %v", err)
+	}
+	verifyA := msgA.GetVerifyOk()
+	// Ack digest over draft + canonical(single) input
+	var concatA []byte
+	concatA = append(concatA, []byte(drafts.DraftHexA)...)
+	concatA = append(concatA, []byte(inA.InputId)...)
+	concatA = append(concatA, []byte(inA.MHex)...)
+	concatA = append(concatA, inA.TCompressed...)
+	expectedA := blake256.Sum256(concatA)
+	if len(verifyA.AckDigest) != 32 || !bytes.Equal(verifyA.AckDigest, expectedA[:]) {
+		return status.Error(codes.InvalidArgument, "ack digest mismatch (A)")
+	}
+	if len(verifyA.Presigs) != 1 || verifyA.Presigs[0].InputId != inA.InputId {
+		return status.Error(codes.InvalidArgument, "presig input mismatch (A)")
+	}
+	if err := s.verifyAndStorePresig(X, verifyA.Presigs[0], inA, drafts.DraftHexA, myEscrow, 0); err != nil {
+		return err
+	}
+
+	// Branch 1: B-wins (oppEscrow as winner)
+	inB, err := pickMine(drafts.InputsB)
+	if err != nil {
+		return status.Errorf(codes.Internal, "pick input B: %v", err)
+	}
+	if err := stream.Send(&pong.ServerMsg{Kind: &pong.ServerMsg_Req{Req: &pong.NeedPreSigs{DraftTxHex: drafts.DraftHexB, Inputs: []*pong.NeedPreSigs_PerInput{inB}}}}); err != nil {
+		return status.Errorf(codes.Unavailable, "send req B: %v", err)
+	}
+	msgB, err := stream.Recv()
+	if err != nil || msgB.GetVerifyOk() == nil {
+		return status.Errorf(codes.InvalidArgument, "expected VERIFY_OK (B): %v", err)
+	}
+	verifyB := msgB.GetVerifyOk()
+	var concatB []byte
+	concatB = append(concatB, []byte(drafts.DraftHexB)...)
+	concatB = append(concatB, []byte(inB.InputId)...)
+	concatB = append(concatB, []byte(inB.MHex)...)
+	concatB = append(concatB, inB.TCompressed...)
+	expectedB := blake256.Sum256(concatB)
+	if len(verifyB.AckDigest) != 32 || !bytes.Equal(verifyB.AckDigest, expectedB[:]) {
+		return status.Error(codes.InvalidArgument, "ack digest mismatch (B)")
+	}
+	if len(verifyB.Presigs) != 1 || verifyB.Presigs[0].InputId != inB.InputId {
+		return status.Error(codes.InvalidArgument, "presig input mismatch (B)")
+	}
+	if err := s.verifyAndStorePresig(X, verifyB.Presigs[0], inB, drafts.DraftHexB, oppEscrow, 1); err != nil {
+		return err
+	}
+
+	// Ack overall success
+	if err := stream.Send(&pong.ServerMsg{Kind: &pong.ServerMsg_Ok{Ok: &pong.ServerOk{AckDigest: expectedB[:]}}}); err != nil {
+		return status.Errorf(codes.Unavailable, "send ok: %v", err)
+	}
+	return nil
+}
+
+// settlementStreamTwoInputsAuto locates the caller's escrow and an opponent's
+// funded escrow, fetches one UTXO from each, and runs the two-branch handshake.
+func (s *Server) settlementStreamTwoInputsAuto(stream pong.PongReferee_SettlementStreamServer, X *secp256k1.PublicKey, compPubkey []byte) error {
+	// Locate my escrow by compPubkey and ensure it has a UTXO.
 	s.RLock()
-	var es *escrowSession
+	var myEscrow *escrowSession
 	for _, cand := range s.escrows {
-		if cand != nil && bytes.Equal(cand.compPubkey, hel.CompPubkey) {
-			// Require a UTXO (0-conf)
-			if s.watcher != nil && cand.pkScriptHex != "" {
-				utxos, _, ok := s.watcher.queryDeposit(cand.pkScriptHex)
-				if ok && len(utxos) > 0 {
-					es = cand
-					break
-				}
+		if cand != nil && bytes.Equal(cand.compPubkey, compPubkey) {
+			myEscrow = cand
+			break
+		}
+	}
+	s.RUnlock()
+	if myEscrow == nil {
+		return status.Error(codes.FailedPrecondition, "no funded escrow for this pubkey")
+	}
+	aus, _, _ := s.watcher.queryDeposit(myEscrow.pkScriptHex)
+	if len(aus) == 0 {
+		return status.Error(codes.FailedPrecondition, "watcher lost utxo state")
+	}
+
+	// Find any opponent escrow with a UTXO.
+	s.RLock()
+	var oppEscrow *escrowSession
+	for _, cand := range s.escrows {
+		if cand == nil || cand == myEscrow {
+			continue
+		}
+		if s.watcher != nil && cand.pkScriptHex != "" {
+			if bus, _, ok := s.watcher.queryDeposit(cand.pkScriptHex); ok && len(bus) > 0 {
+				oppEscrow = cand
+				break
 			}
 		}
 	}
 	s.RUnlock()
-	if es == nil {
-		return status.Error(codes.FailedPrecondition, "no funded escrow for this pubkey")
+	if oppEscrow == nil {
+		return status.Error(codes.FailedPrecondition, "opponent escrow not yet funded")
 	}
-	utxos, _, _ := s.watcher.queryDeposit(es.pkScriptHex)
-	if len(utxos) == 0 {
-		return status.Error(codes.FailedPrecondition, "watcher lost utxo state")
+	bus, _, _ := s.watcher.queryDeposit(oppEscrow.pkScriptHex)
+	if len(bus) == 0 {
+		return status.Error(codes.FailedPrecondition, "opponent watcher lost utxo state")
 	}
-	u := utxos[0]
-	// Build a simple draft that spends this UTXO back to the same pkScript (POC)
-	var prev chainhash.Hash
-	if err := chainhash.Decode(&prev, u.Txid); err != nil {
-		return status.Errorf(codes.InvalidArgument, "bad utxo txid: %v", err)
-	}
-	tx := wire.NewMsgTx()
-	tx.Version = 1
-	tx.AddTxIn(&wire.TxIn{
-		PreviousOutPoint: wire.OutPoint{Hash: prev, Index: u.Vout},
-		ValueIn:          int64(u.Value), // atoms of the UTXO you are spending
-		BlockHeight:      0,              // ok to leave 0 if unknown
-		BlockIndex:       0,              // ok to leave 0 if unknown
-	})
-	pkb, _ := hex.DecodeString(es.pkScriptHex)
-	// Deduct a minimal fee to make the draft broadcastable post-finalization
-	feeAtoms := s.pocFeeAtoms
-	if feeAtoms == 0 {
-		feeAtoms = 20000
-	}
-	val := int64(u.Value) - int64(feeAtoms)
-	if val <= 0 {
-		return status.Error(codes.FailedPrecondition, "utxo value too small to pay fee")
-	}
-	tx.AddTxOut(&wire.TxOut{Value: val, PkScript: pkb})
-	var buf bytes.Buffer
-	_ = tx.Serialize(&buf)
-	draftHex := hex.EncodeToString(buf.Bytes())
-	// Compute m for input 0 using the redeem script (P2SH subscript semantics)
-	redeem, _ := hex.DecodeString(es.redeemScriptHex)
-	mBytes, err := txscript.CalcSignatureHash(redeem, txscript.SigHashAll, tx, 0, nil)
-	if err != nil || len(mBytes) != 32 {
-		return status.Error(codes.Internal, "failed to compute sighash")
-	}
-	mHex := hex.EncodeToString(mBytes)
-	// Derive adaptor T (POC secret)
-	const pocServerPrivHex = "11ee22dd33cc44bb55aa66ff77ee88dd99cc00bbaa11223344556677889900aa"
-	gammaHex, TCompHex := deriveAdaptorGamma("", fmt.Sprintf("%s:%d", u.Txid, u.Vout), 0, mHex, pocServerPrivHex)
-	_ = gammaHex // not revealed here
-	Tcomp, _ := hex.DecodeString(TCompHex)
-
-	req := &pong.NeedPreSigs{
-		DraftTxHex: draftHex,
-		Inputs: []*pong.NeedPreSigs_PerInput{
-			{
-				InputId:         fmt.Sprintf("%s:%d", u.Txid, u.Vout),
-				RedeemScriptHex: es.redeemScriptHex,
-				MHex:            mHex,
-				TCompressed:     Tcomp,
-			},
-		},
-	}
-	if err := stream.Send(&pong.ServerMsg{Kind: &pong.ServerMsg_Req{Req: req}}); err != nil {
-		return status.Errorf(codes.Unavailable, "send req: %v", err)
-	}
-
-	// Step 3: receive VERIFY_OK
-	vmsg, err := stream.Recv()
-	if err != nil || vmsg.GetVerifyOk() == nil {
-		return status.Errorf(codes.InvalidArgument, "expected VERIFY_OK: %v", err)
-	}
-	verify := vmsg.GetVerifyOk()
-	// Compute expected ack digest for the sent req
-	var concat []byte
-	concat = append(concat, []byte(req.DraftTxHex)...)
-	for _, in := range req.Inputs {
-		concat = append(concat, []byte(in.InputId)...)
-		concat = append(concat, []byte(in.MHex)...)
-		concat = append(concat, in.TCompressed...)
-	}
-	expected := blake256.Sum256(concat)
-	if len(verify.AckDigest) != 32 || !bytes.Equal(verify.AckDigest, expected[:]) {
-		return status.Error(codes.InvalidArgument, "ack digest mismatch")
-	}
-	// Verify each presig: s'·G + e·X + T == R'
-	for _, ps := range verify.Presigs {
-		if len(ps.RprimeCompressed) != 33 || len(ps.Sprime32) != 32 {
-			return status.Error(codes.InvalidArgument, "bad presig sizes")
-		}
-		if ps.RprimeCompressed[0] != 0x02 {
-			return status.Error(codes.InvalidArgument, "R' must be even-Y (0x02)")
-		}
-		Rp, err := secp256k1.ParsePubKey(ps.RprimeCompressed)
-		if err != nil {
-			return status.Errorf(codes.InvalidArgument, "parse R': %v", err)
-		}
-		// Lookup input info
-		var in *pong.NeedPreSigs_PerInput
-		for _, ii := range req.Inputs {
-			if ii.InputId == ps.InputId {
-				in = ii
-				break
-			}
-		}
-		if in == nil {
-			return status.Error(codes.InvalidArgument, "unknown input_id in presig")
-		}
-		if !bytes.Equal([]byte(in.MHex), []byte(mHex)) {
-			return status.Error(codes.InvalidArgument, "client m mismatch")
-		}
-		// Compute e = BLAKE256(r_x || m)
-		var r32 [32]byte
-		copy(r32[:], ps.RprimeCompressed[1:33])
-		mh, err := hex.DecodeString(in.MHex)
-		if err != nil || len(mh) != 32 {
-			return status.Error(codes.InvalidArgument, "bad m_hex")
-		}
-		ch := blake256.Sum256(append(r32[:], mh...))
-		var e secp256k1.ModNScalar
-		if overflow := e.SetByteSlice(ch[:]); overflow {
-			return status.Error(codes.InvalidArgument, "e overflow")
-		}
-		var sp secp256k1.ModNScalar
-		if overflow := sp.SetByteSlice(ps.Sprime32); overflow {
-			return status.Error(codes.InvalidArgument, "s' overflow")
-		}
-		// Compute k·G = s'·G + e·X
-		spb := sp.Bytes()
-		spk := secp256k1.PrivKeyFromBytes(spb[:]).PubKey()
-		var Xj secp256k1.JacobianPoint
-		X.AsJacobian(&Xj)
-		var out secp256k1.JacobianPoint
-		secp256k1.ScalarMultNonConst(&e, &Xj, &out)
-		out.ToAffine()
-		Ex := secp256k1.NewPublicKey(&out.X, &out.Y)
-		lhs1, err := addPoints(spk, Ex)
-		if err != nil {
-			return status.Error(codes.InvalidArgument, "lhs infinity")
-		}
-		// Compute R' - T
-		T, err := secp256k1.ParsePubKey(in.TCompressed)
-		if err != nil {
-			return status.Errorf(codes.InvalidArgument, "parse T: %v", err)
-		}
-		var tj secp256k1.JacobianPoint
-		T.AsJacobian(&tj)
-		tj.Y.Negate(1)
-		var rj secp256k1.JacobianPoint
-		Rp.AsJacobian(&rj)
-		var diff secp256k1.JacobianPoint
-		secp256k1.AddNonConst(&rj, &tj, &diff)
-		if diff.Z.IsZero() {
-			return status.Error(codes.InvalidArgument, "R'-T infinity")
-		}
-		diff.ToAffine()
-		RminusT := secp256k1.NewPublicKey(&diff.X, &diff.Y)
-		// Check equality by bytes
-		if !bytes.Equal(lhs1.SerializeCompressed(), RminusT.SerializeCompressed()) {
-			return status.Error(codes.InvalidArgument, "adaptor relation failed")
-		}
-
-		// Persist PreSignCtx bound to this escrow and input so we can reuse the
-		// exact same draft and m during finalization. This avoids rebuilding the
-		// draft at game end and guarantees the same sighash domain.
-		if s.escrows != nil {
-			s.Lock()
-			if es.preSign == nil {
-				es.preSign = make(map[string]*PreSignCtx)
-			}
-			es.preSign[in.InputId] = &PreSignCtx{
-				InputID:          in.InputId,
-				RedeemScriptHex:  es.redeemScriptHex,
-				DraftHex:         req.DraftTxHex,
-				MHex:             in.MHex,
-				RPrimeCompressed: append([]byte(nil), ps.RprimeCompressed...),
-				SPrime32:         append([]byte(nil), ps.Sprime32...),
-				TCompressed:      append([]byte(nil), in.TCompressed...),
-				WinnerUID:        es.ownerUID,
-			}
-			s.Unlock()
-		}
-	}
-	// All good → send SERVER_OK and return
-	if err := stream.Send(&pong.ServerMsg{Kind: &pong.ServerMsg_Ok{Ok: &pong.ServerOk{AckDigest: expected[:]}}}); err != nil {
-		return status.Errorf(codes.Unavailable, "send ok: %v", err)
-	}
-	// Do not keep the stream open
-	select {
-	case <-ctx.Done():
-		return ctx.Err()
-	default:
-		return nil
-	}
+	return s.settlementStreamTwoInputs(stream, X, myEscrow, oppEscrow, aus[0], bus[0])
 }

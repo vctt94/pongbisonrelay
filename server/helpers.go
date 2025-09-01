@@ -1,15 +1,22 @@
 package server
 
 import (
+	"bytes"
 	"encoding/hex"
 	"fmt"
+	"sort"
 
+	"github.com/decred/dcrd/chaincfg/chainhash"
 	"github.com/decred/dcrd/chaincfg/v3"
 	"github.com/decred/dcrd/crypto/blake256"
 	"github.com/decred/dcrd/dcrec/secp256k1/v4"
 	"github.com/decred/dcrd/txscript/v4"
 	"github.com/decred/dcrd/txscript/v4/stdaddr"
 	"github.com/decred/dcrd/txscript/v4/stdscript"
+	"github.com/decred/dcrd/wire"
+	"github.com/vctt94/pong-bisonrelay/pongrpc/grpc/pong"
+	"google.golang.org/grpc/codes"
+	"google.golang.org/grpc/status"
 )
 
 // Unit conversion constants and helpers between matoms, atoms, and DCR.
@@ -51,6 +58,20 @@ func buildPerDepositorRedeemScript(comp33 []byte, csvBlocks uint32) ([]byte, err
 		AddOp(txscript.OP_TRUE).
 		AddOp(txscript.OP_ENDIF)
 
+	return b.Script()
+}
+
+// buildP2PKAltScript builds a payout script that pays to a single compressed
+// pubkey using OP_CHECKSIGALT with the Schnorr-secp256k1 signature type (2).
+// Script: <Ac> 2 OP_CHECKSIGALT
+func buildP2PKAltScript(comp33 []byte) ([]byte, error) {
+	if len(comp33) != 33 {
+		return nil, fmt.Errorf("need 33-byte compressed pubkey")
+	}
+	b := txscript.NewScriptBuilder()
+	b.AddData(comp33).
+		AddInt64(2).
+		AddOp(txscript.OP_CHECKSIGALT)
 	return b.Script()
 }
 
@@ -165,4 +186,182 @@ func addPoints(R, S *secp256k1.PublicKey) (*secp256k1.PublicKey, error) {
 	ay.Set(&sum.Y)
 
 	return secp256k1.NewPublicKey(&ax, &ay), nil
+}
+
+// verifyAndStorePresig verifies s'·G + e·X + T == R' and persists the context.
+func (s *Server) verifyAndStorePresig(X *secp256k1.PublicKey, ps *pong.PreSig, in *pong.NeedPreSigs_PerInput, draftHex string, winner *escrowSession, branch int32) error {
+	if len(ps.RprimeCompressed) != 33 || len(ps.Sprime32) != 32 {
+		return status.Error(codes.InvalidArgument, "bad presig sizes")
+	}
+	if ps.RprimeCompressed[0] != 0x02 {
+		return status.Error(codes.InvalidArgument, "R' must be even-Y (0x02)")
+	}
+	Rp, err := secp256k1.ParsePubKey(ps.RprimeCompressed)
+	if err != nil {
+		return status.Errorf(codes.InvalidArgument, "parse R': %v", err)
+	}
+	mh, err := hex.DecodeString(in.MHex)
+	if err != nil || len(mh) != 32 {
+		return status.Error(codes.InvalidArgument, "bad m_hex")
+	}
+	var r32 [32]byte
+	copy(r32[:], ps.RprimeCompressed[1:33])
+	ch := blake256.Sum256(append(r32[:], mh...))
+	var e secp256k1.ModNScalar
+	if overflow := e.SetByteSlice(ch[:]); overflow {
+		return status.Error(codes.InvalidArgument, "e overflow")
+	}
+	var sp secp256k1.ModNScalar
+	if overflow := sp.SetByteSlice(ps.Sprime32); overflow {
+		return status.Error(codes.InvalidArgument, "s' overflow")
+	}
+	// Compute k·G = s'·G + e·X
+	spb := sp.Bytes()
+	spk := secp256k1.PrivKeyFromBytes(spb[:]).PubKey()
+	var Xj secp256k1.JacobianPoint
+	X.AsJacobian(&Xj)
+	var out secp256k1.JacobianPoint
+	secp256k1.ScalarMultNonConst(&e, &Xj, &out)
+	out.ToAffine()
+	Ex := secp256k1.NewPublicKey(&out.X, &out.Y)
+	lhs1, err := addPoints(spk, Ex)
+	if err != nil {
+		return status.Error(codes.InvalidArgument, "lhs infinity")
+	}
+	// Compute R' - T
+	T, err := secp256k1.ParsePubKey(in.TCompressed)
+	if err != nil {
+		return status.Errorf(codes.InvalidArgument, "parse T: %v", err)
+	}
+	var tj secp256k1.JacobianPoint
+	T.AsJacobian(&tj)
+	tj.Y.Negate(1)
+	var rj secp256k1.JacobianPoint
+	Rp.AsJacobian(&rj)
+	var diff secp256k1.JacobianPoint
+	secp256k1.AddNonConst(&rj, &tj, &diff)
+	if diff.Z.IsZero() {
+		return status.Error(codes.InvalidArgument, "R'-T infinity")
+	}
+	diff.ToAffine()
+	RminusT := secp256k1.NewPublicKey(&diff.X, &diff.Y)
+	if !bytes.Equal(lhs1.SerializeCompressed(), RminusT.SerializeCompressed()) {
+		return status.Error(codes.InvalidArgument, "adaptor relation failed")
+	}
+	// Store context under the client's escrow session for later finalization
+	s.Lock()
+	if winner.preSign == nil {
+		winner.preSign = make(map[string]*PreSignCtx)
+	}
+	winner.preSign[in.InputId] = &PreSignCtx{
+		InputID:          in.InputId,
+		RedeemScriptHex:  winner.redeemScriptHex,
+		DraftHex:         draftHex,
+		MHex:             in.MHex,
+		RPrimeCompressed: append([]byte(nil), ps.RprimeCompressed...),
+		SPrime32:         append([]byte(nil), ps.Sprime32...),
+		TCompressed:      append([]byte(nil), in.TCompressed...),
+		WinnerUID:        winner.ownerUID,
+		Branch:           branch,
+	}
+	s.Unlock()
+	return nil
+}
+
+// twoBranchDrafts holds the fully serialized drafts for A-wins and B-wins,
+// and their per-input presign data (m and T) for each input using its own redeem.
+// Branch mapping: 0 = pay to A, 1 = pay to B.
+type twoBranchDrafts struct {
+	DraftHexA string
+	InputsA   []*pong.NeedPreSigs_PerInput
+	DraftHexB string
+	InputsB   []*pong.NeedPreSigs_PerInput
+}
+
+// buildTwoInputDrafts builds two drafts spending one UTXO from each escrow and
+// paying the sum minus fee to winner's P2PK-alt address. Inputs are deterministically
+// ordered by (txid asc, vout asc). Branch 0 pays to a, branch 1 pays to b.
+func (s *Server) buildTwoInputDrafts(a *escrowSession, au *pong.EscrowUTXO, b *escrowSession, bu *pong.EscrowUTXO) (*twoBranchDrafts, error) {
+	// Deterministic order
+	type inCtx struct {
+		utxo *pong.EscrowUTXO
+		es   *escrowSession
+	}
+	ins := []inCtx{{utxo: au, es: a}, {utxo: bu, es: b}}
+	sort.Slice(ins, func(i, j int) bool {
+		if ins[i].utxo.Txid == ins[j].utxo.Txid {
+			return ins[i].utxo.Vout < ins[j].utxo.Vout
+		}
+		return ins[i].utxo.Txid < ins[j].utxo.Txid
+	})
+
+	build := func(payTo *escrowSession) (string, []*pong.NeedPreSigs_PerInput, error) {
+		tx := wire.NewMsgTx()
+		tx.Version = 1
+		total := int64(0)
+		for _, ic := range ins {
+			var h chainhash.Hash
+			if err := chainhash.Decode(&h, ic.utxo.Txid); err != nil {
+				return "", nil, fmt.Errorf("bad utxo txid: %v", err)
+			}
+			tx.AddTxIn(&wire.TxIn{PreviousOutPoint: wire.OutPoint{Hash: h, Index: ic.utxo.Vout}, ValueIn: int64(ic.utxo.Value)})
+			total += int64(ic.utxo.Value)
+		}
+		feeAtoms := s.pocFeeAtoms
+		if feeAtoms == 0 {
+			feeAtoms = 20000
+		}
+		payout := total - int64(feeAtoms)
+		if payout <= 0 {
+			return "", nil, fmt.Errorf("sum too small to pay fee")
+		}
+		payKey := payTo.payoutPubkey
+		if len(payKey) != 33 {
+			payKey = payTo.compPubkey
+		}
+		pkAlt, err := buildP2PKAltScript(payKey)
+		if err != nil {
+			return "", nil, err
+		}
+		tx.AddTxOut(&wire.TxOut{Value: payout, PkScript: pkAlt})
+
+		// Derive a single adaptor point T per branch and reuse across inputs so a single
+		// gamma reveal finalizes all inputs of the winning branch.
+		branch := int32(0)
+		if payTo == b {
+			branch = 1
+		}
+		const pocServerPrivHex = "11ee22dd33cc44bb55aa66ff77ee88dd99cc00bbaa11223344556677889900aa"
+		_, TCompHexBranch := deriveAdaptorGamma("", fmt.Sprintf("branch-%d", branch), branch, fmt.Sprintf("branch-%d", branch), pocServerPrivHex)
+		TcompBranch, _ := hex.DecodeString(TCompHexBranch)
+
+		inputs := make([]*pong.NeedPreSigs_PerInput, 0, len(ins))
+		for idx, ic := range ins {
+			redeemB, _ := hex.DecodeString(ic.es.redeemScriptHex)
+			mBytes, err := txscript.CalcSignatureHash(redeemB, txscript.SigHashAll, tx, idx, nil)
+			if err != nil || len(mBytes) != 32 {
+				return "", nil, fmt.Errorf("sighash for %s:%d failed", ic.utxo.Txid, ic.utxo.Vout)
+			}
+			inputID := fmt.Sprintf("%s:%d", ic.utxo.Txid, ic.utxo.Vout)
+			inputs = append(inputs, &pong.NeedPreSigs_PerInput{
+				InputId:         inputID,
+				RedeemScriptHex: ic.es.redeemScriptHex,
+				MHex:            hex.EncodeToString(mBytes),
+				TCompressed:     TcompBranch,
+			})
+		}
+		var buf bytes.Buffer
+		_ = tx.Serialize(&buf)
+		return hex.EncodeToString(buf.Bytes()), inputs, nil
+	}
+
+	dhA, inA, err := build(a)
+	if err != nil {
+		return nil, err
+	}
+	dhB, inB, err := build(b)
+	if err != nil {
+		return nil, err
+	}
+	return &twoBranchDrafts{DraftHexA: dhA, InputsA: inA, DraftHexB: dhB, InputsB: inB}, nil
 }

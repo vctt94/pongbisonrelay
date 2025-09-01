@@ -985,6 +985,7 @@ class OpenEscrowRequest extends $pb.GeneratedMessage {
     $core.List<$core.int>? compPubkey,
     $fixnum.Int64? betAtoms,
     $core.int? csvBlocks,
+    $core.List<$core.int>? payoutPubkey,
   }) {
     final $result = create();
     if (ownerUid != null) {
@@ -999,6 +1000,9 @@ class OpenEscrowRequest extends $pb.GeneratedMessage {
     if (csvBlocks != null) {
       $result.csvBlocks = csvBlocks;
     }
+    if (payoutPubkey != null) {
+      $result.payoutPubkey = payoutPubkey;
+    }
     return $result;
   }
   OpenEscrowRequest._() : super();
@@ -1010,6 +1014,7 @@ class OpenEscrowRequest extends $pb.GeneratedMessage {
     ..a<$core.List<$core.int>>(2, _omitFieldNames ? '' : 'compPubkey', $pb.PbFieldType.OY)
     ..a<$fixnum.Int64>(3, _omitFieldNames ? '' : 'betAtoms', $pb.PbFieldType.OU6, defaultOrMaker: $fixnum.Int64.ZERO)
     ..a<$core.int>(4, _omitFieldNames ? '' : 'csvBlocks', $pb.PbFieldType.OU3)
+    ..a<$core.List<$core.int>>(5, _omitFieldNames ? '' : 'payoutPubkey', $pb.PbFieldType.OY)
     ..hasRequiredFields = false
   ;
 
@@ -1069,6 +1074,15 @@ class OpenEscrowRequest extends $pb.GeneratedMessage {
   $core.bool hasCsvBlocks() => $_has(3);
   @$pb.TagNumber(4)
   void clearCsvBlocks() => clearField(4);
+
+  @$pb.TagNumber(5)
+  $core.List<$core.int> get payoutPubkey => $_getN(4);
+  @$pb.TagNumber(5)
+  set payoutPubkey($core.List<$core.int> v) { $_setBytes(4, v); }
+  @$pb.TagNumber(5)
+  $core.bool hasPayoutPubkey() => $_has(4);
+  @$pb.TagNumber(5)
+  void clearPayoutPubkey() => clearField(5);
 }
 
 class OpenEscrowResponse extends $pb.GeneratedMessage {
@@ -1720,6 +1734,7 @@ class WaitFundingResponse extends $pb.GeneratedMessage {
     $core.int? confs,
     $fixnum.Int64? value,
     EscrowUTXO? utxo,
+    EscrowUTXO? opponentUtxo,
   }) {
     final $result = create();
     if (confs != null) {
@@ -1731,6 +1746,9 @@ class WaitFundingResponse extends $pb.GeneratedMessage {
     if (utxo != null) {
       $result.utxo = utxo;
     }
+    if (opponentUtxo != null) {
+      $result.opponentUtxo = opponentUtxo;
+    }
     return $result;
   }
   WaitFundingResponse._() : super();
@@ -1741,6 +1759,7 @@ class WaitFundingResponse extends $pb.GeneratedMessage {
     ..a<$core.int>(1, _omitFieldNames ? '' : 'confs', $pb.PbFieldType.OU3)
     ..a<$fixnum.Int64>(2, _omitFieldNames ? '' : 'value', $pb.PbFieldType.OU6, defaultOrMaker: $fixnum.Int64.ZERO)
     ..aOM<EscrowUTXO>(3, _omitFieldNames ? '' : 'utxo', subBuilder: EscrowUTXO.create)
+    ..aOM<EscrowUTXO>(4, _omitFieldNames ? '' : 'opponentUtxo', subBuilder: EscrowUTXO.create)
     ..hasRequiredFields = false
   ;
 
@@ -1793,6 +1812,19 @@ class WaitFundingResponse extends $pb.GeneratedMessage {
   void clearUtxo() => clearField(3);
   @$pb.TagNumber(3)
   EscrowUTXO ensureUtxo() => $_ensure(2);
+
+  /// Optional: if both players' deposits are known in the room, the server can
+  /// include the opponent UTXO to prepare two-input drafts.
+  @$pb.TagNumber(4)
+  EscrowUTXO get opponentUtxo => $_getN(3);
+  @$pb.TagNumber(4)
+  set opponentUtxo(EscrowUTXO v) { setField(4, v); }
+  @$pb.TagNumber(4)
+  $core.bool hasOpponentUtxo() => $_has(3);
+  @$pb.TagNumber(4)
+  void clearOpponentUtxo() => clearField(4);
+  @$pb.TagNumber(4)
+  EscrowUTXO ensureOpponentUtxo() => $_ensure(3);
 }
 
 class MatchAllocatedNtfn extends $pb.GeneratedMessage {

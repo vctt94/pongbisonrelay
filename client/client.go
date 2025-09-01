@@ -473,9 +473,9 @@ func (pc *PongClient) RefCreateMatch(aCompHex, bCompHex string, csv uint32) (*po
 }
 
 // Escrow-first referee helpers
-func (pc *PongClient) RefOpenEscrow(ownerID string, compPub []byte, betAtoms uint64, csv uint32) (*pong.OpenEscrowResponse, error) {
+func (pc *PongClient) RefOpenEscrow(ownerID string, compPub []byte, payoutPubkey []byte, betAtoms uint64, csv uint32) (*pong.OpenEscrowResponse, error) {
 	ctx := context.Background()
-	return pc.rc.RefOpenEscrow(ctx, &pong.OpenEscrowRequest{OwnerUid: ownerID, CompPubkey: compPub, BetAtoms: betAtoms, CsvBlocks: csv})
+	return pc.rc.RefOpenEscrow(ctx, &pong.OpenEscrowRequest{OwnerUid: ownerID, CompPubkey: compPub, PayoutPubkey: payoutPubkey, BetAtoms: betAtoms, CsvBlocks: csv})
 }
 
 // RefStartSettlementStream starts the bidirectional settlement stream.

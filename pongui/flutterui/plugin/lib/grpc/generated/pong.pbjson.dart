@@ -241,6 +241,7 @@ const OpenEscrowRequest$json = {
     {'1': 'comp_pubkey', '3': 2, '4': 1, '5': 12, '10': 'compPubkey'},
     {'1': 'bet_atoms', '3': 3, '4': 1, '5': 4, '10': 'betAtoms'},
     {'1': 'csv_blocks', '3': 4, '4': 1, '5': 13, '10': 'csvBlocks'},
+    {'1': 'payout_pubkey', '3': 5, '4': 1, '5': 12, '10': 'payoutPubkey'},
   ],
 };
 
@@ -248,7 +249,8 @@ const OpenEscrowRequest$json = {
 final $typed_data.Uint8List openEscrowRequestDescriptor = $convert.base64Decode(
     'ChFPcGVuRXNjcm93UmVxdWVzdBIbCglvd25lcl91aWQYASABKAlSCG93bmVyVWlkEh8KC2NvbX'
     'BfcHVia2V5GAIgASgMUgpjb21wUHVia2V5EhsKCWJldF9hdG9tcxgDIAEoBFIIYmV0QXRvbXMS'
-    'HQoKY3N2X2Jsb2NrcxgEIAEoDVIJY3N2QmxvY2tz');
+    'HQoKY3N2X2Jsb2NrcxgEIAEoDVIJY3N2QmxvY2tzEiMKDXBheW91dF9wdWJrZXkYBSABKAxSDH'
+    'BheW91dFB1YmtleQ==');
 
 @$core.Deprecated('Use openEscrowResponseDescriptor instead')
 const OpenEscrowResponse$json = {
@@ -375,13 +377,15 @@ const WaitFundingResponse$json = {
     {'1': 'confs', '3': 1, '4': 1, '5': 13, '10': 'confs'},
     {'1': 'value', '3': 2, '4': 1, '5': 4, '10': 'value'},
     {'1': 'utxo', '3': 3, '4': 1, '5': 11, '6': '.pong.EscrowUTXO', '10': 'utxo'},
+    {'1': 'opponent_utxo', '3': 4, '4': 1, '5': 11, '6': '.pong.EscrowUTXO', '10': 'opponentUtxo'},
   ],
 };
 
 /// Descriptor for `WaitFundingResponse`. Decode as a `google.protobuf.DescriptorProto`.
 final $typed_data.Uint8List waitFundingResponseDescriptor = $convert.base64Decode(
     'ChNXYWl0RnVuZGluZ1Jlc3BvbnNlEhQKBWNvbmZzGAEgASgNUgVjb25mcxIUCgV2YWx1ZRgCIA'
-    'EoBFIFdmFsdWUSJAoEdXR4bxgDIAEoCzIQLnBvbmcuRXNjcm93VVRYT1IEdXR4bw==');
+    'EoBFIFdmFsdWUSJAoEdXR4bxgDIAEoCzIQLnBvbmcuRXNjcm93VVRYT1IEdXR4bxI1Cg1vcHBv'
+    'bmVudF91dHhvGAQgASgLMhAucG9uZy5Fc2Nyb3dVVFhPUgxvcHBvbmVudFV0eG8=');
 
 @$core.Deprecated('Use matchAllocatedNtfnDescriptor instead')
 const MatchAllocatedNtfn$json = {

@@ -807,6 +807,7 @@ type OpenEscrowRequest struct {
 	CompPubkey    []byte                 `protobuf:"bytes,2,opt,name=comp_pubkey,json=compPubkey,proto3" json:"comp_pubkey,omitempty"` // 33 bytes (compressed)
 	BetAtoms      uint64                 `protobuf:"varint,3,opt,name=bet_atoms,json=betAtoms,proto3" json:"bet_atoms,omitempty"`
 	CsvBlocks     uint32                 `protobuf:"varint,4,opt,name=csv_blocks,json=csvBlocks,proto3" json:"csv_blocks,omitempty"`
+	PayoutPubkey  []byte                 `protobuf:"bytes,5,opt,name=payout_pubkey,json=payoutPubkey,proto3" json:"payout_pubkey,omitempty"` // 33B compressed pubkey address for payout
 	unknownFields protoimpl.UnknownFields
 	sizeCache     protoimpl.SizeCache
 }
@@ -867,6 +868,13 @@ func (x *OpenEscrowRequest) GetCsvBlocks() uint32 {
 		return x.CsvBlocks
 	}
 	return 0
+}
+
+func (x *OpenEscrowRequest) GetPayoutPubkey() []byte {
+	if x != nil {
+		return x.PayoutPubkey
+	}
+	return nil
 }
 
 type OpenEscrowResponse struct {
@@ -1346,10 +1354,13 @@ func (x *WaitFundingRequest) GetEscrowId() string {
 }
 
 type WaitFundingResponse struct {
-	state         protoimpl.MessageState `protogen:"open.v1"`
-	Confs         uint32                 `protobuf:"varint,1,opt,name=confs,proto3" json:"confs,omitempty"`
-	Value         uint64                 `protobuf:"varint,2,opt,name=value,proto3" json:"value,omitempty"`
-	Utxo          *EscrowUTXO            `protobuf:"bytes,3,opt,name=utxo,proto3" json:"utxo,omitempty"`
+	state protoimpl.MessageState `protogen:"open.v1"`
+	Confs uint32                 `protobuf:"varint,1,opt,name=confs,proto3" json:"confs,omitempty"`
+	Value uint64                 `protobuf:"varint,2,opt,name=value,proto3" json:"value,omitempty"`
+	Utxo  *EscrowUTXO            `protobuf:"bytes,3,opt,name=utxo,proto3" json:"utxo,omitempty"`
+	// Optional: if both players' deposits are known in the room, the server can
+	// include the opponent UTXO to prepare two-input drafts.
+	OpponentUtxo  *EscrowUTXO `protobuf:"bytes,4,opt,name=opponent_utxo,json=opponentUtxo,proto3" json:"opponent_utxo,omitempty"`
 	unknownFields protoimpl.UnknownFields
 	sizeCache     protoimpl.SizeCache
 }
@@ -1401,6 +1412,13 @@ func (x *WaitFundingResponse) GetValue() uint64 {
 func (x *WaitFundingResponse) GetUtxo() *EscrowUTXO {
 	if x != nil {
 		return x.Utxo
+	}
+	return nil
+}
+
+func (x *WaitFundingResponse) GetOpponentUtxo() *EscrowUTXO {
+	if x != nil {
+		return x.OpponentUtxo
 	}
 	return nil
 }
@@ -3041,14 +3059,15 @@ const file_pong_proto_rawDesc = "" +
 	"\x04text\x18\x01 \x01(\tR\x04text\")\n" +
 	"\bServerOk\x12\x1d\n" +
 	"\n" +
-	"ack_digest\x18\x01 \x01(\fR\tackDigest\"\x8d\x01\n" +
+	"ack_digest\x18\x01 \x01(\fR\tackDigest\"\xb2\x01\n" +
 	"\x11OpenEscrowRequest\x12\x1b\n" +
 	"\towner_uid\x18\x01 \x01(\tR\bownerUid\x12\x1f\n" +
 	"\vcomp_pubkey\x18\x02 \x01(\fR\n" +
 	"compPubkey\x12\x1b\n" +
 	"\tbet_atoms\x18\x03 \x01(\x04R\bbetAtoms\x12\x1d\n" +
 	"\n" +
-	"csv_blocks\x18\x04 \x01(\rR\tcsvBlocks\"~\n" +
+	"csv_blocks\x18\x04 \x01(\rR\tcsvBlocks\x12#\n" +
+	"\rpayout_pubkey\x18\x05 \x01(\fR\fpayoutPubkey\"~\n" +
 	"\x12OpenEscrowResponse\x12\x1b\n" +
 	"\tescrow_id\x18\x01 \x01(\tR\bescrowId\x12'\n" +
 	"\x0fdeposit_address\x18\x02 \x01(\tR\x0edepositAddress\x12\"\n" +
@@ -3086,11 +3105,12 @@ const file_pong_proto_rawDesc = "" +
 	"\rpk_script_hex\x18\x05 \x01(\tR\vpkScriptHex\x12\x14\n" +
 	"\x05owner\x18\x06 \x01(\tR\x05owner\"1\n" +
 	"\x12WaitFundingRequest\x12\x1b\n" +
-	"\tescrow_id\x18\x01 \x01(\tR\bescrowId\"g\n" +
+	"\tescrow_id\x18\x01 \x01(\tR\bescrowId\"\x9e\x01\n" +
 	"\x13WaitFundingResponse\x12\x14\n" +
 	"\x05confs\x18\x01 \x01(\rR\x05confs\x12\x14\n" +
 	"\x05value\x18\x02 \x01(\x04R\x05value\x12$\n" +
-	"\x04utxo\x18\x03 \x01(\v2\x10.pong.EscrowUTXOR\x04utxo\"\xb2\x01\n" +
+	"\x04utxo\x18\x03 \x01(\v2\x10.pong.EscrowUTXOR\x04utxo\x125\n" +
+	"\ropponent_utxo\x18\x04 \x01(\v2\x10.pong.EscrowUTXOR\fopponentUtxo\"\xb2\x01\n" +
 	"\x12MatchAllocatedNtfn\x12\x19\n" +
 	"\bmatch_id\x18\x01 \x01(\tR\amatchId\x12\x17\n" +
 	"\aroom_id\x18\x02 \x01(\tR\x06roomId\x12\x1b\n" +
@@ -3310,49 +3330,50 @@ var file_pong_proto_depIdxs = []int32{
 	6,  // 9: pong.VerifyOk.presigs:type_name -> pong.PreSig
 	45, // 10: pong.PreSigBatch.presigs:type_name -> pong.PreSigBatch.Sig
 	18, // 11: pong.WaitFundingResponse.utxo:type_name -> pong.EscrowUTXO
-	0,  // 12: pong.NtfnStreamResponse.notification_type:type_name -> pong.NotificationType
-	32, // 13: pong.NtfnStreamResponse.wr:type_name -> pong.WaitingRoom
-	21, // 14: pong.NtfnStreamResponse.match_alloc:type_name -> pong.MatchAllocatedNtfn
-	32, // 15: pong.WaitingRoomsResponse.wr:type_name -> pong.WaitingRoom
-	32, // 16: pong.JoinWaitingRoomResponse.wr:type_name -> pong.WaitingRoom
-	32, // 17: pong.CreateWaitingRoomResponse.wr:type_name -> pong.WaitingRoom
-	35, // 18: pong.WaitingRoom.players:type_name -> pong.Player
-	35, // 19: pong.WaitingRoomResponse.players:type_name -> pong.Player
-	38, // 20: pong.PongGame.SendInput:input_type -> pong.PlayerInput
-	36, // 21: pong.PongGame.StartGameStream:input_type -> pong.StartGameStreamRequest
-	24, // 22: pong.PongGame.StartNtfnStream:input_type -> pong.StartNtfnStreamRequest
-	22, // 23: pong.PongGame.UnreadyGameStream:input_type -> pong.UnreadyGameStreamRequest
-	42, // 24: pong.PongGame.SignalReadyToPlay:input_type -> pong.SignalReadyToPlayRequest
-	33, // 25: pong.PongGame.GetWaitingRoom:input_type -> pong.WaitingRoomRequest
-	26, // 26: pong.PongGame.GetWaitingRooms:input_type -> pong.WaitingRoomsRequest
-	30, // 27: pong.PongGame.CreateWaitingRoom:input_type -> pong.CreateWaitingRoomRequest
-	28, // 28: pong.PongGame.JoinWaitingRoom:input_type -> pong.JoinWaitingRoomRequest
-	40, // 29: pong.PongGame.LeaveWaitingRoom:input_type -> pong.LeaveWaitingRoomRequest
-	12, // 30: pong.PongReferee.RefOpenEscrow:input_type -> pong.OpenEscrowRequest
-	14, // 31: pong.PongReferee.RefWaitEscrowFunding:input_type -> pong.WaitEscrowFundingRequest
-	16, // 32: pong.PongReferee.CreateMatch:input_type -> pong.CreateMatchRequest
-	19, // 33: pong.PongReferee.WaitFunding:input_type -> pong.WaitFundingRequest
-	1,  // 34: pong.PongReferee.SettlementStream:input_type -> pong.ClientMsg
-	39, // 35: pong.PongGame.SendInput:output_type -> pong.GameUpdate
-	37, // 36: pong.PongGame.StartGameStream:output_type -> pong.GameUpdateBytes
-	25, // 37: pong.PongGame.StartNtfnStream:output_type -> pong.NtfnStreamResponse
-	23, // 38: pong.PongGame.UnreadyGameStream:output_type -> pong.UnreadyGameStreamResponse
-	43, // 39: pong.PongGame.SignalReadyToPlay:output_type -> pong.SignalReadyToPlayResponse
-	34, // 40: pong.PongGame.GetWaitingRoom:output_type -> pong.WaitingRoomResponse
-	27, // 41: pong.PongGame.GetWaitingRooms:output_type -> pong.WaitingRoomsResponse
-	31, // 42: pong.PongGame.CreateWaitingRoom:output_type -> pong.CreateWaitingRoomResponse
-	29, // 43: pong.PongGame.JoinWaitingRoom:output_type -> pong.JoinWaitingRoomResponse
-	41, // 44: pong.PongGame.LeaveWaitingRoom:output_type -> pong.LeaveWaitingRoomResponse
-	13, // 45: pong.PongReferee.RefOpenEscrow:output_type -> pong.OpenEscrowResponse
-	15, // 46: pong.PongReferee.RefWaitEscrowFunding:output_type -> pong.WaitEscrowFundingUpdate
-	17, // 47: pong.PongReferee.CreateMatch:output_type -> pong.CreateMatchResponse
-	20, // 48: pong.PongReferee.WaitFunding:output_type -> pong.WaitFundingResponse
-	2,  // 49: pong.PongReferee.SettlementStream:output_type -> pong.ServerMsg
-	35, // [35:50] is the sub-list for method output_type
-	20, // [20:35] is the sub-list for method input_type
-	20, // [20:20] is the sub-list for extension type_name
-	20, // [20:20] is the sub-list for extension extendee
-	0,  // [0:20] is the sub-list for field type_name
+	18, // 12: pong.WaitFundingResponse.opponent_utxo:type_name -> pong.EscrowUTXO
+	0,  // 13: pong.NtfnStreamResponse.notification_type:type_name -> pong.NotificationType
+	32, // 14: pong.NtfnStreamResponse.wr:type_name -> pong.WaitingRoom
+	21, // 15: pong.NtfnStreamResponse.match_alloc:type_name -> pong.MatchAllocatedNtfn
+	32, // 16: pong.WaitingRoomsResponse.wr:type_name -> pong.WaitingRoom
+	32, // 17: pong.JoinWaitingRoomResponse.wr:type_name -> pong.WaitingRoom
+	32, // 18: pong.CreateWaitingRoomResponse.wr:type_name -> pong.WaitingRoom
+	35, // 19: pong.WaitingRoom.players:type_name -> pong.Player
+	35, // 20: pong.WaitingRoomResponse.players:type_name -> pong.Player
+	38, // 21: pong.PongGame.SendInput:input_type -> pong.PlayerInput
+	36, // 22: pong.PongGame.StartGameStream:input_type -> pong.StartGameStreamRequest
+	24, // 23: pong.PongGame.StartNtfnStream:input_type -> pong.StartNtfnStreamRequest
+	22, // 24: pong.PongGame.UnreadyGameStream:input_type -> pong.UnreadyGameStreamRequest
+	42, // 25: pong.PongGame.SignalReadyToPlay:input_type -> pong.SignalReadyToPlayRequest
+	33, // 26: pong.PongGame.GetWaitingRoom:input_type -> pong.WaitingRoomRequest
+	26, // 27: pong.PongGame.GetWaitingRooms:input_type -> pong.WaitingRoomsRequest
+	30, // 28: pong.PongGame.CreateWaitingRoom:input_type -> pong.CreateWaitingRoomRequest
+	28, // 29: pong.PongGame.JoinWaitingRoom:input_type -> pong.JoinWaitingRoomRequest
+	40, // 30: pong.PongGame.LeaveWaitingRoom:input_type -> pong.LeaveWaitingRoomRequest
+	12, // 31: pong.PongReferee.RefOpenEscrow:input_type -> pong.OpenEscrowRequest
+	14, // 32: pong.PongReferee.RefWaitEscrowFunding:input_type -> pong.WaitEscrowFundingRequest
+	16, // 33: pong.PongReferee.CreateMatch:input_type -> pong.CreateMatchRequest
+	19, // 34: pong.PongReferee.WaitFunding:input_type -> pong.WaitFundingRequest
+	1,  // 35: pong.PongReferee.SettlementStream:input_type -> pong.ClientMsg
+	39, // 36: pong.PongGame.SendInput:output_type -> pong.GameUpdate
+	37, // 37: pong.PongGame.StartGameStream:output_type -> pong.GameUpdateBytes
+	25, // 38: pong.PongGame.StartNtfnStream:output_type -> pong.NtfnStreamResponse
+	23, // 39: pong.PongGame.UnreadyGameStream:output_type -> pong.UnreadyGameStreamResponse
+	43, // 40: pong.PongGame.SignalReadyToPlay:output_type -> pong.SignalReadyToPlayResponse
+	34, // 41: pong.PongGame.GetWaitingRoom:output_type -> pong.WaitingRoomResponse
+	27, // 42: pong.PongGame.GetWaitingRooms:output_type -> pong.WaitingRoomsResponse
+	31, // 43: pong.PongGame.CreateWaitingRoom:output_type -> pong.CreateWaitingRoomResponse
+	29, // 44: pong.PongGame.JoinWaitingRoom:output_type -> pong.JoinWaitingRoomResponse
+	41, // 45: pong.PongGame.LeaveWaitingRoom:output_type -> pong.LeaveWaitingRoomResponse
+	13, // 46: pong.PongReferee.RefOpenEscrow:output_type -> pong.OpenEscrowResponse
+	15, // 47: pong.PongReferee.RefWaitEscrowFunding:output_type -> pong.WaitEscrowFundingUpdate
+	17, // 48: pong.PongReferee.CreateMatch:output_type -> pong.CreateMatchResponse
+	20, // 49: pong.PongReferee.WaitFunding:output_type -> pong.WaitFundingResponse
+	2,  // 50: pong.PongReferee.SettlementStream:output_type -> pong.ServerMsg
+	36, // [36:51] is the sub-list for method output_type
+	21, // [21:36] is the sub-list for method input_type
+	21, // [21:21] is the sub-list for extension type_name
+	21, // [21:21] is the sub-list for extension extendee
+	0,  // [0:21] is the sub-list for field type_name
 }
 
 func init() { file_pong_proto_init() }

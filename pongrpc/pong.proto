@@ -116,6 +116,7 @@ message OpenEscrowRequest {
   bytes  comp_pubkey = 2;     // 33 bytes (compressed)
   uint64 bet_atoms = 3;
   uint32 csv_blocks = 4;
+  bytes  payout_pubkey = 5; // 33B compressed pubkey address for payout
 }
 
 message OpenEscrowResponse {
@@ -174,6 +175,9 @@ message WaitFundingResponse {
   uint32 confs = 1;
   uint64 value = 2;
   EscrowUTXO utxo = 3;
+  // Optional: if both players' deposits are known in the room, the server can
+  // include the opponent UTXO to prepare two-input drafts.
+  EscrowUTXO opponent_utxo = 4;
 }
 
 // Deprecated both-branches draft RPC removed; server pushes NeedPreSigs via SettlementStream
