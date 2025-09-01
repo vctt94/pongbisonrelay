@@ -482,8 +482,3 @@ func (pc *PongClient) RefOpenEscrow(ownerID string, compPub []byte, payoutPubkey
 func (pc *PongClient) RefStartSettlementStream(ctx context.Context) (pong.PongReferee_SettlementStreamClient, error) {
 	return pc.rc.SettlementStream(ctx)
 }
-
-// RefWaitFunding starts the server-driven funding status stream for the match.
-func (pc *PongClient) RefWaitFunding(ctx context.Context, matchID string) (pong.PongReferee_WaitFundingClient, error) {
-	return pc.rc.WaitFunding(ctx, &pong.WaitFundingRequest{EscrowId: matchID})
-}

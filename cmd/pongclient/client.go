@@ -241,75 +241,55 @@ func (m *appstate) payoutPubkeyFromConfHex() ([]byte, error) {
 }
 
 func (m *appstate) startSettlement() {
-	// Ensure key and minimal allocation if needed
+	// Ensure session key A_c
 	if m.genPrivHex == "" {
 		p, _ := secp256k1.GeneratePrivateKey()
 		m.genPrivHex = hex.EncodeToString(p.Serialize())
 		m.genPubHex = hex.EncodeToString(p.PubKey().SerializeCompressed())
 		m.settle.aCompHex = m.genPubHex
-		m.notification = "Generated session key A_c (kept in-memory)."
+		m.notification = "Generated session key A_c (in-memory)."
 		m.msgCh <- client.UpdatedMsg{}
 	}
 
-	// Ensure escrow session and start funding stream by escrow_id
-	if m.settle.activeEscrowID == "" {
-		if m.settle.betAtoms == 0 {
-			m.settle.betAtoms = client.DefaultBetAtoms
-		}
-		if m.settle.csvBlocks == 0 {
-			m.settle.csvBlocks = 64
-		}
-		pubBytes, _ := hex.DecodeString(m.settle.aCompHex)
-		payoutBytes, perr := m.payoutPubkeyFromConfHex()
-		if perr != nil {
-			m.notification = "address error: " + perr.Error()
+	// Already have an active escrow
+	if m.settle.activeEscrowID != "" {
+		return
+	}
+
+	// Defaults
+	if m.settle.betAtoms == 0 {
+		m.settle.betAtoms = client.DefaultBetAtoms
+	}
+	if m.settle.csvBlocks == 0 {
+		m.settle.csvBlocks = 64
+	}
+
+	// Inputs
+	pubBytes, _ := hex.DecodeString(m.settle.aCompHex)
+	payoutBytes, perr := m.payoutPubkeyFromConfHex()
+	if perr != nil {
+		m.notification = "address error: " + perr.Error()
+		m.msgCh <- client.UpdatedMsg{}
+		return
+	}
+
+	m.notification = "Opening escrow…"
+	m.msgCh <- client.UpdatedMsg{}
+
+	// Open escrow (no waiting for funding; server will notify on updates).
+	go func() {
+		res, err := m.pc.RefOpenEscrow(m.pc.ID, pubBytes, payoutBytes, m.settle.betAtoms, m.settle.csvBlocks)
+		if err != nil {
+			m.notification = "OpenEscrow failed: " + err.Error()
 			m.msgCh <- client.UpdatedMsg{}
 			return
 		}
-		m.notification = "Opening escrow…"
+		m.settle.activeEscrowID = res.EscrowId
+
+		// UI message; actual funding/confirm status will come from server notifications.
+		m.notification = "Escrow created. Fund the address; you’ll be notified when deposits are seen/confirmed."
 		m.msgCh <- client.UpdatedMsg{}
-		go func() {
-			res, err := m.pc.RefOpenEscrow(m.pc.ID, pubBytes, payoutBytes, m.settle.betAtoms, m.settle.csvBlocks)
-			if err != nil {
-				m.notification = "OpenEscrow failed: " + err.Error()
-				m.msgCh <- client.UpdatedMsg{}
-				return
-			}
-			m.settle.activeEscrowID = res.EscrowId
-			// 0-conf unlock: wait until Found == true (utxo present), then enable Create/Join and run handshake
-			if m.fundingCancel != nil {
-				m.fundingCancel()
-				m.fundingCancel = nil
-			}
-			fctx, cancel := context.WithCancel(context.Background())
-			m.fundingCancel = cancel
-			stream, err := m.pc.RefWaitFunding(fctx, m.settle.activeEscrowID)
-			if err != nil {
-				m.notification = "escrow funding watcher error: " + err.Error()
-				m.msgCh <- client.UpdatedMsg{}
-				return
-			}
-			for {
-				up, err := stream.Recv()
-				if err != nil {
-					m.notification = "escrow funding stream closed: " + err.Error()
-					m.msgCh <- client.UpdatedMsg{}
-					return
-				}
-				if up.Utxo != nil {
-					if m.settle.betAtoms > 0 {
-						m.betAmount = float64(m.settle.betAtoms) / 1e8
-						m.msgCh <- client.UpdatedMsg{}
-					}
-					m.notification = "Escrow seen (0-conf). You can create or join a room."
-					m.msgCh <- client.UpdatedMsg{}
-					cancel()
-					return
-				}
-			}
-		}()
-		return
-	}
+	}()
 }
 
 // preSign performs HELLO -> REQ -> VERIFY_OK -> SERVER_OK and returns.
@@ -448,6 +428,13 @@ func (m *appstate) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			}
 		case pong.NotificationType_MESSAGE:
 			m.notification = msg.Message
+			// If we saw escrow funding in mempool or confirmed, reflect the escrow bet in UI.
+			if strings.Contains(strings.ToLower(msg.Message), "deposit seen in mempool") ||
+				strings.Contains(strings.ToLower(msg.Message), "deposit confirmed") {
+				if m.settle.betAtoms > 0 {
+					m.betAmount = float64(m.settle.betAtoms) / 1e8
+				}
+			}
 			// Try to parse gamma and draft hex from the message and finalize locally (no broadcast)
 			if strings.Contains(msg.Message, "Gamma received; finalizing…") && strings.Contains(msg.Message, "Result draft tx hex:") {
 				gammaHex := ""
@@ -485,16 +472,16 @@ func (m *appstate) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			m.listWaitingRooms()
 			return m, nil
 		case "c":
-			// Switch to create room mode if player has a bet
-			if m.betAmount > 0 || isF2p {
-				err := m.createRoom()
-				if err != nil {
-					m.notification = fmt.Sprintf("Error creating room: %v", err)
-				}
+			// Escrow-first: create room when an escrow exists (server will enforce 0-conf funding)
+			if m.settle.activeEscrowID == "" && !isF2p {
+				m.notification = "Open escrow first ([X] -> [E]) before creating a room."
 				return m, nil
-			} else {
-				m.notification = "Bet amount must be > 0 to create a room."
 			}
+			err := m.createRoom()
+			if err != nil {
+				m.notification = fmt.Sprintf("Error creating room: %v", err)
+			}
+			return m, nil
 		case "j":
 			// Switch to join room mode
 			m.mode = joinRoom
