@@ -301,8 +301,18 @@ func (m *appstate) preSign() {
 		m.msgCh <- client.UpdatedMsg{}
 		return
 	}
+	// match_id: "<wrID>|<hostId>"
+	if m.currentWR == nil || m.currentWR.Id == "" {
+		m.notification = "Join or create a waiting room and bind escrow before presigning"
+		m.msgCh <- client.UpdatedMsg{}
+		_ = stream.CloseSend()
+		return
+	}
+	// Use room-scoped match_id anchored to the host so branch mapping is stable (host = A/0).
+	m.settle.matchID = fmt.Sprintf("%s|%s", m.currentWR.Id, m.currentWR.HostId)
+
 	pubBytes, _ := hex.DecodeString(m.settle.aCompHex)
-	_ = stream.Send(&pong.ClientMsg{Kind: &pong.ClientMsg_Hello{Hello: &pong.Hello{CompPubkey: pubBytes, ClientVersion: "poc"}}})
+	_ = stream.Send(&pong.ClientMsg{MatchId: m.settle.matchID, Kind: &pong.ClientMsg_Hello{Hello: &pong.Hello{MatchId: m.settle.matchID, CompPubkey: pubBytes, ClientVersion: "poc"}}})
 	// Expect one or more REQ rounds (A-branch, B-branch)
 	m.settle.draftInputs = make(map[string][]*pong.NeedPreSigs_PerInput)
 	m.settle.draftPresigs = make(map[string]map[string]*pong.PreSig)
@@ -558,14 +568,6 @@ func (m *appstate) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 
 				return m, nil
 			}
-		case "r":
-			if m.isGameRunning {
-				err := m.signalReadyToPlay()
-				if err != nil {
-					m.notification = fmt.Sprintf("Error signaling ready: %v", err)
-				}
-			}
-			return m, nil
 
 		case "e":
 			if m.mode == settlementMode {
@@ -665,7 +667,11 @@ func (m *appstate) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 					return m, nil
 				}
 			} else {
-				// If not ready in waiting room, set to ready
+				// If not ready in waiting room, only require being in a WR (server enforces escrow funding)
+				if m.currentWR == nil {
+					m.notification = "Join or create a waiting room before getting ready."
+					return m, nil
+				}
 				m.mode = gameMode
 				err := m.makeClientReady()
 				if err != nil {
@@ -736,13 +742,13 @@ func (m *appstate) createRoom() error {
 		m.notification = "Set bet atoms first ([X] -> [E] or prefill bet) before creating a room"
 		return nil
 	}
-	_, err = m.pc.CreateWaitingRoom(m.pc.ID, int64(m.settle.betAtoms), m.settle.activeEscrowID)
+	wr, err := m.pc.CreateWaitingRoom(m.pc.ID, int64(m.settle.betAtoms), m.settle.activeEscrowID)
 	if err != nil {
 		m.log.Errorf("Error creating room: %v", err)
 		return err
 	}
 
-	m.mode = gameMode
+	m.currentWR = wr
 	return nil
 }
 

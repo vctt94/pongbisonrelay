@@ -442,6 +442,7 @@ func (pc *PongClient) SignalUnready() error {
 	}
 
 	// Notify UI of state change
+	pc.IsReady = false
 	pc.UpdatesCh <- UpdatedMsg{}
 
 	return nil
