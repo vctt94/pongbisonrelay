@@ -31,6 +31,8 @@ service PongReferee {
   rpc WaitFunding(WaitFundingRequest) returns (stream WaitFundingResponse);
   // Phase 1 streaming settlement
   rpc SettlementStream(stream ClientMsg) returns (stream ServerMsg);
+  // Winner fetches gamma and both presigs to finalize the exact winning draft
+  rpc GetFinalizeBundle(GetFinalizeBundleRequest) returns (GetFinalizeBundleResponse);
 }
 
 
@@ -108,6 +110,25 @@ message Info { string text = 1; }
 
 // Server SERVER_OK message: acknowledges successful verification.
 message ServerOk { bytes ack_digest = 1; }
+
+// === Finalization bundle for winner ===
+message GetFinalizeBundleRequest {
+  string match_id = 1;   // "<wrID>|<hostUID>"
+  string winner_uid = 2; // caller uid
+}
+
+message FinalizeInput {
+  string input_id = 1;
+  string redeem_script_hex = 2;
+  bytes  Rprime_compressed = 3;
+  bytes  sprime32 = 4;
+}
+
+message GetFinalizeBundleResponse {
+  string draft_tx_hex = 1; // exact winning branch draft
+  bytes  gamma32 = 2;      // 32B gamma (normalized to even-Y T)
+  repeated FinalizeInput inputs = 3; // one per vin in draft
+}
 
 // === Existing API below ===
 // Escrow-first RPCs

@@ -403,7 +403,7 @@ func NewPongClient(clientID string, cfg *PongClientCfg) (*PongClient, error) {
 		rc:         pong.NewPongRefereeClient(pongConn),
 		chat:       cfg.ChatClient,
 		payment:    cfg.PaymentClient,
-		UpdatesCh:  make(chan tea.Msg),
+		UpdatesCh:  make(chan tea.Msg, 64),
 		ErrorsCh:   make(chan error),
 		log:        cfg.Log,
 		ntfns:      ntfns,
@@ -482,4 +482,10 @@ func (pc *PongClient) RefOpenEscrow(ownerID string, compPub []byte, payoutPubkey
 // RefStartSettlementStream starts the bidirectional settlement stream.
 func (pc *PongClient) RefStartSettlementStream(ctx context.Context) (pong.PongReferee_SettlementStreamClient, error) {
 	return pc.rc.SettlementStream(ctx)
+}
+
+// RefGetFinalizeBundle fetches gamma and both presigs for the winning branch.
+func (pc *PongClient) RefGetFinalizeBundle(matchID string) (*pong.GetFinalizeBundleResponse, error) {
+	ctx := context.Background()
+	return pc.rc.GetFinalizeBundle(ctx, &pong.GetFinalizeBundleRequest{MatchId: matchID, WinnerUid: pc.ID})
 }

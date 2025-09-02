@@ -86,7 +86,6 @@ type Server struct {
 
 	// Escrow-first funding state
 	escrows     map[string]*escrowSession
-	escrowByKey map[string]string            // owner|comp|bet|csv -> escrowID
 	roomEscrows map[string]map[string]string // roomID -> owner_uid -> escrow_id
 	// v0-min defaults
 	pocCSV      uint32
@@ -116,8 +115,22 @@ type PreSignCtx struct {
 	Branch           int32  // 0 = A-wins, 1 = B-wins (payout branch)
 }
 
+// SettleInput is the only thing the presign needs from funding.
+// It binds identity (escrowID, ownerUID) + the exact outpoint and script.
+type SettleInput struct {
+	EscrowID        string           // for storage of presigs
+	OwnerUID        string           // for deterministic (a,b) ordering
+	InputID         string           // "txid:vout" (must be the BOUND outpoint)
+	UTXO            *pong.EscrowUTXO // must include Txid, Vout, AmountAtoms
+	RedeemScriptHex string           // exact redeem used to spend UTXO
+	PayoutPubkey    []byte           // 33-byte compressed pubkey for payout path
+}
+
 // escrowSession represents a pre-match funding session for a single player.
 type escrowSession struct {
+	// ----------------- immutable identity & params -----------------
+	boundInputID    string
+	boundInput      *pong.EscrowUTXO
 	escrowID        string
 	ownerUID        string
 	compPubkey      []byte // 33 bytes
@@ -127,69 +140,29 @@ type escrowSession struct {
 	redeemScriptHex string
 	pkScriptHex     string
 	depositAddress  string
-	confs           uint32
 	createdAt       time.Time
-	updatedAt       time.Time
 
-	// Pre-sign artifacts keyed by input_id ("txid:vout").
-	preSign map[string]*PreSignCtx
+	// ----------------- runtime state (protected by mu) -------------
+	mu        sync.RWMutex
+	latest    DepositUpdate      // watcher-pushed snapshot (Confs, UTXOCount, OK, At)
+	lastUTXOs []*pong.EscrowUTXO // optional cache for settlement (first UTXO, etc.)
+	unsubW    func()             // watcher unsubscribe hook
+	// cancelTrack cancels the background trackEscrow goroutine associated
+	// with this escrow session.
+	cancelTrack context.CancelFunc
+
+	player  *ponggame.Player       // optional: current player binding
+	preSign map[string]*PreSignCtx // presign artifacts by input_id "txid:vout"
 }
 
-// pickConfirmedEscrow returns a CONFIRMED escrow session for the given owner.
-// If escrowID is provided, validates and returns it. Otherwise, returns the
-// most recently updated CONFIRMED escrow for that owner. Returns error if none.
-func (s *Server) pickConfirmedEscrow(ownerUID string, escrowID string) (*escrowSession, error) {
-	s.RLock()
-	defer s.RUnlock()
-	ensureConfirmed := func(es *escrowSession, tag string) *escrowSession {
-		if es == nil {
-			return nil
-		}
-
-		// Require watcher to see a UTXO (0-conf unlock). If no watcher or no pkScript, treat as not yet funded.
-		if s.watcher == nil || es.pkScriptHex == "" {
-			return nil
-		}
-		// Query watcher and accept when chain/mempool shows a UTXO for this script (0-conf OK)
-		s.watcher.registerDeposit(es.pkScriptHex, es.redeemScriptHex, tag)
-		utxos, confs, ok := s.watcher.queryDeposit(es.pkScriptHex)
-		if ok && len(utxos) > 0 {
-			// Promote and update timestamps/confs
-			s.RUnlock()
-			s.Lock()
-			es.confs = confs
-			es.updatedAt = time.Now()
-			s.Unlock()
-			s.RLock()
-			return es
-		}
-		return nil
-	}
-	if escrowID != "" {
-		es := ensureConfirmed(s.escrows[escrowID], escrowID)
-		if es == nil {
-			return nil, fmt.Errorf("escrow not yet funded (0-conf required)")
-		}
-		if es.ownerUID != ownerUID {
-			return nil, fmt.Errorf("escrow not owned by user")
-		}
-
-		return es, nil
-	}
-	var best *escrowSession
-	for id, es := range s.escrows {
-		es = ensureConfirmed(es, id)
-		if es == nil || es.ownerUID != ownerUID {
-			continue
-		}
-		if best == nil || es.updatedAt.After(best.updatedAt) {
-			best = es
-		}
-	}
-	if best == nil {
-		return nil, fmt.Errorf("no funded escrow for user (0-conf)")
-	}
-	return best, nil
+// twoBranchDrafts holds the fully serialized drafts for A-wins and B-wins,
+// and their per-input presign data (m and T) for each input using its own redeem.
+// Branch mapping: 0 = pay to A, 1 = pay to B.
+type twoBranchDrafts struct {
+	DraftHexA string
+	InputsA   []*pong.NeedPreSigs_PerInput
+	DraftHexB string
+	InputsB   []*pong.NeedPreSigs_PerInput
 }
 
 func NewServer(id *zkidentity.ShortID, cfg ServerConfig) (*Server, error) {
@@ -231,7 +204,6 @@ func NewServer(id *zkidentity.ShortID, cfg ServerConfig) (*Server, error) {
 			PlayerGameMap:  make(map[zkidentity.ShortID]*ponggame.GameInstance),
 		},
 		escrows:     make(map[string]*escrowSession),
-		escrowByKey: make(map[string]string),
 		roomEscrows: make(map[string]map[string]string),
 		pocCSV:      csvBlocks,
 		pocFeeAtoms: 0,
@@ -311,11 +283,25 @@ func (s *Server) StartGameStream(req *pong.StartGameStreamRequest, stream pong.P
 	if player.NotifierStream == nil {
 		return fmt.Errorf("player notifier nil %s", clientID)
 	}
-	if player.GameStream != nil {
-		return fmt.Errorf("game stream is already set for id %s", clientID)
-	}
 
-	// Escrow-first: readiness decoupled from legacy match-bound funding checks
+	// Require being in a waiting room
+	if player.WR == nil {
+		return fmt.Errorf("not in a waiting room")
+	}
+	var escrowID string
+	s.RLock()
+	if m, ok := s.roomEscrows[player.WR.ID]; ok {
+		escrowID = m[player.ID.String()]
+	}
+	var es *escrowSession
+	if escrowID != "" {
+		es = s.escrows[escrowID]
+	}
+	s.RUnlock()
+	if es == nil {
+		return fmt.Errorf("no escrow bound to waiting room for player")
+	}
+	// Do not check presign readiness here; waiting room gating ensures bound funding only.
 
 	player.GameStream = stream
 	player.Ready = true
@@ -388,8 +374,28 @@ func (s *Server) StartNtfnStream(req *pong.StartNtfnStreamRequest, stream pong.P
 	player := s.gameManager.PlayerSessions.CreateSession(clientID)
 	player.NotifierStream = stream
 
+	// Bind any existing escrow sessions for this owner to this player so
+	// watcher notifications reach the active notifier stream.
 	s.Lock()
-	s.users[clientID] = player
+	for _, es := range s.escrows {
+		if es != nil && es.ownerUID == clientID.String() {
+			// Replace player binding
+			es.player = player
+			// If we already have a latest funding snapshot, nudge the player once so UI updates.
+			es.mu.RLock()
+			u := es.latest
+			es.mu.RUnlock()
+			if u.OK && u.UTXOCount > 0 {
+				if u.Confs == 0 {
+					s.log.Debugf("rebinding escrow: owner=%s pk=%s has mempool funding; nudging", es.ownerUID, u.PkScriptHex)
+					s.notify(player, "Deposit seen in mempool. Waiting confirmations.")
+				} else {
+					s.log.Debugf("rebinding escrow: owner=%s pk=%s has %d confs; nudging", es.ownerUID, u.PkScriptHex, u.Confs)
+					s.notify(player, "Deposit confirmed. You can presign now ([P]).")
+				}
+			}
+		}
+	}
 	s.Unlock()
 
 	// Escrow-first: remove legacy tips-based bet sync
@@ -406,22 +412,54 @@ func (s *Server) SendInput(ctx context.Context, req *pong.PlayerInput) (*pong.Ga
 	return s.gameManager.HandlePlayerInput(clientID, req)
 }
 
+// ManageWaitingRoom now gates ONLY on (a) both players "ready" and
+// (b) each player's room-bound escrow having a **bound** funding input
+// (exact txid:vout). No presign/confirm logic here.
 func (s *Server) ManageWaitingRoom(ctx context.Context, wr *ponggame.WaitingRoom) error {
+	ticker := time.NewTicker(time.Second)
+	defer ticker.Stop()
+
 	for {
 		select {
 		case <-ctx.Done():
 			s.log.Infof("Exited ManageWaitingRoom: %s (context cancelled)", wr.ID)
 			return nil
 
-		case <-time.After(time.Second):
+		case <-ticker.C:
 			players, ready := wr.ReadyPlayers()
-			if ready {
-				s.log.Infof("Game starting with players: %v and %v", players[0].ID, players[1].ID)
-
-				s.gameManager.RemoveWaitingRoom(wr.ID)
-				go s.handleGameLifecycle(ctx, players, wr.ReservedTips) // Start game lifecycle in a goroutine
-				return nil
+			if !ready {
+				continue
 			}
+
+			allBound := true
+			for _, p := range players {
+				// Resolve the exact escrow tied to this room for this player.
+				es := s.escrowForRoomPlayer(wr.ID, p.ID.String())
+				if es == nil {
+					allBound = false
+					s.notify(p, "No escrow bound to this room for you. Bind a funded escrow first.")
+					continue
+				}
+
+				// Enforce identity: must have a single, canonical bound input.
+				if err := s.ensureBoundFunding(es); err != nil {
+					allBound = false
+					s.notify(p, fmt.Sprintf("Waiting for exact funding input: %v", err))
+					continue
+				}
+			}
+
+			if !allBound {
+				continue
+			}
+
+			// At this point: both players ready AND both have a canonical bound UTXO.
+			// Start the game.
+
+			s.log.Infof("Game starting with players: %s and %s", players[0].ID, players[1].ID)
+
+			go s.handleGameLifecycle(ctx, players, wr.ReservedTips)
+			return nil
 		}
 	}
 }
@@ -501,8 +539,7 @@ func (s *Server) GetWaitingRooms(ctx context.Context, req *pong.WaitingRoomsRequ
 
 func (s *Server) JoinWaitingRoom(ctx context.Context, req *pong.JoinWaitingRoomRequest) (*pong.JoinWaitingRoomResponse, error) {
 	var uid zkidentity.ShortID
-	err := uid.FromString(req.ClientId)
-	if err != nil {
+	if err := uid.FromString(req.ClientId); err != nil {
 		return nil, err
 	}
 	player := s.gameManager.PlayerSessions.GetPlayer(uid)
@@ -510,7 +547,7 @@ func (s *Server) JoinWaitingRoom(ctx context.Context, req *pong.JoinWaitingRoomR
 		return nil, fmt.Errorf("player not found: %s", req.ClientId)
 	}
 
-	// Check if player is already in another waiting room
+	// Disallow joining multiple rooms.
 	s.gameManager.Lock()
 	for _, existingWR := range s.gameManager.WaitingRooms {
 		for _, p := range existingWR.Players {
@@ -522,31 +559,33 @@ func (s *Server) JoinWaitingRoom(ctx context.Context, req *pong.JoinWaitingRoomR
 	}
 	s.gameManager.Unlock()
 
-	// Escrow-first gating: require a funded escrow (0-conf) for the joining player
-	if _, err := s.pickConfirmedEscrow(uid.String(), req.EscrowId); err != nil {
-		return nil, fmt.Errorf("require funded escrow to join room: %w", err)
+	// Require funded escrow (0-conf OK).
+	es, err := s.resolveFundedEscrow(uid.String(), req.EscrowId)
+	if err != nil {
+		return nil, fmt.Errorf("require funded escrow to join room (0-conf ok): %w", err)
 	}
 
+	// Locate room.
 	wr := s.gameManager.GetWaitingRoom(req.RoomId)
 	if wr == nil {
 		return nil, fmt.Errorf("waiting room not found: %s", req.RoomId)
 	}
 
+	// Add player and bind escrow to this room.
 	wr.AddPlayer(player)
-	// Optional: record player's escrow selection for this room
-	if req.EscrowId != "" {
-		s.Lock()
-		if s.roomEscrows == nil {
-			s.roomEscrows = make(map[string]map[string]string)
-		}
-		if s.roomEscrows[wr.ID] == nil {
-			s.roomEscrows[wr.ID] = make(map[string]string)
-		}
-		s.roomEscrows[wr.ID][player.ID.String()] = req.EscrowId
-		s.Unlock()
-	}
 	player.WR = wr
 
+	s.Lock()
+	if s.roomEscrows == nil {
+		s.roomEscrows = make(map[string]map[string]string)
+	}
+	if s.roomEscrows[wr.ID] == nil {
+		s.roomEscrows[wr.ID] = make(map[string]string)
+	}
+	s.roomEscrows[wr.ID][player.ID.String()] = es.escrowID
+	s.Unlock()
+
+	// Notify room.
 	pwr, err := wr.Marshal()
 	if err != nil {
 		return nil, err
@@ -556,7 +595,7 @@ func (s *Server) JoinWaitingRoom(ctx context.Context, req *pong.JoinWaitingRoomR
 			s.log.Errorf("player %s has nil NotifierStream", p.ID.String())
 			continue
 		}
-		p.NotifierStream.Send(&pong.NtfnStreamResponse{
+		_ = p.NotifierStream.Send(&pong.NtfnStreamResponse{
 			NotificationType: pong.NotificationType_PLAYER_JOINED_WR,
 			Message:          fmt.Sprintf("New player joined Waiting Room: %s", player.Nick),
 			PlayerId:         p.ID.String(),
@@ -565,24 +604,19 @@ func (s *Server) JoinWaitingRoom(ctx context.Context, req *pong.JoinWaitingRoomR
 		})
 	}
 
-	return &pong.JoinWaitingRoomResponse{
-		Wr: pwr,
-	}, nil
+	return &pong.JoinWaitingRoomResponse{Wr: pwr}, nil
 }
 
 func (s *Server) CreateWaitingRoom(ctx context.Context, req *pong.CreateWaitingRoomRequest) (*pong.CreateWaitingRoomResponse, error) {
 	var hostID zkidentity.ShortID
-	err := hostID.FromString(req.HostId)
-	if err != nil {
+	if err := hostID.FromString(req.HostId); err != nil {
 		return nil, err
 	}
-
 	hostPlayer := s.gameManager.PlayerSessions.GetPlayer(hostID)
 	if hostPlayer == nil {
 		return nil, fmt.Errorf("player not found: %s", req.HostId)
 	}
-	// Decouple room creation from tip-based BetAmt; escrow lobbies will set funding separately.
-	// Allow zero bet for escrow-based lobbies; enforce min bet only when positive
+	// Allow F2P; otherwise enforce min bet when req.BetAmt > 0.
 	if !s.isF2P && req.BetAmt > 0 && float64(req.BetAmt)/1e11 < s.minBetAmt {
 		return nil, fmt.Errorf("bet needs to be higher than %.8f", s.minBetAmt)
 	}
@@ -592,47 +626,31 @@ func (s *Server) CreateWaitingRoom(ctx context.Context, req *pong.CreateWaitingR
 
 	s.log.Debugf("creating waiting room. Host ID: %s", hostID)
 
-	// Escrow-first gating: require a funded escrow (0-conf) for the host.
-	es, err := s.pickConfirmedEscrow(hostID.String(), req.EscrowId)
+	// Require funded escrow (0-conf OK).
+	es, err := s.resolveFundedEscrow(hostID.String(), req.EscrowId)
 	if err != nil {
-		return nil, fmt.Errorf("require funded escrow to create room: %w", err)
+		return nil, fmt.Errorf("require funded escrow to create room (0-conf ok): %w", err)
 	}
 
-	// Create waiting room; betAmt comes from host's escrow value expectation
+	// Create room; bet uses host escrow's betAtoms.
 	wr, err := ponggame.NewWaitingRoom(hostPlayer, int64(es.betAtoms))
 	if err != nil {
 		return nil, fmt.Errorf("failed to create waiting room: %v", err)
 	}
-
 	hostPlayer.WR = wr
 
-	// Optional: store escrow selection by room and owner when provided
-	if req.EscrowId != "" {
-		s.Lock()
-		if s.roomEscrows == nil {
-			s.roomEscrows = make(map[string]map[string]string)
-		}
-		if s.roomEscrows[wr.ID] == nil {
-			s.roomEscrows[wr.ID] = make(map[string]string)
-		}
-		s.roomEscrows[wr.ID][hostID.String()] = req.EscrowId
-		s.Unlock()
+	// Bind host escrow to room.
+	s.Lock()
+	if s.roomEscrows == nil {
+		s.roomEscrows = make(map[string]map[string]string)
 	}
-
-	// Optional: store escrow selection by room and owner when provided
-	if req.EscrowId != "" {
-		s.Lock()
-		if s.roomEscrows == nil {
-			s.roomEscrows = make(map[string]map[string]string)
-		}
-		if s.roomEscrows[wr.ID] == nil {
-			s.roomEscrows[wr.ID] = make(map[string]string)
-		}
-		s.roomEscrows[wr.ID][hostID.String()] = req.EscrowId
-		s.Unlock()
+	if s.roomEscrows[wr.ID] == nil {
+		s.roomEscrows[wr.ID] = make(map[string]string)
 	}
+	s.roomEscrows[wr.ID][hostID.String()] = es.escrowID
+	s.Unlock()
 
-	// append to WaitingRooms slice
+	// Add to list of rooms.
 	s.gameManager.Lock()
 	s.gameManager.WaitingRooms = append(s.gameManager.WaitingRooms, wr)
 	totalRooms := len(s.gameManager.WaitingRooms)
@@ -640,34 +658,31 @@ func (s *Server) CreateWaitingRoom(ctx context.Context, req *pong.CreateWaitingR
 
 	s.log.Debugf("waiting room created. Total rooms: %d", totalRooms)
 
-	// Signal that a new Waiting Room has been created
+	// Signal creation (non-blocking).
 	select {
 	case s.waitingRoomCreated <- struct{}{}:
 	default:
-		// Non-blocking send to avoid deadlock in case of rapid room creations
 	}
 
+	// Notify all users.
 	pongWR, err := wr.Marshal()
 	if err != nil {
 		return nil, err
 	}
-
 	s.RLock()
 	for _, user := range s.users {
 		if user.NotifierStream == nil {
 			s.log.Errorf("user %s without NotifierStream", user.ID)
 			continue
 		}
-		user.NotifierStream.Send(&pong.NtfnStreamResponse{
+		_ = user.NotifierStream.Send(&pong.NtfnStreamResponse{
 			Wr:               pongWR,
 			NotificationType: pong.NotificationType_ON_WR_CREATED,
 		})
 	}
 	s.RUnlock()
 
-	return &pong.CreateWaitingRoomResponse{
-		Wr: pongWR,
-	}, nil
+	return &pong.CreateWaitingRoomResponse{Wr: pongWR}, nil
 }
 
 // LeaveWaitingRoom handles a request from a client to leave a waiting room
@@ -773,7 +788,7 @@ func (s *Server) UnreadyGameStream(ctx context.Context, req *pong.UnreadyGameStr
 				p.NotifierStream.Send(&pong.NtfnStreamResponse{
 					NotificationType: pong.NotificationType_ON_PLAYER_READY,
 					Message:          fmt.Sprintf("Player %s is not ready", player.Nick),
-					PlayerId:         p.ID.String(),
+					PlayerId:         player.ID.String(),
 					RoomId:           player.WR.ID,
 					Wr:               pwr,
 					Ready:            false,

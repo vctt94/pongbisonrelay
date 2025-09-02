@@ -2,6 +2,7 @@ package server
 
 import (
 	"bytes"
+	"context"
 	"encoding/hex"
 	"fmt"
 	"sort"
@@ -14,6 +15,7 @@ import (
 	"github.com/decred/dcrd/txscript/v4/stdaddr"
 	"github.com/decred/dcrd/txscript/v4/stdscript"
 	"github.com/decred/dcrd/wire"
+	"github.com/vctt94/pong-bisonrelay/ponggame"
 	"github.com/vctt94/pong-bisonrelay/pongrpc/grpc/pong"
 	"google.golang.org/grpc/codes"
 	"google.golang.org/grpc/status"
@@ -255,7 +257,7 @@ func (s *Server) verifyAndStorePresig(X *secp256k1.PublicKey, ps *pong.PreSig, i
 	}
 	winner.preSign[in.InputId] = &PreSignCtx{
 		InputID:          in.InputId,
-		RedeemScriptHex:  winner.redeemScriptHex,
+		RedeemScriptHex:  in.RedeemScriptHex,
 		DraftHex:         draftHex,
 		MHex:             in.MHex,
 		RPrimeCompressed: append([]byte(nil), ps.RprimeCompressed...),
@@ -266,16 +268,6 @@ func (s *Server) verifyAndStorePresig(X *secp256k1.PublicKey, ps *pong.PreSig, i
 	}
 	s.Unlock()
 	return nil
-}
-
-// twoBranchDrafts holds the fully serialized drafts for A-wins and B-wins,
-// and their per-input presign data (m and T) for each input using its own redeem.
-// Branch mapping: 0 = pay to A, 1 = pay to B.
-type twoBranchDrafts struct {
-	DraftHexA string
-	InputsA   []*pong.NeedPreSigs_PerInput
-	DraftHexB string
-	InputsB   []*pong.NeedPreSigs_PerInput
 }
 
 // buildTwoInputDrafts builds two drafts spending one UTXO from each escrow and
@@ -364,4 +356,216 @@ func (s *Server) buildTwoInputDrafts(a *escrowSession, au *pong.EscrowUTXO, b *e
 		return nil, err
 	}
 	return &twoBranchDrafts{DraftHexA: dhA, InputsA: inA, DraftHexB: dhB, InputsB: inB}, nil
+}
+
+// --- Helpers ---------------------------------------------------------------
+
+// notify sends a simple text notification if the stream is live.
+// (Optional: de-dupe by caching the last message per player to avoid spam.)
+func (s *Server) notify(p *ponggame.Player, msg string) {
+	if p != nil && p.NotifierStream != nil {
+		if p.ID != nil {
+			s.log.Debugf("notify: to=%s msg=%q", p.ID.String(), msg)
+		} else {
+			s.log.Debugf("notify: to=<nil-id> msg=%q", msg)
+		}
+		if err := p.NotifierStream.Send(&pong.NtfnStreamResponse{
+			NotificationType: pong.NotificationType_MESSAGE,
+			Message:          msg,
+		}); err != nil {
+			var idStr string
+			if p.ID != nil {
+				idStr = p.ID.String()
+			} else {
+				idStr = "<nil-id>"
+			}
+			s.log.Warnf("notify: failed to deliver to %s: %v", idStr, err)
+		}
+	} else {
+		s.log.Debugf("notify: dropped (player or stream nil) msg=%q", msg)
+	}
+}
+
+func (s *Server) trackEscrow(ctx context.Context, es *escrowSession, ch <-chan DepositUpdate) {
+	for {
+		select {
+		case <-ctx.Done():
+			return
+		case u, ok := <-ch:
+			if !ok {
+				return
+			}
+			es.mu.Lock()
+			prev := es.latest
+			es.latest = u
+			// keep a small cache if you use it elsewhere
+			if u.UTXOCount > 0 && es.pkScriptHex != "" {
+				// Cache a shallow copy of UTXOs for settlement handshake.
+				if len(u.UTXOs) > 0 {
+					es.lastUTXOs = append(es.lastUTXOs[:0], u.UTXOs...)
+				}
+			}
+			es.mu.Unlock()
+
+			// Optional UX nudges. Notify on first funding sighting and on confirmation.
+			if es.ownerUID != "" {
+				// First time we see any UTXO for this escrow.
+				if prev.UTXOCount == 0 && u.UTXOCount > 0 {
+					if u.Confs == 0 {
+						s.log.Debugf("trackEscrow: mempool seen for owner=%s pk=%s utxos=%d", es.ownerUID, u.PkScriptHex, u.UTXOCount)
+						s.notify(es.player, "Deposit seen in mempool. Waiting confirmations.")
+					} else {
+						s.log.Debugf("trackEscrow: confirmed on first sight for owner=%s pk=%s confs=%d", es.ownerUID, u.PkScriptHex, u.Confs)
+						s.notify(es.player, "Deposit confirmed.")
+					}
+				} else if prev.Confs < 1 && u.Confs >= 1 && u.UTXOCount > 0 {
+					s.log.Debugf("trackEscrow: transitioned to confirmed for owner=%s pk=%s confs=%d", es.ownerUID, u.PkScriptHex, u.Confs)
+					// Transition to confirmed after already seeing funding.
+					s.notify(es.player, "Deposit confirmed.")
+				}
+			}
+		}
+	}
+}
+
+// escrowForRoomPlayer returns the escrow session bound to (wrID, ownerUID)
+// via the roomEscrows mapping. It does not attempt to pick a "newest" escrow.
+func (s *Server) escrowForRoomPlayer(wrID, ownerUID string) *escrowSession {
+	s.RLock()
+	defer s.RUnlock()
+	m := s.roomEscrows[wrID]
+	if m == nil {
+		return nil
+	}
+	escrowID := m[ownerUID]
+	if escrowID == "" {
+		return nil
+	}
+	return s.escrows[escrowID]
+}
+
+// ensureBoundFunding either binds the canonical funding input if not yet bound
+// (requiring exactly one UTXO), or verifies the previously-bound input still
+// exists and that no extra deposits were made.
+func (s *Server) ensureBoundFunding(es *escrowSession) error {
+	es.mu.Lock()
+	defer es.mu.Unlock()
+
+	// Must have a watcher snapshot that says "funded".
+	if !es.latest.OK || es.latest.UTXOCount == 0 {
+		return fmt.Errorf("escrow not yet funded")
+	}
+
+	// Normalize current UTXO list.
+	var current []*pong.EscrowUTXO
+	for _, u := range es.lastUTXOs {
+		if u != nil && u.Txid != "" {
+			current = append(current, u)
+		}
+	}
+	// If we haven't cached details yet, we can't bind.
+	if len(current) == 0 {
+		return fmt.Errorf("escrow UTXO details not available yet; wait for index")
+	}
+
+	if es.boundInputID == "" {
+		// Not yet bound: require exactly one deposit to avoid ambiguity.
+		if len(current) != 1 || es.latest.UTXOCount != 1 {
+			return fmt.Errorf("multiple deposits detected (%d); escrow requires exactly one funding UTXO", len(current))
+		}
+		u := current[0]
+		boundID := fmt.Sprintf("%s:%d", u.Txid, u.Vout)
+		es.boundInputID = boundID
+		es.boundInput = u
+		// Notify outside of the lock to avoid deadlocks.
+		p := es.player
+		go func(pid string, pl *ponggame.Player) {
+			if pl != nil {
+				s.notify(pl, fmt.Sprintf("Escrow bound to %s. You can proceed.", boundID))
+			}
+		}(boundID, p)
+		return nil
+	}
+
+	// Already bound: verify the exact input is still present.
+	var found *pong.EscrowUTXO
+	for _, u := range current {
+		if fmt.Sprintf("%s:%d", u.Txid, u.Vout) == es.boundInputID {
+			found = u
+			break
+		}
+	}
+	if found == nil {
+		// The canonical input disappeared (reorg/spent?) -> invalidate.
+		return fmt.Errorf("bound funding UTXO %s not present", es.boundInputID)
+	}
+	es.boundInput = found
+
+	// Enforce no extra deposits beyond the bound one.
+	if len(current) != 1 || es.latest.UTXOCount != 1 {
+		return fmt.Errorf("unexpected additional deposits (%d); only the bound %s is allowed", len(current), es.boundInputID)
+	}
+
+	return nil
+}
+
+// makeSettleInputFromEscrow builds a minimal settlement context from a bound escrow.
+// It requires es.boundInputID and es.boundInput to be set (use ensureBoundFunding first).
+func (s *Server) makeSettleInputFromEscrow(es *escrowSession) (*SettleInput, error) {
+	if es == nil {
+		return nil, fmt.Errorf("nil escrow session")
+	}
+	es.mu.RLock()
+	defer es.mu.RUnlock()
+	if es.boundInputID == "" || es.boundInput == nil {
+		return nil, fmt.Errorf("escrow not bound to a specific funding input yet")
+	}
+	payout := es.payoutPubkey
+	if len(payout) != 33 {
+		payout = es.compPubkey
+	}
+	return &SettleInput{
+		EscrowID:        es.escrowID,
+		OwnerUID:        es.ownerUID,
+		InputID:         es.boundInputID,
+		UTXO:            es.boundInput,
+		RedeemScriptHex: es.redeemScriptHex,
+		PayoutPubkey:    append([]byte(nil), payout...),
+	}, nil
+}
+
+// resolveFundedEscrow returns the escrow after strictly validating:
+//   - escrow exists and is owned by ownerUID
+//   - funding is bound to a specific outpoint (txid:vout)
+//   - that exact outpoint is present and is the *only* deposit
+func (s *Server) resolveFundedEscrow(ownerUID, escrowID string) (*escrowSession, error) {
+	if escrowID == "" {
+		return nil, fmt.Errorf("escrow ID is required")
+	}
+
+	// Exact escrow lookup & ownership check.
+	s.RLock()
+	es := s.escrows[escrowID]
+	s.RUnlock()
+	if es == nil {
+		return nil, fmt.Errorf("escrow not found: %s", escrowID)
+	}
+	if es.ownerUID != ownerUID {
+		return nil, fmt.Errorf("escrow not owned by user")
+	}
+
+	// Bind (if first time) or verify the canonical funding input.
+	if err := s.ensureBoundFunding(es); err != nil {
+		return nil, err
+	}
+
+	// Double-check the bound identity is set (belt-and-suspenders).
+	es.mu.RLock()
+	bound := es.boundInputID
+	es.mu.RUnlock()
+	if bound == "" {
+		return nil, fmt.Errorf("escrow not bound to a specific funding input yet")
+	}
+
+	return es, nil
 }

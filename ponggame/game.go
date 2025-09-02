@@ -37,7 +37,6 @@ func (gm *GameManager) HandleWaitingRoomDisconnection(clientID zkidentity.ShortI
 
 		log.Debugf("Player %s disconnected; removing waiting room %s", clientID, wr.ID)
 		wr.Cancel()
-		gm.RemoveWaitingRoom(wr.ID)
 	} else {
 		// Handle regular player disconnection
 		wr.RemovePlayer(clientID)

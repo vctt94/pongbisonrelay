@@ -13,66 +13,45 @@ import (
 	"github.com/vctt94/pong-bisonrelay/pongrpc/grpc/pong"
 )
 
-// chainWatcher maintains a lightweight view of the current tip and relevant mempool/blocks
-// for a small set of watched pkScripts. It polls dcrd periodically (WebSocket connection)
-// to update confirmations and matching UTXOs for those scripts.
+type DepositUpdate struct {
+	PkScriptHex string
+	Confs       uint32
+	UTXOCount   int
+	OK          bool
+	At          time.Time
+	UTXOs       []*pong.EscrowUTXO
+}
+
+// chainWatcher is a minimal pusher: it scans the chain/mempool for every
+// pkScript that currently has at least one subscriber, and broadcasts a
+// DepositUpdate each tick. No per-script state is retained.
 type chainWatcher struct {
 	log  slog.Logger
 	dcrd *rpcclient.Client
 
-	mu       sync.RWMutex
-	tip      int64
-	watchSet map[string]*watchedEntry // key: pkScript hex
+	mu   sync.RWMutex
+	tip  int64
+	subs map[string]map[chan DepositUpdate]struct{} // pkScriptHex -> set(chan)
 
 	quit chan struct{}
 }
 
-type watchedEntry struct {
-	pkScriptHex     string
-	redeemScriptHex string
-	tag             string
-	utxos           []*pong.EscrowUTXO
-	confs           uint32
-	lastUpdated     time.Time
-}
-
 func newChainWatcher(log slog.Logger, c *rpcclient.Client) *chainWatcher {
 	return &chainWatcher{
-		log:      log,
-		dcrd:     c,
-		watchSet: make(map[string]*watchedEntry),
-		quit:     make(chan struct{}),
+		log:  log,
+		dcrd: c,
+		subs: make(map[string]map[chan DepositUpdate]struct{}),
+		quit: make(chan struct{}),
 	}
 }
 
 func (w *chainWatcher) stop() { close(w.quit) }
 
-// registerDeposit registers a pkScript to be monitored.
-func (w *chainWatcher) registerDeposit(pkScriptHex, redeemScriptHex, tag string) {
-	w.mu.Lock()
-	defer w.mu.Unlock()
-	k := strings.ToLower(pkScriptHex)
-	r := strings.ToLower(redeemScriptHex)
-	if _, ok := w.watchSet[k]; !ok {
-		w.watchSet[k] = &watchedEntry{pkScriptHex: k, redeemScriptHex: r, tag: tag}
-		w.log.Infof("watcher: registered tag=%s pkScript=%s", tag, k)
-	}
-}
-
-// queryDeposit returns the last known utxos and confirmations for a pkScript.
-func (w *chainWatcher) queryDeposit(pkScriptHex string) (utxos []*pong.EscrowUTXO, confs uint32, ok bool) {
-	w.mu.RLock()
-	defer w.mu.RUnlock()
-	k := strings.ToLower(pkScriptHex)
-	if e, exists := w.watchSet[k]; exists {
-		return e.utxos, e.confs, true
-	}
-	return nil, 0, false
-}
-
 func (w *chainWatcher) run(ctx context.Context) {
+	w.log.Infof("watcher: started")
 	t := time.NewTicker(5 * time.Second)
 	defer t.Stop()
+	defer w.log.Infof("watcher: stopped")
 	for {
 		select {
 		case <-ctx.Done():
@@ -86,7 +65,7 @@ func (w *chainWatcher) run(ctx context.Context) {
 }
 
 func (w *chainWatcher) pollOnce(ctx context.Context) {
-	// Update tip height
+	// Update tip (best effort).
 	if _, h, err := w.dcrd.GetBestBlock(ctx); err == nil {
 		w.mu.Lock()
 		w.tip = h
@@ -95,33 +74,35 @@ func (w *chainWatcher) pollOnce(ctx context.Context) {
 		w.log.Debugf("watcher: GetBestBlock failed: %v", err)
 	}
 
-	// No watched entries; nothing to do
+	// Snapshot subscribed pkScripts.
 	w.mu.RLock()
-	if len(w.watchSet) == 0 {
+	subsCount := len(w.subs)
+	if subsCount == 0 {
 		w.mu.RUnlock()
+		w.log.Debugf("watcher: poll tick; no subscribers (tip=%d)", w.currentTip())
 		return
 	}
-	// Snapshot keys to avoid holding lock during RPC calls
-	keys := make([]string, 0, len(w.watchSet))
-	for k := range w.watchSet {
+	keys := make([]string, 0, len(w.subs))
+	for k := range w.subs {
 		keys = append(keys, k)
 	}
 	w.mu.RUnlock()
+	w.log.Debugf("watcher: poll tick; tip=%d, subs=%d", w.currentTip(), subsCount)
 
-	// For each watched script, try to locate UTXOs in recent blocks; if not found, check mempool
+	// Scan each subscribed pkScript.
 	for _, pkHex := range keys {
+		w.log.Debugf("watcher: scanning pk=%s", pkHex)
 		var utxos []*pong.EscrowUTXO
 		var confs uint32
 		found := false
 
-		// Scan recent blocks (bounded)
+		// Lookback over recent blocks (bounded).
 		if h := w.currentTip(); h >= 0 {
 			const lookback = int64(1024)
 			latestMatch := int64(-1)
-			var bestHeight int64 = h
-			candidates := make([]*pong.EscrowUTXO, 0, 2)
-			for i := int64(0); i < lookback && bestHeight-i >= 0; i++ {
-				bh := bestHeight - i
+			best := h
+			for i := int64(0); i < lookback && best-i >= 0; i++ {
+				bh := best - i
 				hash, err := w.dcrd.GetBlockHash(ctx, bh)
 				if err != nil {
 					continue
@@ -132,7 +113,7 @@ func (w *chainWatcher) pollOnce(ctx context.Context) {
 				}
 				for _, tx := range bv.RawTx {
 					for voutIdx, vout := range tx.Vout {
-						var match bool
+						match := false
 						if spkBytes, err := hex.DecodeString(vout.ScriptPubKey.Hex); err == nil {
 							if pkBytes, err := hex.DecodeString(pkHex); err == nil {
 								match = bytes.Equal(spkBytes, pkBytes)
@@ -140,7 +121,7 @@ func (w *chainWatcher) pollOnce(ctx context.Context) {
 						}
 						if match {
 							atoms := uint64(vout.Value * 1e8)
-							candidates = append(candidates, &pong.EscrowUTXO{
+							utxos = append(utxos, &pong.EscrowUTXO{
 								Txid:        tx.Txid,
 								Vout:        uint32(voutIdx),
 								Value:       atoms,
@@ -153,24 +134,23 @@ func (w *chainWatcher) pollOnce(ctx context.Context) {
 					}
 				}
 			}
-			if len(candidates) > 0 && latestMatch >= 0 {
-				utxos = candidates
-				confs = uint32((bestHeight - latestMatch) + 1)
+			if len(utxos) > 0 && latestMatch >= 0 {
+				confs = uint32((best - latestMatch) + 1)
 				found = true
+				w.log.Debugf("watcher: pk=%s found in blocks; utxos=%d confs=%d", pkHex, len(utxos), confs)
 			}
 		}
 
-		// If not in recent blocks, try mempool (0 conf)
+		// If not in recent blocks, check mempool (0-conf).
 		if !found {
 			if txids, err := w.dcrd.GetRawMempool(ctx, "all"); err == nil {
-				mCandidates := make([]*pong.EscrowUTXO, 0, 2)
 				for _, th := range txids {
 					v, err := w.dcrd.GetRawTransactionVerbose(ctx, th)
 					if err != nil {
 						continue
 					}
 					for voutIdx, vout := range v.Vout {
-						var match bool
+						match := false
 						if spkBytes, err := hex.DecodeString(vout.ScriptPubKey.Hex); err == nil {
 							if pkBytes, err := hex.DecodeString(pkHex); err == nil {
 								match = bytes.Equal(spkBytes, pkBytes)
@@ -178,7 +158,7 @@ func (w *chainWatcher) pollOnce(ctx context.Context) {
 						}
 						if match {
 							atoms := uint64(vout.Value * 1e8)
-							mCandidates = append(mCandidates, &pong.EscrowUTXO{
+							utxos = append(utxos, &pong.EscrowUTXO{
 								Txid:        v.Txid,
 								Vout:        uint32(voutIdx),
 								Value:       atoms,
@@ -187,38 +167,25 @@ func (w *chainWatcher) pollOnce(ctx context.Context) {
 						}
 					}
 				}
-				if len(mCandidates) > 0 {
-					utxos = mCandidates
+				if len(utxos) > 0 {
 					confs = 0
 					found = true
+					w.log.Debugf("watcher: pk=%s found in mempool; utxos=%d", pkHex, len(utxos))
 				}
 			} else {
 				w.log.Debugf("watcher: GetRawMempool failed; skipping mempool scan for %s", pkHex)
 			}
 		}
 
-		// Store results
-		w.mu.Lock()
-		if e, exists := w.watchSet[pkHex]; exists {
-			if found {
-				// Preserve redeemScriptHex if set
-				for _, u := range utxos {
-					if u.RedeemScriptHex == "" {
-						u.RedeemScriptHex = e.redeemScriptHex
-					}
-				}
-				e.utxos = utxos
-				e.confs = confs
-				e.lastUpdated = time.Now()
-				w.log.Debugf("watcher: updated tag=%s pkScript=%s confs=%d utxos=%d", e.tag, pkHex, confs, len(utxos))
-			} else {
-				// No info found this round; keep previous values
-				if time.Since(e.lastUpdated) > 30*time.Second {
-					w.log.Debugf("watcher: no matches yet tag=%s pkScript=%s (lastUpdated=%s)", e.tag, pkHex, e.lastUpdated.Format(time.RFC3339))
-				}
-			}
-		}
-		w.mu.Unlock()
+		// Push an update every tick (simple, stateless).
+		w.broadcastUpdate(pkHex, DepositUpdate{
+			PkScriptHex: pkHex,
+			Confs:       confs,
+			UTXOCount:   len(utxos),
+			OK:          found,
+			At:          time.Now(),
+			UTXOs:       utxos,
+		})
 	}
 }
 
@@ -226,4 +193,59 @@ func (w *chainWatcher) currentTip() int64 {
 	w.mu.RLock()
 	defer w.mu.RUnlock()
 	return w.tip
+}
+
+// Subscribe adds a listener for pkScriptHex and returns the channel + unsubscribe.
+// No initial snapshot is sent; first data arrives on next tick.
+func (w *chainWatcher) Subscribe(pkScriptHex string) (<-chan DepositUpdate, func()) {
+	k := strings.ToLower(pkScriptHex)
+
+	ch := make(chan DepositUpdate, 8)
+
+	w.mu.Lock()
+	if _, ok := w.subs[k]; !ok {
+		w.subs[k] = make(map[chan DepositUpdate]struct{})
+	}
+	w.subs[k][ch] = struct{}{}
+	n := len(w.subs[k])
+	w.mu.Unlock()
+	w.log.Infof("watcher: subscribed pk=%s (subs=%d)", k, n)
+
+	unsub := func() {
+		w.mu.Lock()
+		if set, ok := w.subs[k]; ok {
+			delete(set, ch)
+			if len(set) == 0 {
+				delete(w.subs, k)
+			}
+		}
+		remaining := 0
+		if set, ok := w.subs[k]; ok {
+			remaining = len(set)
+		}
+		w.mu.Unlock()
+		w.log.Infof("watcher: unsubscribed pk=%s (subs=%d)", k, remaining)
+		// Do not close(ch): the producer may still try to send; let receiver stop by context.
+	}
+	return ch, unsub
+}
+
+// broadcastUpdate snapshots subscribers for pk, then best-effort sends (non-blocking).
+func (w *chainWatcher) broadcastUpdate(pk string, u DepositUpdate) {
+	w.mu.RLock()
+	set := w.subs[pk]
+	chs := make([]chan DepositUpdate, 0, len(set))
+	for ch := range set {
+		chs = append(chs, ch)
+	}
+	w.mu.RUnlock()
+	w.log.Debugf("watcher: broadcast pk=%s to %d listeners; ok=%t utxos=%d confs=%d", pk, len(chs), u.OK, u.UTXOCount, u.Confs)
+
+	for _, ch := range chs {
+		select {
+		case ch <- u:
+		default:
+			// Drop if receiver is slow.
+		}
+	}
 }

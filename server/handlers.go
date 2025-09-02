@@ -6,6 +6,8 @@ import (
 	crand "crypto/rand"
 	"encoding/hex"
 	"fmt"
+	"sort"
+	"strings"
 	"sync"
 	"time"
 
@@ -96,37 +98,158 @@ func (s *Server) handleGameEnd(ctx context.Context, game *ponggame.GameInstance,
 
 	// POC: deliver gamma to winner via NtfnStream for finalization
 	if winner != nil {
-		// Look up the exact PreSignCtx created during presign and reuse its
-		// DraftHex and MHex to derive gamma. Do NOT rebuild drafts here.
+		// Determine branch index anchored to room host: branch 0 pays host (a), 1 pays non-host (b).
+		winnerBranch := int32(0)
+		var hostUID string
+		if len(players) >= 2 {
+			if players[0].WR != nil && players[0].WR.HostID != nil {
+				hostUID = players[0].WR.HostID.String()
+			} else if players[1].WR != nil && players[1].WR.HostID != nil {
+				hostUID = players[1].WR.HostID.String()
+			}
+			if hostUID != "" && winnerID != hostUID {
+				winnerBranch = 1
+			}
+		}
+		s.log.Debugf("finalize: computed winnerBranch=%d host=%s winner=%s", winnerBranch, hostUID, winnerID)
+
+		// Look up the winner's escrow session bound to this room and find the presign context
+		// for the computed winner branch.
+		var wrID string
+		for _, p := range players {
+			if p != nil && p.WR != nil {
+				wrID = p.WR.ID
+				break
+			}
+		}
 		s.RLock()
 		var es *escrowSession
-		for _, e := range s.escrows {
-			if e != nil && e.ownerUID == winnerID {
-				es = e
-				break
+		if wrID != "" && s.roomEscrows != nil {
+			if m := s.roomEscrows[wrID]; m != nil {
+				if eid := m[winnerID]; eid != "" {
+					es = s.escrows[eid]
+				}
 			}
 		}
 		s.RUnlock()
-		if es != nil && es.preSign != nil {
-			for _, ctxp := range es.preSign {
-				// bind gamma to the same input_id + m used during presign
-				const pocServerPrivHex = "11ee22dd33cc44bb55aa66ff77ee88dd99cc00bbaa11223344556677889900aa"
-				gammaHex, _ := deriveAdaptorGamma("", ctxp.InputID, 0, ctxp.MHex, pocServerPrivHex)
-				gb, err := hex.DecodeString(gammaHex)
-				if err != nil || len(gb) != 32 {
-					continue
-				}
-				w := s.gameManager.PlayerSessions.GetPlayer(*winner)
-				if w != nil && w.NotifierStream != nil {
-					w.NotifierStream.Send(&pong.NtfnStreamResponse{
-						NotificationType: pong.NotificationType_MESSAGE,
-						Message:          fmt.Sprintf("Gamma received; finalizing… (%x)\nResult draft tx hex: %s", gb, ctxp.DraftHex),
-					})
-				}
-				break
+		if es == nil {
+			s.log.Errorf("finalize: no room-bound escrow session found for winner %s in wr %s", winnerID, wrID)
+			return
+		}
+		if es == nil {
+			s.log.Warnf("finalize: no escrow session found for winner %s", winnerID)
+			return
+		}
+		if es.preSign == nil {
+			s.log.Warnf("finalize: no presign contexts stored for winner %s", winnerID)
+			return
+		}
+		var chosen *PreSignCtx
+		var branches []int32
+		for _, ctxp := range es.preSign {
+			branches = append(branches, ctxp.Branch)
+			if ctxp.Branch == winnerBranch {
+				chosen = ctxp
 			}
 		}
+		if chosen == nil {
+			s.log.Warnf("finalize: no presign context for branch %d; have branches=%v", winnerBranch, branches)
+			return
+		}
+		// Derive gamma using the same branch-bound domain separation used during presign.
+		const pocServerPrivHex = "11ee22dd33cc44bb55aa66ff77ee88dd99cc00bbaa11223344556677889900aa"
+		branchTag := fmt.Sprintf("branch-%d", chosen.Branch)
+		gammaHex, _ := deriveAdaptorGamma("", branchTag, chosen.Branch, branchTag, pocServerPrivHex)
+		if gb, err := hex.DecodeString(gammaHex); err == nil && len(gb) == 32 {
+			if w := s.gameManager.PlayerSessions.GetPlayer(*winner); w != nil && w.NotifierStream != nil {
+				_ = w.NotifierStream.Send(&pong.NtfnStreamResponse{
+					NotificationType: pong.NotificationType_MESSAGE,
+					Message:          fmt.Sprintf("Gamma received; finalizing… (%x)\nResult draft tx hex: %s", gb, chosen.DraftHex),
+				})
+			}
+		} else if err != nil {
+			s.log.Warnf("failed to decode gamma hex: %v", err)
+		}
 	}
+}
+
+// GetFinalizeBundle returns the winning draft, gamma and both presigs so the winner can finalize.
+func (s *Server) GetFinalizeBundle(ctx context.Context, req *pong.GetFinalizeBundleRequest) (*pong.GetFinalizeBundleResponse, error) {
+	if req == nil || strings.TrimSpace(req.MatchId) == "" || strings.TrimSpace(req.WinnerUid) == "" {
+		return nil, status.Error(codes.InvalidArgument, "missing match_id or winner_uid")
+	}
+
+	parts := strings.SplitN(req.MatchId, "|", 2)
+	wrID := strings.TrimSpace(parts[0])
+	if wrID == "" {
+		return nil, status.Error(codes.InvalidArgument, "bad match_id")
+	}
+
+	s.RLock()
+	var es *escrowSession
+	if m := s.roomEscrows[wrID]; m != nil {
+		if eid := m[req.WinnerUid]; eid != "" {
+			es = s.escrows[eid]
+		}
+	}
+	s.RUnlock()
+	if es == nil {
+		return nil, status.Errorf(codes.NotFound, "no escrow bound for winner in room %s", wrID)
+	}
+	if es.preSign == nil || len(es.preSign) == 0 {
+		return nil, status.Error(codes.FailedPrecondition, "no presign contexts stored for winner")
+	}
+
+	// Determine winner branch from stored contexts (they share branch per win/lose per player)
+	var branch int32 = -1
+	for _, ctxp := range es.preSign {
+		branch = ctxp.Branch
+		break
+	}
+	if branch < 0 {
+		return nil, status.Error(codes.Internal, "failed to determine branch")
+	}
+
+	// Collect presigs for the chosen branch
+	var draftHex string
+	type kv struct {
+		id  string
+		ctx *PreSignCtx
+	}
+	var list []kv
+	for id, ctxp := range es.preSign {
+		if ctxp.Branch != branch {
+			continue
+		}
+		list = append(list, kv{id: id, ctx: ctxp})
+		if draftHex == "" {
+			draftHex = ctxp.DraftHex
+		}
+	}
+	if len(list) == 0 || draftHex == "" {
+		return nil, status.Error(codes.FailedPrecondition, "no presigs for winner branch")
+	}
+	sort.Slice(list, func(i, j int) bool { return list[i].id < list[j].id })
+
+	// Derive gamma for that branch (same domain sep. as presign)
+	const pocServerPrivHex = "11ee22dd33cc44bb55aa66ff77ee88dd99cc00bbaa11223344556677889900aa"
+	branchTag := fmt.Sprintf("branch-%d", branch)
+	gammaHex, _ := deriveAdaptorGamma("", branchTag, branch, branchTag, pocServerPrivHex)
+	gb, err := hex.DecodeString(gammaHex)
+	if err != nil || len(gb) != 32 {
+		return nil, status.Error(codes.Internal, "failed to derive gamma")
+	}
+
+	resp := &pong.GetFinalizeBundleResponse{DraftTxHex: draftHex, Gamma32: gb}
+	for _, p := range list {
+		resp.Inputs = append(resp.Inputs, &pong.FinalizeInput{
+			InputId:          p.id,
+			RedeemScriptHex:  p.ctx.RedeemScriptHex,
+			RprimeCompressed: append([]byte(nil), p.ctx.RPrimeCompressed...),
+			Sprime32:         append([]byte(nil), p.ctx.SPrime32...),
+		})
+	}
+	return resp, nil
 }
 
 // --- waiting room handlers ---
@@ -143,7 +266,6 @@ func (s *Server) handleWaitingRoomRemoved(wr *pong.WaitingRoom) {
 		})
 	}
 }
-
 func (s *Server) RefOpenEscrow(ctx context.Context, req *pong.OpenEscrowRequest) (*pong.OpenEscrowResponse, error) {
 	if req.OwnerUid == "" {
 		return nil, status.Errorf(codes.InvalidArgument, "missing owner uid")
@@ -174,26 +296,11 @@ func (s *Server) RefOpenEscrow(ctx context.Context, req *pong.OpenEscrowRequest)
 	}
 	payoutPubkey := pp.SerializeCompressed()
 
-	// Idempotency key: owner|comp|bet|csv
-	key := fmt.Sprintf("%s|%x|%d|%d", req.OwnerUid, comp, req.BetAtoms, req.CsvBlocks)
-
 	s.Lock()
 	defer s.Unlock()
 
 	if s.escrows == nil {
 		s.escrows = make(map[string]*escrowSession)
-	}
-	if s.escrowByKey == nil {
-		s.escrowByKey = make(map[string]string)
-	}
-	if id, ok := s.escrowByKey[key]; ok {
-		if es := s.escrows[id]; es != nil {
-			return &pong.OpenEscrowResponse{
-				EscrowId:       es.escrowID,
-				DepositAddress: es.depositAddress,
-				PkScriptHex:    es.pkScriptHex,
-			}, nil
-		}
 	}
 
 	// Build depositor-only redeem script (no opponent key).
@@ -202,14 +309,19 @@ func (s *Server) RefOpenEscrow(ctx context.Context, req *pong.OpenEscrowRequest)
 		return nil, status.Errorf(codes.Internal, "build redeem: %v", err)
 	}
 
-	// TODO: prefer a server field like s.netParams stdaddr.AddressParams.
-	// For now, use testnet3 params (or mainnet/simnet as appropriate).
-	params := chaincfg.TestNet3Params() // <- replace with your server’s configured params
+	params := chaincfg.TestNet3Params() // TODO: use server-configured params
 
 	pkScriptHex, addr, err := pkScriptAndAddrFromRedeem(redeem, params)
 	if err != nil {
 		return nil, status.Errorf(codes.Internal, "derive address: %v", err)
 	}
+
+	// Convert owner UID string to zkidentity.ShortID before looking up player.
+	var ownerID zkidentity.ShortID
+	if err := ownerID.FromString(req.OwnerUid); err != nil {
+		return nil, status.Errorf(codes.InvalidArgument, "invalid owner uid: %v", err)
+	}
+	player := s.gameManager.PlayerSessions.GetPlayer(ownerID)
 
 	// Secure random escrow ID.
 	var rnd [8]byte
@@ -230,85 +342,25 @@ func (s *Server) RefOpenEscrow(ctx context.Context, req *pong.OpenEscrowRequest)
 		pkScriptHex:     pkScriptHex,
 		depositAddress:  addr,
 		createdAt:       now,
-		updatedAt:       now,
+		player:          player,
 	}
 	s.escrows[eid] = es
-	s.escrowByKey[key] = eid
+
+	// Subscribe right here; trackEscrow updates es.latest and es.lastUTXOs.
+	if s.watcher != nil {
+		ch, unsub := s.watcher.Subscribe(es.pkScriptHex)
+		es.unsubW = unsub
+		// Run trackEscrow on a long-lived context independent of this RPC's ctx.
+		trackCtx, cancel := context.WithCancel(context.Background())
+		es.cancelTrack = cancel
+		go s.trackEscrow(trackCtx, es, ch)
+	}
 
 	return &pong.OpenEscrowResponse{
 		EscrowId:       eid,
 		DepositAddress: addr,
 		PkScriptHex:    pkScriptHex,
 	}, nil
-}
-
-func (s *Server) WaitFunding(req *pong.WaitFundingRequest, stream pong.PongReferee_WaitFundingServer) error {
-	ctx := stream.Context()
-	if req.EscrowId == "" {
-		return status.Error(codes.InvalidArgument, "missing escrow_id")
-	}
-
-	// Register this pkScript with the watcher only once
-	var registered sync.Once
-	ticker := time.NewTicker(3 * time.Second)
-	defer ticker.Stop()
-
-	for {
-		select {
-		case <-ctx.Done():
-			return ctx.Err()
-
-		case <-ticker.C:
-			s.RLock()
-			es := s.escrows[req.EscrowId]
-			s.RUnlock()
-			if es == nil {
-				return status.Error(codes.NotFound, "unknown escrow id")
-			}
-			if s.watcher == nil {
-				return status.Error(codes.FailedPrecondition, "chain watcher not initialized")
-			}
-
-			registered.Do(func() {
-				s.watcher.registerDeposit(es.pkScriptHex, es.redeemScriptHex, req.EscrowId)
-				s.log.Infof("watcher: registered escrow_id=%s pkScript=%s", req.EscrowId, es.pkScriptHex)
-			})
-
-			utxos, confs, ok := s.watcher.queryDeposit(es.pkScriptHex)
-
-			funded := ok && len(utxos) > 0
-			confirmed := funded && confs >= 1
-
-			resp := &pong.WaitFundingResponse{
-				Confs: confs,
-			}
-
-			if funded {
-				u := utxos[0] // safe now
-				resp.Value = u.Value
-				resp.Utxo = &pong.EscrowUTXO{
-					Txid:            u.Txid,
-					Vout:            u.Vout,
-					Value:           u.Value,
-					RedeemScriptHex: es.redeemScriptHex,
-					PkScriptHex:     es.pkScriptHex,
-					Owner:           es.ownerUID,
-				}
-			}
-
-			if err := stream.Send(resp); err != nil {
-				return status.Errorf(codes.Unavailable, "stream send failed: %v", err)
-			}
-
-			if confirmed {
-				s.Lock()
-				es.confs = confs
-				es.updatedAt = time.Now()
-				s.Unlock()
-				return nil
-			}
-		}
-	}
 }
 
 // SignalReadyToPlay marks the caller ready and, if everyone is ready, triggers next phase.
@@ -330,69 +382,38 @@ func (s *Server) SignalReadyToPlay(ctx context.Context, req *pong.SignalReadyToP
 		return nil, fmt.Errorf("game instance not found for client %s", clientID)
 	}
 
-	// Update ready state idempotently and snapshot for notifications without holding the lock.
-	var (
-		already     bool
-		allReady    bool
-		playersSnap []*ponggame.Player
-		nick        = player.Nick
-	)
-
+	// Mark this client ready (idempotent) and check if everyone is ready.
 	game.Lock()
 	if game.PlayersReady == nil {
 		game.PlayersReady = make(map[string]bool)
 	}
 	key := clientID.String()
-	if game.PlayersReady[key] {
-		already = true
-	} else {
-		game.PlayersReady[key] = true
-	}
-
-	// Count readiness.
-	readyCount := 0
+	game.PlayersReady[key] = true
+	// Compute readiness based on number of players
 	total := len(game.Players)
-	for _, p := range game.Players {
-		if game.PlayersReady[p.ID.String()] {
-			readyCount++
-		}
-	}
-	allReady = (total > 0 && readyCount == total)
-
-	// Snapshot players slice for notifying outside the lock.
-	playersSnap = append(playersSnap, game.Players...)
+	allReady := (total > 0 && len(game.PlayersReady) == total)
+	playersSnap := append([]*ponggame.Player(nil), game.Players...)
 	game.Unlock()
 
-	// Notify: this player is ready (only once).
-	if !already {
-		s.broadcastReady(playersSnap, req.ClientId, game.Id, fmt.Sprintf("Player %s is ready to start the game", nick))
-	}
-
-	// // If everyone is ready, signal next phase (start game, fetch drafts/adaptors, etc.).
 	if allReady {
-		// s.broadcastAllReady(playersSnap, game.Id)
-		// go s.onAllPlayersReady(game) // hook to kick the next phase safely out-of-band
+		for _, p := range playersSnap {
+			if p.NotifierStream == nil {
+				continue
+			}
+			_ = p.NotifierStream.Send(&pong.NtfnStreamResponse{
+				NotificationType: pong.NotificationType_ON_PLAYER_READY,
+				Message:          "all players ready to start the game",
+				PlayerId:         player.ID.String(),
+				GameId:           game.Id,
+				Ready:            true,
+			})
+		}
 	}
 
 	return &pong.SignalReadyToPlayResponse{
 		Success: true,
 		Message: "Ready signal received",
 	}, nil
-}
-
-func (s *Server) broadcastReady(players []*ponggame.Player, playerID, gameID, msg string) {
-	for _, p := range players {
-		if p.NotifierStream == nil {
-			continue
-		}
-		_ = p.NotifierStream.Send(&pong.NtfnStreamResponse{
-			NotificationType: pong.NotificationType_ON_PLAYER_READY,
-			Message:          msg,
-			PlayerId:         playerID,
-			GameId:           gameID,
-			Ready:            true,
-		})
-	}
 }
 
 func (s *Server) SettlementStream(stream pong.PongReferee_SettlementStreamServer) error {
@@ -410,10 +431,68 @@ func (s *Server) SettlementStream(stream pong.PongReferee_SettlementStreamServer
 	if err != nil {
 		return status.Errorf(codes.InvalidArgument, "parse pubkey: %v", err)
 	}
-	Ac := X.SerializeCompressed()
-	_ = Ac
+	_ = X.SerializeCompressed()
 
-	return s.settlementStreamTwoInputsAuto(stream, X, hel.CompPubkey)
+	// New: room-scoped settlement. Expect match_id as "<wrID>|<hostUID>".
+	matchID := first.GetMatchId()
+	if matchID == "" {
+		matchID = hel.GetMatchId()
+	}
+	if matchID == "" {
+		return status.Error(codes.InvalidArgument, "missing match_id in ClientMsg/Hello")
+	}
+	var wrID, hostUID string
+	parts := strings.SplitN(matchID, "|", 2)
+	wrID = strings.TrimSpace(parts[0])
+	if wrID == "" {
+		return status.Error(codes.InvalidArgument, "invalid match_id: missing room id")
+	}
+
+	wr := s.gameManager.GetWaitingRoom(wrID)
+	if wr == nil {
+		return status.Errorf(codes.FailedPrecondition, "waiting room %s not found", wrID)
+	}
+	if len(parts) == 2 {
+		hostUID = strings.TrimSpace(parts[1])
+	}
+	if hostUID == "" && wr.HostID != nil {
+		hostUID = wr.HostID.String()
+	}
+	if hostUID == "" {
+		return status.Error(codes.FailedPrecondition, "could not determine host uid for match")
+	}
+
+	// Determine caller by matching HELLO comp pubkey to an escrow bound in this room.
+	xBytes := X.SerializeCompressed()
+	var callerUID string
+	s.RLock()
+	if m := s.roomEscrows[wrID]; m != nil {
+		for uid, eid := range m {
+			if es := s.escrows[eid]; es != nil && len(es.compPubkey) == 33 {
+				if bytes.Equal(es.compPubkey, xBytes) {
+					callerUID = uid
+					break
+				}
+			}
+		}
+	}
+	s.RUnlock()
+	if callerUID == "" {
+		return status.Error(codes.FailedPrecondition, "caller escrow not found in room")
+	}
+
+	var host zkidentity.ShortID
+	if err := host.FromString(hostUID); err != nil {
+		return status.Error(codes.InvalidArgument, "bad host uid in match_id")
+	}
+
+	s.log.Debugf("SettlementStream: match_id=%q wr=%s host=%s caller=%s", matchID, wrID, hostUID, callerUID)
+
+	var caller zkidentity.ShortID
+	if err := caller.FromString(callerUID); err != nil {
+		return status.Error(codes.InvalidArgument, "bad caller uid")
+	}
+	return s.settlementStreamForRoom(stream, X, wr, caller, host)
 }
 
 // settlementStreamTwoInputs performs the two-branch, two-input presign handshake
@@ -421,14 +500,92 @@ func (s *Server) SettlementStream(stream pong.PongReferee_SettlementStreamServer
 // request containing only the client's own input. The opponent performs the
 // same handshake on their stream. The server persists both branches' presigs
 // and drafts for later finalization delivery to the winner.
-func (s *Server) settlementStreamTwoInputs(stream pong.PongReferee_SettlementStreamServer, X *secp256k1.PublicKey, myEscrow, oppEscrow *escrowSession, myUTXO, oppUTXO *pong.EscrowUTXO) error {
-	// Build two-branch drafts for both inputs.
-	drafts, err := s.buildTwoInputDrafts(myEscrow, myUTXO, oppEscrow, oppUTXO)
+func (s *Server) settlementStreamTwoInputs(
+	stream pong.PongReferee_SettlementStreamServer,
+	X *secp256k1.PublicKey,
+	myEscrow, oppEscrow *escrowSession,
+	myUTXO, oppUTXO *pong.EscrowUTXO,
+	hostUID string,
+) error {
+	// 0) Enforce identity: the UTXOs passed in MUST be the bound inputs.
+	if err := s.ensureBoundFunding(myEscrow); err != nil {
+		return status.Errorf(codes.FailedPrecondition, "my funding not bound: %v", err)
+	}
+	if err := s.ensureBoundFunding(oppEscrow); err != nil {
+		return status.Errorf(codes.FailedPrecondition, "opponent funding not bound: %v", err)
+	}
+	myBound := ""
+	oppBound := ""
+	myEscrow.mu.RLock()
+	myBound = myEscrow.boundInputID
+	myEscrow.mu.RUnlock()
+	oppEscrow.mu.RLock()
+	oppBound = oppEscrow.boundInputID
+	oppEscrow.mu.RUnlock()
+
+	myWant := fmt.Sprintf("%s:%d", myUTXO.Txid, myUTXO.Vout)
+	oppWant := fmt.Sprintf("%s:%d", oppUTXO.Txid, oppUTXO.Vout)
+	if myBound != myWant {
+		return status.Errorf(codes.InvalidArgument, "my input mismatch: bound=%s != passed=%s", myBound, myWant)
+	}
+	if oppBound != oppWant {
+		return status.Errorf(codes.InvalidArgument, "opp input mismatch: bound=%s != passed=%s", oppBound, oppWant)
+	}
+
+	// 1) Anchor (a,b) ordering to host: a = host, b = other.
+	var aEscrow, bEscrow *escrowSession
+	var aUTXO, bUTXO *pong.EscrowUTXO
+	if myEscrow.ownerUID == hostUID {
+		aEscrow, aUTXO = myEscrow, myUTXO
+		bEscrow, bUTXO = oppEscrow, oppUTXO
+	} else if oppEscrow.ownerUID == hostUID {
+		aEscrow, aUTXO = oppEscrow, oppUTXO
+		bEscrow, bUTXO = myEscrow, myUTXO
+	} else {
+		return status.Error(codes.FailedPrecondition, "host escrow not bound in this room")
+	}
+
+	// 2) Build drafts (your existing builder).
+	drafts, err := s.buildTwoInputDrafts(aEscrow, aUTXO, bEscrow, bUTXO)
 	if err != nil {
 		return status.Errorf(codes.Internal, "build two-input drafts: %v", err)
 	}
 
-	// Helper to pick this client's PerInput from a full inputs slice.
+	// 3) Sanity log + assert each branch actually contains the exact input IDs.
+	aID := fmt.Sprintf("%s:%d", aUTXO.Txid, aUTXO.Vout)
+	bID := fmt.Sprintf("%s:%d", bUTXO.Txid, bUTXO.Vout)
+	s.log.Debugf("settle: a.Owner=%s a.InputID=%s  b.Owner=%s b.InputID=%s  (branch 0 pays a)",
+		aEscrow.ownerUID, aID, bEscrow.ownerUID, bID)
+
+	ensureHas := func(who, want string, all []*pong.NeedPreSigs_PerInput) error {
+		for _, in := range all {
+			if in.InputId == want {
+				if len(in.MHex) != 64 { // 32-byte digest in hex
+					return fmt.Errorf("%s: mHex wrong size (%d chars)", who, len(in.MHex))
+				}
+				if len(in.TCompressed) != 33 {
+					return fmt.Errorf("%s: TCompressed not 33 bytes", who)
+				}
+				return nil
+			}
+		}
+		return fmt.Errorf("%s: input %s not present in draft", who, want)
+	}
+	// Each branch should include per-input data for BOTH inputs.
+	if err := ensureHas("A-inputs(a)", aID, drafts.InputsA); err != nil {
+		return status.Errorf(codes.Internal, "draft sanity: %v", err)
+	}
+	if err := ensureHas("A-inputs(b)", bID, drafts.InputsA); err != nil {
+		return status.Errorf(codes.Internal, "draft sanity: %v", err)
+	}
+	if err := ensureHas("B-inputs(a)", aID, drafts.InputsB); err != nil {
+		return status.Errorf(codes.Internal, "draft sanity: %v", err)
+	}
+	if err := ensureHas("B-inputs(b)", bID, drafts.InputsB); err != nil {
+		return status.Errorf(codes.Internal, "draft sanity: %v", err)
+	}
+
+	// 4) Helper to pick THIS client's per-input by exact InputID.
 	pickMine := func(all []*pong.NeedPreSigs_PerInput) (*pong.NeedPreSigs_PerInput, error) {
 		want := fmt.Sprintf("%s:%d", myUTXO.Txid, myUTXO.Vout)
 		for _, in := range all {
@@ -439,114 +596,163 @@ func (s *Server) settlementStreamTwoInputs(stream pong.PongReferee_SettlementStr
 		return nil, fmt.Errorf("client input %s not found in draft inputs", want)
 	}
 
-	// Branch 0: A-wins (myEscrow as winner)
-	inA, err := pickMine(drafts.InputsA)
+	// 5) Compute which branch corresponds to the caller winning.
+	// Branch 0 = host wins (a), Branch 1 = non-host wins (b).
+	clientWinsBranch := int32(0)
+	if aEscrow != myEscrow {
+		clientWinsBranch = 1
+	}
+
+	// 6) WIN branch handshake (unchanged, but now we’re sure InputId matches).
+	var inWin *pong.NeedPreSigs_PerInput
+	if clientWinsBranch == 0 {
+		inWin, err = pickMine(drafts.InputsA)
+	} else {
+		inWin, err = pickMine(drafts.InputsB)
+	}
 	if err != nil {
-		return status.Errorf(codes.Internal, "pick input A: %v", err)
+		return status.Errorf(codes.Internal, "pick input (win): %v", err)
 	}
-	if err := stream.Send(&pong.ServerMsg{Kind: &pong.ServerMsg_Req{Req: &pong.NeedPreSigs{DraftTxHex: drafts.DraftHexA, Inputs: []*pong.NeedPreSigs_PerInput{inA}}}}); err != nil {
-		return status.Errorf(codes.Unavailable, "send req A: %v", err)
+	winDraftHex := drafts.DraftHexA
+	if clientWinsBranch == 1 {
+		winDraftHex = drafts.DraftHexB
 	}
-	msgA, err := stream.Recv()
-	if err != nil || msgA.GetVerifyOk() == nil {
-		return status.Errorf(codes.InvalidArgument, "expected VERIFY_OK (A): %v", err)
+	if err := stream.Send(&pong.ServerMsg{
+		Kind: &pong.ServerMsg_Req{
+			Req: &pong.NeedPreSigs{DraftTxHex: winDraftHex, Inputs: []*pong.NeedPreSigs_PerInput{inWin}},
+		},
+	}); err != nil {
+		return status.Errorf(codes.Unavailable, "send req (win): %v", err)
 	}
-	verifyA := msgA.GetVerifyOk()
-	// Ack digest over draft + canonical(single) input
-	var concatA []byte
-	concatA = append(concatA, []byte(drafts.DraftHexA)...)
-	concatA = append(concatA, []byte(inA.InputId)...)
-	concatA = append(concatA, []byte(inA.MHex)...)
-	concatA = append(concatA, inA.TCompressed...)
-	expectedA := blake256.Sum256(concatA)
-	if len(verifyA.AckDigest) != 32 || !bytes.Equal(verifyA.AckDigest, expectedA[:]) {
-		return status.Error(codes.InvalidArgument, "ack digest mismatch (A)")
+	msgWin, err := stream.Recv()
+	if err != nil || msgWin.GetVerifyOk() == nil {
+		return status.Errorf(codes.InvalidArgument, "expected VERIFY_OK (win): %v", err)
 	}
-	if len(verifyA.Presigs) != 1 || verifyA.Presigs[0].InputId != inA.InputId {
-		return status.Error(codes.InvalidArgument, "presig input mismatch (A)")
+	verifyWin := msgWin.GetVerifyOk()
+	var concatWin []byte
+	concatWin = append(concatWin, []byte(winDraftHex)...)
+	concatWin = append(concatWin, []byte(inWin.InputId)...)
+	concatWin = append(concatWin, []byte(inWin.MHex)...)
+	concatWin = append(concatWin, inWin.TCompressed...)
+	expectedWin := blake256.Sum256(concatWin)
+	if len(verifyWin.AckDigest) != 32 || !bytes.Equal(verifyWin.AckDigest, expectedWin[:]) {
+		s.log.Warnf("ack mismatch (win): want=%x got=%x input=%s m=%s", expectedWin[:], verifyWin.AckDigest, inWin.InputId, inWin.MHex)
+		return status.Error(codes.InvalidArgument, "ack digest mismatch (win)")
 	}
-	if err := s.verifyAndStorePresig(X, verifyA.Presigs[0], inA, drafts.DraftHexA, myEscrow, 0); err != nil {
+	if len(verifyWin.Presigs) != 1 || verifyWin.Presigs[0].InputId != inWin.InputId {
+		return status.Error(codes.InvalidArgument, "presig input mismatch (win)")
+	}
+	if err := s.verifyAndStorePresig(X, verifyWin.Presigs[0], inWin, winDraftHex, myEscrow, clientWinsBranch); err != nil {
 		return err
 	}
 
-	// Branch 1: B-wins (oppEscrow as winner)
-	inB, err := pickMine(drafts.InputsB)
+	// 7) LOSE branch handshake (opponent wins).
+	oppWinsBranch := int32(1 - clientWinsBranch)
+	var inLose *pong.NeedPreSigs_PerInput
+	loseDraftHex := drafts.DraftHexB
+	if oppWinsBranch == 0 {
+		inLose, err = pickMine(drafts.InputsA)
+		loseDraftHex = drafts.DraftHexA
+	} else {
+		inLose, err = pickMine(drafts.InputsB)
+	}
 	if err != nil {
-		return status.Errorf(codes.Internal, "pick input B: %v", err)
+		return status.Errorf(codes.Internal, "pick input (lose): %v", err)
 	}
-	if err := stream.Send(&pong.ServerMsg{Kind: &pong.ServerMsg_Req{Req: &pong.NeedPreSigs{DraftTxHex: drafts.DraftHexB, Inputs: []*pong.NeedPreSigs_PerInput{inB}}}}); err != nil {
-		return status.Errorf(codes.Unavailable, "send req B: %v", err)
+	if err := stream.Send(&pong.ServerMsg{
+		Kind: &pong.ServerMsg_Req{
+			Req: &pong.NeedPreSigs{DraftTxHex: loseDraftHex, Inputs: []*pong.NeedPreSigs_PerInput{inLose}},
+		},
+	}); err != nil {
+		return status.Errorf(codes.Unavailable, "send req (lose): %v", err)
 	}
-	msgB, err := stream.Recv()
-	if err != nil || msgB.GetVerifyOk() == nil {
-		return status.Errorf(codes.InvalidArgument, "expected VERIFY_OK (B): %v", err)
+	msgLose, err := stream.Recv()
+	if err != nil || msgLose.GetVerifyOk() == nil {
+		return status.Errorf(codes.InvalidArgument, "expected VERIFY_OK (lose): %v", err)
 	}
-	verifyB := msgB.GetVerifyOk()
-	var concatB []byte
-	concatB = append(concatB, []byte(drafts.DraftHexB)...)
-	concatB = append(concatB, []byte(inB.InputId)...)
-	concatB = append(concatB, []byte(inB.MHex)...)
-	concatB = append(concatB, inB.TCompressed...)
-	expectedB := blake256.Sum256(concatB)
-	if len(verifyB.AckDigest) != 32 || !bytes.Equal(verifyB.AckDigest, expectedB[:]) {
-		return status.Error(codes.InvalidArgument, "ack digest mismatch (B)")
+	verifyLose := msgLose.GetVerifyOk()
+	var concatLose []byte
+	concatLose = append(concatLose, []byte(loseDraftHex)...)
+	concatLose = append(concatLose, []byte(inLose.InputId)...)
+	concatLose = append(concatLose, []byte(inLose.MHex)...)
+	concatLose = append(concatLose, inLose.TCompressed...)
+	expectedLose := blake256.Sum256(concatLose)
+	if len(verifyLose.AckDigest) != 32 || !bytes.Equal(verifyLose.AckDigest, expectedLose[:]) {
+		s.log.Warnf("ack mismatch (lose): want=%x got=%x input=%s m=%s", expectedLose[:], verifyLose.AckDigest, inLose.InputId, inLose.MHex)
+		return status.Error(codes.InvalidArgument, "ack digest mismatch (lose)")
 	}
-	if len(verifyB.Presigs) != 1 || verifyB.Presigs[0].InputId != inB.InputId {
-		return status.Error(codes.InvalidArgument, "presig input mismatch (B)")
+	if len(verifyLose.Presigs) != 1 || verifyLose.Presigs[0].InputId != inLose.InputId {
+		return status.Error(codes.InvalidArgument, "presig input mismatch (lose)")
 	}
-	if err := s.verifyAndStorePresig(X, verifyB.Presigs[0], inB, drafts.DraftHexB, oppEscrow, 1); err != nil {
+	if err := s.verifyAndStorePresig(X, verifyLose.Presigs[0], inLose, loseDraftHex, oppEscrow, oppWinsBranch); err != nil {
 		return err
 	}
 
-	// Ack overall success
-	if err := stream.Send(&pong.ServerMsg{Kind: &pong.ServerMsg_Ok{Ok: &pong.ServerOk{AckDigest: expectedB[:]}}}); err != nil {
+	// 8) Final ACK
+	if err := stream.Send(&pong.ServerMsg{
+		Kind: &pong.ServerMsg_Ok{Ok: &pong.ServerOk{AckDigest: expectedLose[:]}},
+	}); err != nil {
 		return status.Errorf(codes.Unavailable, "send ok: %v", err)
 	}
 	return nil
 }
 
-// settlementStreamTwoInputsAuto locates the caller's escrow and an opponent's
-// funded escrow, fetches one UTXO from each, and runs the two-branch handshake.
-func (s *Server) settlementStreamTwoInputsAuto(stream pong.PongReferee_SettlementStreamServer, X *secp256k1.PublicKey, compPubkey []byte) error {
-	// Locate my escrow by compPubkey and ensure it has a UTXO.
-	s.RLock()
-	var myEscrow *escrowSession
-	for _, cand := range s.escrows {
-		if cand != nil && bytes.Equal(cand.compPubkey, compPubkey) {
-			myEscrow = cand
-			break
-		}
-	}
-	s.RUnlock()
-	if myEscrow == nil {
-		return status.Error(codes.FailedPrecondition, "no funded escrow for this pubkey")
-	}
-	aus, _, _ := s.watcher.queryDeposit(myEscrow.pkScriptHex)
-	if len(aus) == 0 {
-		return status.Error(codes.FailedPrecondition, "watcher lost utxo state")
+// settlementStreamForRoom looks up each player's room-bound escrow, ensures bound funding,
+// builds SettleInput contexts, and calls settlementStreamTwoInputsCore.
+func (s *Server) settlementStreamForRoom(
+	stream pong.PongReferee_SettlementStreamServer,
+	X *secp256k1.PublicKey,
+	wr *ponggame.WaitingRoom,
+	caller zkidentity.ShortID,
+	host zkidentity.ShortID,
+) error {
+	if wr == nil {
+		return fmt.Errorf("waiting room is nil")
 	}
 
-	// Find any opponent escrow with a UTXO.
-	s.RLock()
-	var oppEscrow *escrowSession
-	for _, cand := range s.escrows {
-		if cand == nil || cand == myEscrow {
-			continue
-		}
-		if s.watcher != nil && cand.pkScriptHex != "" {
-			if bus, _, ok := s.watcher.queryDeposit(cand.pkScriptHex); ok && len(bus) > 0 {
-				oppEscrow = cand
-				break
-			}
-		}
+	// Snapshot players without requiring Ready() here.
+	wr.Lock()
+	playersSnap := append([]*ponggame.Player(nil), wr.Players...)
+	wr.Unlock()
+
+	if len(playersSnap) != 2 {
+		return fmt.Errorf("need exactly 2 players in room (have %d)", len(playersSnap))
 	}
-	s.RUnlock()
-	if oppEscrow == nil {
-		return status.Error(codes.FailedPrecondition, "opponent escrow not yet funded")
+
+	// Identify my/opp by caller id.
+	var myPlayer, oppPlayer *ponggame.Player
+	if playersSnap[0].ID.String() == caller.String() {
+		myPlayer, oppPlayer = playersSnap[0], playersSnap[1]
+	} else if playersSnap[1].ID.String() == caller.String() {
+		myPlayer, oppPlayer = playersSnap[1], playersSnap[0]
+	} else {
+		return fmt.Errorf("caller %s not in waiting room %s", caller, wr.ID)
 	}
-	bus, _, _ := s.watcher.queryDeposit(oppEscrow.pkScriptHex)
-	if len(bus) == 0 {
-		return status.Error(codes.FailedPrecondition, "opponent watcher lost utxo state")
+
+	// Resolve room-bound escrows.
+	myEscrow := s.escrowForRoomPlayer(wr.ID, myPlayer.ID.String())
+	oppEscrow := s.escrowForRoomPlayer(wr.ID, oppPlayer.ID.String())
+	if myEscrow == nil || oppEscrow == nil {
+		return fmt.Errorf("room-bound escrows missing (my=%v opp=%v)", myEscrow != nil, oppEscrow != nil)
 	}
-	return s.settlementStreamTwoInputs(stream, X, myEscrow, oppEscrow, aus[0], bus[0])
+
+	// Bound funding only (identity over count).
+	if err := s.ensureBoundFunding(myEscrow); err != nil {
+		return fmt.Errorf("my funding not bound: %w", err)
+	}
+	if err := s.ensureBoundFunding(oppEscrow); err != nil {
+		return fmt.Errorf("opponent funding not bound: %w", err)
+	}
+
+	myIn, err := s.makeSettleInputFromEscrow(myEscrow)
+	if err != nil {
+		return err
+	}
+	oppIn, err := s.makeSettleInputFromEscrow(oppEscrow)
+	if err != nil {
+		return err
+	}
+
+	// Anchor a/b ordering to host; pass host uid string
+	return s.settlementStreamTwoInputs(stream, X, myEscrow, oppEscrow, myIn.UTXO, oppIn.UTXO, host.String())
 }

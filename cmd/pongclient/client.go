@@ -445,25 +445,41 @@ func (m *appstate) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 					m.betAmount = float64(m.settle.betAtoms) / 1e8
 				}
 			}
-			// Try to parse gamma and draft hex from the message and finalize locally (no broadcast)
-			if strings.Contains(msg.Message, "Gamma received; finalizing…") && strings.Contains(msg.Message, "Result draft tx hex:") {
-				gammaHex := ""
-				draftHex := ""
-				// gamma between '(' and ')'
-				if i := strings.Index(msg.Message, "("); i >= 0 {
-					if j := strings.Index(msg.Message[i+1:], ")"); j > 0 {
-						gammaHex = strings.TrimSpace(msg.Message[i+1 : i+1+j])
-					}
-				}
-				if k := strings.Index(msg.Message, "Result draft tx hex:"); k >= 0 {
-					draftHex = strings.TrimSpace(msg.Message[k+len("Result draft tx hex:"):])
-				}
-				if gammaHex != "" && draftHex != "" {
-					if hexTx, err := m.finalizeWinner(gammaHex, draftHex); err == nil {
+			// Fetch finalize bundle via RPC and produce fully signed tx
+			if strings.Contains(msg.Message, "Gamma received; finalizing…") {
+				if m.settle.matchID != "" {
+					go func(matchID string) {
+						bundle, err := m.pc.RefGetFinalizeBundle(matchID)
+						if err != nil {
+							m.notification = "Finalize bundle fetch failed: " + err.Error()
+							m.msgCh <- client.UpdatedMsg{}
+							return
+						}
+						// Merge presigs for the returned draft into local store and finalize
+						presigs := make(map[string]*pong.PreSig)
+						inputs := make([]*pong.NeedPreSigs_PerInput, 0, len(bundle.Inputs))
+						for _, fin := range bundle.Inputs {
+							presigs[strings.ToLower(fin.InputId)] = &pong.PreSig{InputId: fin.InputId, RprimeCompressed: fin.RprimeCompressed, Sprime32: fin.Sprime32}
+							inputs = append(inputs, &pong.NeedPreSigs_PerInput{InputId: fin.InputId, RedeemScriptHex: fin.RedeemScriptHex})
+						}
+						if m.settle.draftPresigs == nil {
+							m.settle.draftPresigs = make(map[string]map[string]*pong.PreSig)
+						}
+						m.settle.draftPresigs[bundle.DraftTxHex] = presigs
+						if m.settle.draftInputs == nil {
+							m.settle.draftInputs = make(map[string][]*pong.NeedPreSigs_PerInput)
+						}
+						m.settle.draftInputs[bundle.DraftTxHex] = inputs
+						hexGamma := hex.EncodeToString(bundle.Gamma32)
+						hexTx, err := m.finalizeWinner(hexGamma, bundle.DraftTxHex)
+						if err != nil {
+							m.notification = "error finalizing winner: " + err.Error()
+							m.msgCh <- client.UpdatedMsg{}
+							return
+						}
 						m.notification = "Finalized (not broadcast): " + hexTx
-					} else if err != nil {
-						m.notification = "Finalize failed: " + err.Error()
-					}
+						m.msgCh <- client.UpdatedMsg{}
+					}(m.settle.matchID)
 				}
 			}
 		}
@@ -962,6 +978,13 @@ func (m *appstate) finalizeWinner(gammaHex, draftHex string) (string, error) {
 		var gamma secp256k1.ModNScalar
 		if overflow := gamma.SetByteSlice(gb); overflow {
 			return "", fmt.Errorf("gamma overflow")
+		}
+
+		// Require a presig for every input in the draft to avoid half-signed txs.
+		for id := range idxByID {
+			if _, ok := presigsForDraft[id]; !ok {
+				return "", fmt.Errorf("missing presig for input %s; cannot finalize", id)
+			}
 		}
 
 		// Finalize each presigned input for this draft.

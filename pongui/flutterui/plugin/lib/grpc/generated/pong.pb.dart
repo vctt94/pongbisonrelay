@@ -977,6 +977,235 @@ class ServerOk extends $pb.GeneratedMessage {
   void clearAckDigest() => clearField(1);
 }
 
+/// === Finalization bundle for winner ===
+class GetFinalizeBundleRequest extends $pb.GeneratedMessage {
+  factory GetFinalizeBundleRequest({
+    $core.String? matchId,
+    $core.String? winnerUid,
+  }) {
+    final $result = create();
+    if (matchId != null) {
+      $result.matchId = matchId;
+    }
+    if (winnerUid != null) {
+      $result.winnerUid = winnerUid;
+    }
+    return $result;
+  }
+  GetFinalizeBundleRequest._() : super();
+  factory GetFinalizeBundleRequest.fromBuffer($core.List<$core.int> i, [$pb.ExtensionRegistry r = $pb.ExtensionRegistry.EMPTY]) => create()..mergeFromBuffer(i, r);
+  factory GetFinalizeBundleRequest.fromJson($core.String i, [$pb.ExtensionRegistry r = $pb.ExtensionRegistry.EMPTY]) => create()..mergeFromJson(i, r);
+
+  static final $pb.BuilderInfo _i = $pb.BuilderInfo(_omitMessageNames ? '' : 'GetFinalizeBundleRequest', package: const $pb.PackageName(_omitMessageNames ? '' : 'pong'), createEmptyInstance: create)
+    ..aOS(1, _omitFieldNames ? '' : 'matchId')
+    ..aOS(2, _omitFieldNames ? '' : 'winnerUid')
+    ..hasRequiredFields = false
+  ;
+
+  @$core.Deprecated(
+  'Using this can add significant overhead to your binary. '
+  'Use [GeneratedMessageGenericExtensions.deepCopy] instead. '
+  'Will be removed in next major version')
+  GetFinalizeBundleRequest clone() => GetFinalizeBundleRequest()..mergeFromMessage(this);
+  @$core.Deprecated(
+  'Using this can add significant overhead to your binary. '
+  'Use [GeneratedMessageGenericExtensions.rebuild] instead. '
+  'Will be removed in next major version')
+  GetFinalizeBundleRequest copyWith(void Function(GetFinalizeBundleRequest) updates) => super.copyWith((message) => updates(message as GetFinalizeBundleRequest)) as GetFinalizeBundleRequest;
+
+  $pb.BuilderInfo get info_ => _i;
+
+  @$core.pragma('dart2js:noInline')
+  static GetFinalizeBundleRequest create() => GetFinalizeBundleRequest._();
+  GetFinalizeBundleRequest createEmptyInstance() => create();
+  static $pb.PbList<GetFinalizeBundleRequest> createRepeated() => $pb.PbList<GetFinalizeBundleRequest>();
+  @$core.pragma('dart2js:noInline')
+  static GetFinalizeBundleRequest getDefault() => _defaultInstance ??= $pb.GeneratedMessage.$_defaultFor<GetFinalizeBundleRequest>(create);
+  static GetFinalizeBundleRequest? _defaultInstance;
+
+  @$pb.TagNumber(1)
+  $core.String get matchId => $_getSZ(0);
+  @$pb.TagNumber(1)
+  set matchId($core.String v) { $_setString(0, v); }
+  @$pb.TagNumber(1)
+  $core.bool hasMatchId() => $_has(0);
+  @$pb.TagNumber(1)
+  void clearMatchId() => clearField(1);
+
+  @$pb.TagNumber(2)
+  $core.String get winnerUid => $_getSZ(1);
+  @$pb.TagNumber(2)
+  set winnerUid($core.String v) { $_setString(1, v); }
+  @$pb.TagNumber(2)
+  $core.bool hasWinnerUid() => $_has(1);
+  @$pb.TagNumber(2)
+  void clearWinnerUid() => clearField(2);
+}
+
+class FinalizeInput extends $pb.GeneratedMessage {
+  factory FinalizeInput({
+    $core.String? inputId,
+    $core.String? redeemScriptHex,
+    $core.List<$core.int>? rprimeCompressed,
+    $core.List<$core.int>? sprime32,
+  }) {
+    final $result = create();
+    if (inputId != null) {
+      $result.inputId = inputId;
+    }
+    if (redeemScriptHex != null) {
+      $result.redeemScriptHex = redeemScriptHex;
+    }
+    if (rprimeCompressed != null) {
+      $result.rprimeCompressed = rprimeCompressed;
+    }
+    if (sprime32 != null) {
+      $result.sprime32 = sprime32;
+    }
+    return $result;
+  }
+  FinalizeInput._() : super();
+  factory FinalizeInput.fromBuffer($core.List<$core.int> i, [$pb.ExtensionRegistry r = $pb.ExtensionRegistry.EMPTY]) => create()..mergeFromBuffer(i, r);
+  factory FinalizeInput.fromJson($core.String i, [$pb.ExtensionRegistry r = $pb.ExtensionRegistry.EMPTY]) => create()..mergeFromJson(i, r);
+
+  static final $pb.BuilderInfo _i = $pb.BuilderInfo(_omitMessageNames ? '' : 'FinalizeInput', package: const $pb.PackageName(_omitMessageNames ? '' : 'pong'), createEmptyInstance: create)
+    ..aOS(1, _omitFieldNames ? '' : 'inputId')
+    ..aOS(2, _omitFieldNames ? '' : 'redeemScriptHex')
+    ..a<$core.List<$core.int>>(3, _omitFieldNames ? '' : 'RprimeCompressed', $pb.PbFieldType.OY, protoName: 'Rprime_compressed')
+    ..a<$core.List<$core.int>>(4, _omitFieldNames ? '' : 'sprime32', $pb.PbFieldType.OY)
+    ..hasRequiredFields = false
+  ;
+
+  @$core.Deprecated(
+  'Using this can add significant overhead to your binary. '
+  'Use [GeneratedMessageGenericExtensions.deepCopy] instead. '
+  'Will be removed in next major version')
+  FinalizeInput clone() => FinalizeInput()..mergeFromMessage(this);
+  @$core.Deprecated(
+  'Using this can add significant overhead to your binary. '
+  'Use [GeneratedMessageGenericExtensions.rebuild] instead. '
+  'Will be removed in next major version')
+  FinalizeInput copyWith(void Function(FinalizeInput) updates) => super.copyWith((message) => updates(message as FinalizeInput)) as FinalizeInput;
+
+  $pb.BuilderInfo get info_ => _i;
+
+  @$core.pragma('dart2js:noInline')
+  static FinalizeInput create() => FinalizeInput._();
+  FinalizeInput createEmptyInstance() => create();
+  static $pb.PbList<FinalizeInput> createRepeated() => $pb.PbList<FinalizeInput>();
+  @$core.pragma('dart2js:noInline')
+  static FinalizeInput getDefault() => _defaultInstance ??= $pb.GeneratedMessage.$_defaultFor<FinalizeInput>(create);
+  static FinalizeInput? _defaultInstance;
+
+  @$pb.TagNumber(1)
+  $core.String get inputId => $_getSZ(0);
+  @$pb.TagNumber(1)
+  set inputId($core.String v) { $_setString(0, v); }
+  @$pb.TagNumber(1)
+  $core.bool hasInputId() => $_has(0);
+  @$pb.TagNumber(1)
+  void clearInputId() => clearField(1);
+
+  @$pb.TagNumber(2)
+  $core.String get redeemScriptHex => $_getSZ(1);
+  @$pb.TagNumber(2)
+  set redeemScriptHex($core.String v) { $_setString(1, v); }
+  @$pb.TagNumber(2)
+  $core.bool hasRedeemScriptHex() => $_has(1);
+  @$pb.TagNumber(2)
+  void clearRedeemScriptHex() => clearField(2);
+
+  @$pb.TagNumber(3)
+  $core.List<$core.int> get rprimeCompressed => $_getN(2);
+  @$pb.TagNumber(3)
+  set rprimeCompressed($core.List<$core.int> v) { $_setBytes(2, v); }
+  @$pb.TagNumber(3)
+  $core.bool hasRprimeCompressed() => $_has(2);
+  @$pb.TagNumber(3)
+  void clearRprimeCompressed() => clearField(3);
+
+  @$pb.TagNumber(4)
+  $core.List<$core.int> get sprime32 => $_getN(3);
+  @$pb.TagNumber(4)
+  set sprime32($core.List<$core.int> v) { $_setBytes(3, v); }
+  @$pb.TagNumber(4)
+  $core.bool hasSprime32() => $_has(3);
+  @$pb.TagNumber(4)
+  void clearSprime32() => clearField(4);
+}
+
+class GetFinalizeBundleResponse extends $pb.GeneratedMessage {
+  factory GetFinalizeBundleResponse({
+    $core.String? draftTxHex,
+    $core.List<$core.int>? gamma32,
+    $core.Iterable<FinalizeInput>? inputs,
+  }) {
+    final $result = create();
+    if (draftTxHex != null) {
+      $result.draftTxHex = draftTxHex;
+    }
+    if (gamma32 != null) {
+      $result.gamma32 = gamma32;
+    }
+    if (inputs != null) {
+      $result.inputs.addAll(inputs);
+    }
+    return $result;
+  }
+  GetFinalizeBundleResponse._() : super();
+  factory GetFinalizeBundleResponse.fromBuffer($core.List<$core.int> i, [$pb.ExtensionRegistry r = $pb.ExtensionRegistry.EMPTY]) => create()..mergeFromBuffer(i, r);
+  factory GetFinalizeBundleResponse.fromJson($core.String i, [$pb.ExtensionRegistry r = $pb.ExtensionRegistry.EMPTY]) => create()..mergeFromJson(i, r);
+
+  static final $pb.BuilderInfo _i = $pb.BuilderInfo(_omitMessageNames ? '' : 'GetFinalizeBundleResponse', package: const $pb.PackageName(_omitMessageNames ? '' : 'pong'), createEmptyInstance: create)
+    ..aOS(1, _omitFieldNames ? '' : 'draftTxHex')
+    ..a<$core.List<$core.int>>(2, _omitFieldNames ? '' : 'gamma32', $pb.PbFieldType.OY)
+    ..pc<FinalizeInput>(3, _omitFieldNames ? '' : 'inputs', $pb.PbFieldType.PM, subBuilder: FinalizeInput.create)
+    ..hasRequiredFields = false
+  ;
+
+  @$core.Deprecated(
+  'Using this can add significant overhead to your binary. '
+  'Use [GeneratedMessageGenericExtensions.deepCopy] instead. '
+  'Will be removed in next major version')
+  GetFinalizeBundleResponse clone() => GetFinalizeBundleResponse()..mergeFromMessage(this);
+  @$core.Deprecated(
+  'Using this can add significant overhead to your binary. '
+  'Use [GeneratedMessageGenericExtensions.rebuild] instead. '
+  'Will be removed in next major version')
+  GetFinalizeBundleResponse copyWith(void Function(GetFinalizeBundleResponse) updates) => super.copyWith((message) => updates(message as GetFinalizeBundleResponse)) as GetFinalizeBundleResponse;
+
+  $pb.BuilderInfo get info_ => _i;
+
+  @$core.pragma('dart2js:noInline')
+  static GetFinalizeBundleResponse create() => GetFinalizeBundleResponse._();
+  GetFinalizeBundleResponse createEmptyInstance() => create();
+  static $pb.PbList<GetFinalizeBundleResponse> createRepeated() => $pb.PbList<GetFinalizeBundleResponse>();
+  @$core.pragma('dart2js:noInline')
+  static GetFinalizeBundleResponse getDefault() => _defaultInstance ??= $pb.GeneratedMessage.$_defaultFor<GetFinalizeBundleResponse>(create);
+  static GetFinalizeBundleResponse? _defaultInstance;
+
+  @$pb.TagNumber(1)
+  $core.String get draftTxHex => $_getSZ(0);
+  @$pb.TagNumber(1)
+  set draftTxHex($core.String v) { $_setString(0, v); }
+  @$pb.TagNumber(1)
+  $core.bool hasDraftTxHex() => $_has(0);
+  @$pb.TagNumber(1)
+  void clearDraftTxHex() => clearField(1);
+
+  @$pb.TagNumber(2)
+  $core.List<$core.int> get gamma32 => $_getN(1);
+  @$pb.TagNumber(2)
+  set gamma32($core.List<$core.int> v) { $_setBytes(1, v); }
+  @$pb.TagNumber(2)
+  $core.bool hasGamma32() => $_has(1);
+  @$pb.TagNumber(2)
+  void clearGamma32() => clearField(2);
+
+  @$pb.TagNumber(3)
+  $core.List<FinalizeInput> get inputs => $_getList(2);
+}
+
 /// === Existing API below ===
 /// Escrow-first RPCs
 class OpenEscrowRequest extends $pb.GeneratedMessage {

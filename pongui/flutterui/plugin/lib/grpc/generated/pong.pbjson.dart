@@ -233,6 +233,53 @@ const ServerOk$json = {
 final $typed_data.Uint8List serverOkDescriptor = $convert.base64Decode(
     'CghTZXJ2ZXJPaxIdCgphY2tfZGlnZXN0GAEgASgMUglhY2tEaWdlc3Q=');
 
+@$core.Deprecated('Use getFinalizeBundleRequestDescriptor instead')
+const GetFinalizeBundleRequest$json = {
+  '1': 'GetFinalizeBundleRequest',
+  '2': [
+    {'1': 'match_id', '3': 1, '4': 1, '5': 9, '10': 'matchId'},
+    {'1': 'winner_uid', '3': 2, '4': 1, '5': 9, '10': 'winnerUid'},
+  ],
+};
+
+/// Descriptor for `GetFinalizeBundleRequest`. Decode as a `google.protobuf.DescriptorProto`.
+final $typed_data.Uint8List getFinalizeBundleRequestDescriptor = $convert.base64Decode(
+    'ChhHZXRGaW5hbGl6ZUJ1bmRsZVJlcXVlc3QSGQoIbWF0Y2hfaWQYASABKAlSB21hdGNoSWQSHQ'
+    'oKd2lubmVyX3VpZBgCIAEoCVIJd2lubmVyVWlk');
+
+@$core.Deprecated('Use finalizeInputDescriptor instead')
+const FinalizeInput$json = {
+  '1': 'FinalizeInput',
+  '2': [
+    {'1': 'input_id', '3': 1, '4': 1, '5': 9, '10': 'inputId'},
+    {'1': 'redeem_script_hex', '3': 2, '4': 1, '5': 9, '10': 'redeemScriptHex'},
+    {'1': 'Rprime_compressed', '3': 3, '4': 1, '5': 12, '10': 'RprimeCompressed'},
+    {'1': 'sprime32', '3': 4, '4': 1, '5': 12, '10': 'sprime32'},
+  ],
+};
+
+/// Descriptor for `FinalizeInput`. Decode as a `google.protobuf.DescriptorProto`.
+final $typed_data.Uint8List finalizeInputDescriptor = $convert.base64Decode(
+    'Cg1GaW5hbGl6ZUlucHV0EhkKCGlucHV0X2lkGAEgASgJUgdpbnB1dElkEioKEXJlZGVlbV9zY3'
+    'JpcHRfaGV4GAIgASgJUg9yZWRlZW1TY3JpcHRIZXgSKwoRUnByaW1lX2NvbXByZXNzZWQYAyAB'
+    'KAxSEFJwcmltZUNvbXByZXNzZWQSGgoIc3ByaW1lMzIYBCABKAxSCHNwcmltZTMy');
+
+@$core.Deprecated('Use getFinalizeBundleResponseDescriptor instead')
+const GetFinalizeBundleResponse$json = {
+  '1': 'GetFinalizeBundleResponse',
+  '2': [
+    {'1': 'draft_tx_hex', '3': 1, '4': 1, '5': 9, '10': 'draftTxHex'},
+    {'1': 'gamma32', '3': 2, '4': 1, '5': 12, '10': 'gamma32'},
+    {'1': 'inputs', '3': 3, '4': 3, '5': 11, '6': '.pong.FinalizeInput', '10': 'inputs'},
+  ],
+};
+
+/// Descriptor for `GetFinalizeBundleResponse`. Decode as a `google.protobuf.DescriptorProto`.
+final $typed_data.Uint8List getFinalizeBundleResponseDescriptor = $convert.base64Decode(
+    'ChlHZXRGaW5hbGl6ZUJ1bmRsZVJlc3BvbnNlEiAKDGRyYWZ0X3R4X2hleBgBIAEoCVIKZHJhZn'
+    'RUeEhleBIYCgdnYW1tYTMyGAIgASgMUgdnYW1tYTMyEisKBmlucHV0cxgDIAMoCzITLnBvbmcu'
+    'RmluYWxpemVJbnB1dFIGaW5wdXRz');
+
 @$core.Deprecated('Use openEscrowRequestDescriptor instead')
 const OpenEscrowRequest$json = {
   '1': 'OpenEscrowRequest',

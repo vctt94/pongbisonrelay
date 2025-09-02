@@ -259,6 +259,10 @@ class PongRefereeClient extends $grpc.Client {
       '/pong.PongReferee/SettlementStream',
       ($0.ClientMsg value) => value.writeToBuffer(),
       ($core.List<$core.int> value) => $0.ServerMsg.fromBuffer(value));
+  static final _$getFinalizeBundle = $grpc.ClientMethod<$0.GetFinalizeBundleRequest, $0.GetFinalizeBundleResponse>(
+      '/pong.PongReferee/GetFinalizeBundle',
+      ($0.GetFinalizeBundleRequest value) => value.writeToBuffer(),
+      ($core.List<$core.int> value) => $0.GetFinalizeBundleResponse.fromBuffer(value));
 
   PongRefereeClient($grpc.ClientChannel channel,
       {$grpc.CallOptions? options,
@@ -284,6 +288,10 @@ class PongRefereeClient extends $grpc.Client {
 
   $grpc.ResponseStream<$0.ServerMsg> settlementStream($async.Stream<$0.ClientMsg> request, {$grpc.CallOptions? options}) {
     return $createStreamingCall(_$settlementStream, request, options: options);
+  }
+
+  $grpc.ResponseFuture<$0.GetFinalizeBundleResponse> getFinalizeBundle($0.GetFinalizeBundleRequest request, {$grpc.CallOptions? options}) {
+    return $createUnaryCall(_$getFinalizeBundle, request, options: options);
   }
 }
 
@@ -327,6 +335,13 @@ abstract class PongRefereeServiceBase extends $grpc.Service {
         true,
         ($core.List<$core.int> value) => $0.ClientMsg.fromBuffer(value),
         ($0.ServerMsg value) => value.writeToBuffer()));
+    $addMethod($grpc.ServiceMethod<$0.GetFinalizeBundleRequest, $0.GetFinalizeBundleResponse>(
+        'GetFinalizeBundle',
+        getFinalizeBundle_Pre,
+        false,
+        false,
+        ($core.List<$core.int> value) => $0.GetFinalizeBundleRequest.fromBuffer(value),
+        ($0.GetFinalizeBundleResponse value) => value.writeToBuffer()));
   }
 
   $async.Future<$0.OpenEscrowResponse> refOpenEscrow_Pre($grpc.ServiceCall call, $async.Future<$0.OpenEscrowRequest> request) async {
@@ -345,9 +360,14 @@ abstract class PongRefereeServiceBase extends $grpc.Service {
     yield* waitFunding(call, await request);
   }
 
+  $async.Future<$0.GetFinalizeBundleResponse> getFinalizeBundle_Pre($grpc.ServiceCall call, $async.Future<$0.GetFinalizeBundleRequest> request) async {
+    return getFinalizeBundle(call, await request);
+  }
+
   $async.Future<$0.OpenEscrowResponse> refOpenEscrow($grpc.ServiceCall call, $0.OpenEscrowRequest request);
   $async.Stream<$0.WaitEscrowFundingUpdate> refWaitEscrowFunding($grpc.ServiceCall call, $0.WaitEscrowFundingRequest request);
   $async.Future<$0.CreateMatchResponse> createMatch($grpc.ServiceCall call, $0.CreateMatchRequest request);
   $async.Stream<$0.WaitFundingResponse> waitFunding($grpc.ServiceCall call, $0.WaitFundingRequest request);
   $async.Stream<$0.ServerMsg> settlementStream($grpc.ServiceCall call, $async.Stream<$0.ClientMsg> request);
+  $async.Future<$0.GetFinalizeBundleResponse> getFinalizeBundle($grpc.ServiceCall call, $0.GetFinalizeBundleRequest request);
 }

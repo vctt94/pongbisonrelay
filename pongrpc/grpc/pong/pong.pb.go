@@ -799,6 +799,187 @@ func (x *ServerOk) GetAckDigest() []byte {
 	return nil
 }
 
+// === Finalization bundle for winner ===
+type GetFinalizeBundleRequest struct {
+	state         protoimpl.MessageState `protogen:"open.v1"`
+	MatchId       string                 `protobuf:"bytes,1,opt,name=match_id,json=matchId,proto3" json:"match_id,omitempty"`       // "<wrID>|<hostUID>"
+	WinnerUid     string                 `protobuf:"bytes,2,opt,name=winner_uid,json=winnerUid,proto3" json:"winner_uid,omitempty"` // caller uid
+	unknownFields protoimpl.UnknownFields
+	sizeCache     protoimpl.SizeCache
+}
+
+func (x *GetFinalizeBundleRequest) Reset() {
+	*x = GetFinalizeBundleRequest{}
+	mi := &file_pong_proto_msgTypes[11]
+	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+	ms.StoreMessageInfo(mi)
+}
+
+func (x *GetFinalizeBundleRequest) String() string {
+	return protoimpl.X.MessageStringOf(x)
+}
+
+func (*GetFinalizeBundleRequest) ProtoMessage() {}
+
+func (x *GetFinalizeBundleRequest) ProtoReflect() protoreflect.Message {
+	mi := &file_pong_proto_msgTypes[11]
+	if x != nil {
+		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+		if ms.LoadMessageInfo() == nil {
+			ms.StoreMessageInfo(mi)
+		}
+		return ms
+	}
+	return mi.MessageOf(x)
+}
+
+// Deprecated: Use GetFinalizeBundleRequest.ProtoReflect.Descriptor instead.
+func (*GetFinalizeBundleRequest) Descriptor() ([]byte, []int) {
+	return file_pong_proto_rawDescGZIP(), []int{11}
+}
+
+func (x *GetFinalizeBundleRequest) GetMatchId() string {
+	if x != nil {
+		return x.MatchId
+	}
+	return ""
+}
+
+func (x *GetFinalizeBundleRequest) GetWinnerUid() string {
+	if x != nil {
+		return x.WinnerUid
+	}
+	return ""
+}
+
+type FinalizeInput struct {
+	state            protoimpl.MessageState `protogen:"open.v1"`
+	InputId          string                 `protobuf:"bytes,1,opt,name=input_id,json=inputId,proto3" json:"input_id,omitempty"`
+	RedeemScriptHex  string                 `protobuf:"bytes,2,opt,name=redeem_script_hex,json=redeemScriptHex,proto3" json:"redeem_script_hex,omitempty"`
+	RprimeCompressed []byte                 `protobuf:"bytes,3,opt,name=Rprime_compressed,json=RprimeCompressed,proto3" json:"Rprime_compressed,omitempty"`
+	Sprime32         []byte                 `protobuf:"bytes,4,opt,name=sprime32,proto3" json:"sprime32,omitempty"`
+	unknownFields    protoimpl.UnknownFields
+	sizeCache        protoimpl.SizeCache
+}
+
+func (x *FinalizeInput) Reset() {
+	*x = FinalizeInput{}
+	mi := &file_pong_proto_msgTypes[12]
+	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+	ms.StoreMessageInfo(mi)
+}
+
+func (x *FinalizeInput) String() string {
+	return protoimpl.X.MessageStringOf(x)
+}
+
+func (*FinalizeInput) ProtoMessage() {}
+
+func (x *FinalizeInput) ProtoReflect() protoreflect.Message {
+	mi := &file_pong_proto_msgTypes[12]
+	if x != nil {
+		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+		if ms.LoadMessageInfo() == nil {
+			ms.StoreMessageInfo(mi)
+		}
+		return ms
+	}
+	return mi.MessageOf(x)
+}
+
+// Deprecated: Use FinalizeInput.ProtoReflect.Descriptor instead.
+func (*FinalizeInput) Descriptor() ([]byte, []int) {
+	return file_pong_proto_rawDescGZIP(), []int{12}
+}
+
+func (x *FinalizeInput) GetInputId() string {
+	if x != nil {
+		return x.InputId
+	}
+	return ""
+}
+
+func (x *FinalizeInput) GetRedeemScriptHex() string {
+	if x != nil {
+		return x.RedeemScriptHex
+	}
+	return ""
+}
+
+func (x *FinalizeInput) GetRprimeCompressed() []byte {
+	if x != nil {
+		return x.RprimeCompressed
+	}
+	return nil
+}
+
+func (x *FinalizeInput) GetSprime32() []byte {
+	if x != nil {
+		return x.Sprime32
+	}
+	return nil
+}
+
+type GetFinalizeBundleResponse struct {
+	state         protoimpl.MessageState `protogen:"open.v1"`
+	DraftTxHex    string                 `protobuf:"bytes,1,opt,name=draft_tx_hex,json=draftTxHex,proto3" json:"draft_tx_hex,omitempty"` // exact winning branch draft
+	Gamma32       []byte                 `protobuf:"bytes,2,opt,name=gamma32,proto3" json:"gamma32,omitempty"`                           // 32B gamma (normalized to even-Y T)
+	Inputs        []*FinalizeInput       `protobuf:"bytes,3,rep,name=inputs,proto3" json:"inputs,omitempty"`                             // one per vin in draft
+	unknownFields protoimpl.UnknownFields
+	sizeCache     protoimpl.SizeCache
+}
+
+func (x *GetFinalizeBundleResponse) Reset() {
+	*x = GetFinalizeBundleResponse{}
+	mi := &file_pong_proto_msgTypes[13]
+	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+	ms.StoreMessageInfo(mi)
+}
+
+func (x *GetFinalizeBundleResponse) String() string {
+	return protoimpl.X.MessageStringOf(x)
+}
+
+func (*GetFinalizeBundleResponse) ProtoMessage() {}
+
+func (x *GetFinalizeBundleResponse) ProtoReflect() protoreflect.Message {
+	mi := &file_pong_proto_msgTypes[13]
+	if x != nil {
+		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+		if ms.LoadMessageInfo() == nil {
+			ms.StoreMessageInfo(mi)
+		}
+		return ms
+	}
+	return mi.MessageOf(x)
+}
+
+// Deprecated: Use GetFinalizeBundleResponse.ProtoReflect.Descriptor instead.
+func (*GetFinalizeBundleResponse) Descriptor() ([]byte, []int) {
+	return file_pong_proto_rawDescGZIP(), []int{13}
+}
+
+func (x *GetFinalizeBundleResponse) GetDraftTxHex() string {
+	if x != nil {
+		return x.DraftTxHex
+	}
+	return ""
+}
+
+func (x *GetFinalizeBundleResponse) GetGamma32() []byte {
+	if x != nil {
+		return x.Gamma32
+	}
+	return nil
+}
+
+func (x *GetFinalizeBundleResponse) GetInputs() []*FinalizeInput {
+	if x != nil {
+		return x.Inputs
+	}
+	return nil
+}
+
 // === Existing API below ===
 // Escrow-first RPCs
 type OpenEscrowRequest struct {
@@ -814,7 +995,7 @@ type OpenEscrowRequest struct {
 
 func (x *OpenEscrowRequest) Reset() {
 	*x = OpenEscrowRequest{}
-	mi := &file_pong_proto_msgTypes[11]
+	mi := &file_pong_proto_msgTypes[14]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -826,7 +1007,7 @@ func (x *OpenEscrowRequest) String() string {
 func (*OpenEscrowRequest) ProtoMessage() {}
 
 func (x *OpenEscrowRequest) ProtoReflect() protoreflect.Message {
-	mi := &file_pong_proto_msgTypes[11]
+	mi := &file_pong_proto_msgTypes[14]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -839,7 +1020,7 @@ func (x *OpenEscrowRequest) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use OpenEscrowRequest.ProtoReflect.Descriptor instead.
 func (*OpenEscrowRequest) Descriptor() ([]byte, []int) {
-	return file_pong_proto_rawDescGZIP(), []int{11}
+	return file_pong_proto_rawDescGZIP(), []int{14}
 }
 
 func (x *OpenEscrowRequest) GetOwnerUid() string {
@@ -888,7 +1069,7 @@ type OpenEscrowResponse struct {
 
 func (x *OpenEscrowResponse) Reset() {
 	*x = OpenEscrowResponse{}
-	mi := &file_pong_proto_msgTypes[12]
+	mi := &file_pong_proto_msgTypes[15]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -900,7 +1081,7 @@ func (x *OpenEscrowResponse) String() string {
 func (*OpenEscrowResponse) ProtoMessage() {}
 
 func (x *OpenEscrowResponse) ProtoReflect() protoreflect.Message {
-	mi := &file_pong_proto_msgTypes[12]
+	mi := &file_pong_proto_msgTypes[15]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -913,7 +1094,7 @@ func (x *OpenEscrowResponse) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use OpenEscrowResponse.ProtoReflect.Descriptor instead.
 func (*OpenEscrowResponse) Descriptor() ([]byte, []int) {
-	return file_pong_proto_rawDescGZIP(), []int{12}
+	return file_pong_proto_rawDescGZIP(), []int{15}
 }
 
 func (x *OpenEscrowResponse) GetEscrowId() string {
@@ -946,7 +1127,7 @@ type WaitEscrowFundingRequest struct {
 
 func (x *WaitEscrowFundingRequest) Reset() {
 	*x = WaitEscrowFundingRequest{}
-	mi := &file_pong_proto_msgTypes[13]
+	mi := &file_pong_proto_msgTypes[16]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -958,7 +1139,7 @@ func (x *WaitEscrowFundingRequest) String() string {
 func (*WaitEscrowFundingRequest) ProtoMessage() {}
 
 func (x *WaitEscrowFundingRequest) ProtoReflect() protoreflect.Message {
-	mi := &file_pong_proto_msgTypes[13]
+	mi := &file_pong_proto_msgTypes[16]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -971,7 +1152,7 @@ func (x *WaitEscrowFundingRequest) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use WaitEscrowFundingRequest.ProtoReflect.Descriptor instead.
 func (*WaitEscrowFundingRequest) Descriptor() ([]byte, []int) {
-	return file_pong_proto_rawDescGZIP(), []int{13}
+	return file_pong_proto_rawDescGZIP(), []int{16}
 }
 
 func (x *WaitEscrowFundingRequest) GetEscrowId() string {
@@ -993,7 +1174,7 @@ type WaitEscrowFundingUpdate struct {
 
 func (x *WaitEscrowFundingUpdate) Reset() {
 	*x = WaitEscrowFundingUpdate{}
-	mi := &file_pong_proto_msgTypes[14]
+	mi := &file_pong_proto_msgTypes[17]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -1005,7 +1186,7 @@ func (x *WaitEscrowFundingUpdate) String() string {
 func (*WaitEscrowFundingUpdate) ProtoMessage() {}
 
 func (x *WaitEscrowFundingUpdate) ProtoReflect() protoreflect.Message {
-	mi := &file_pong_proto_msgTypes[14]
+	mi := &file_pong_proto_msgTypes[17]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -1018,7 +1199,7 @@ func (x *WaitEscrowFundingUpdate) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use WaitEscrowFundingUpdate.ProtoReflect.Descriptor instead.
 func (*WaitEscrowFundingUpdate) Descriptor() ([]byte, []int) {
-	return file_pong_proto_rawDescGZIP(), []int{14}
+	return file_pong_proto_rawDescGZIP(), []int{17}
 }
 
 func (x *WaitEscrowFundingUpdate) GetFunded() bool {
@@ -1060,7 +1241,7 @@ type CreateMatchRequest struct {
 
 func (x *CreateMatchRequest) Reset() {
 	*x = CreateMatchRequest{}
-	mi := &file_pong_proto_msgTypes[15]
+	mi := &file_pong_proto_msgTypes[18]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -1072,7 +1253,7 @@ func (x *CreateMatchRequest) String() string {
 func (*CreateMatchRequest) ProtoMessage() {}
 
 func (x *CreateMatchRequest) ProtoReflect() protoreflect.Message {
-	mi := &file_pong_proto_msgTypes[15]
+	mi := &file_pong_proto_msgTypes[18]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -1085,7 +1266,7 @@ func (x *CreateMatchRequest) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use CreateMatchRequest.ProtoReflect.Descriptor instead.
 func (*CreateMatchRequest) Descriptor() ([]byte, []int) {
-	return file_pong_proto_rawDescGZIP(), []int{15}
+	return file_pong_proto_rawDescGZIP(), []int{18}
 }
 
 func (x *CreateMatchRequest) GetAC() string {
@@ -1127,7 +1308,7 @@ type CreateMatchResponse struct {
 
 func (x *CreateMatchResponse) Reset() {
 	*x = CreateMatchResponse{}
-	mi := &file_pong_proto_msgTypes[16]
+	mi := &file_pong_proto_msgTypes[19]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -1139,7 +1320,7 @@ func (x *CreateMatchResponse) String() string {
 func (*CreateMatchResponse) ProtoMessage() {}
 
 func (x *CreateMatchResponse) ProtoReflect() protoreflect.Message {
-	mi := &file_pong_proto_msgTypes[16]
+	mi := &file_pong_proto_msgTypes[19]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -1152,7 +1333,7 @@ func (x *CreateMatchResponse) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use CreateMatchResponse.ProtoReflect.Descriptor instead.
 func (*CreateMatchResponse) Descriptor() ([]byte, []int) {
-	return file_pong_proto_rawDescGZIP(), []int{16}
+	return file_pong_proto_rawDescGZIP(), []int{19}
 }
 
 func (x *CreateMatchResponse) GetMatchId() string {
@@ -1239,7 +1420,7 @@ type EscrowUTXO struct {
 
 func (x *EscrowUTXO) Reset() {
 	*x = EscrowUTXO{}
-	mi := &file_pong_proto_msgTypes[17]
+	mi := &file_pong_proto_msgTypes[20]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -1251,7 +1432,7 @@ func (x *EscrowUTXO) String() string {
 func (*EscrowUTXO) ProtoMessage() {}
 
 func (x *EscrowUTXO) ProtoReflect() protoreflect.Message {
-	mi := &file_pong_proto_msgTypes[17]
+	mi := &file_pong_proto_msgTypes[20]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -1264,7 +1445,7 @@ func (x *EscrowUTXO) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use EscrowUTXO.ProtoReflect.Descriptor instead.
 func (*EscrowUTXO) Descriptor() ([]byte, []int) {
-	return file_pong_proto_rawDescGZIP(), []int{17}
+	return file_pong_proto_rawDescGZIP(), []int{20}
 }
 
 func (x *EscrowUTXO) GetTxid() string {
@@ -1318,7 +1499,7 @@ type WaitFundingRequest struct {
 
 func (x *WaitFundingRequest) Reset() {
 	*x = WaitFundingRequest{}
-	mi := &file_pong_proto_msgTypes[18]
+	mi := &file_pong_proto_msgTypes[21]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -1330,7 +1511,7 @@ func (x *WaitFundingRequest) String() string {
 func (*WaitFundingRequest) ProtoMessage() {}
 
 func (x *WaitFundingRequest) ProtoReflect() protoreflect.Message {
-	mi := &file_pong_proto_msgTypes[18]
+	mi := &file_pong_proto_msgTypes[21]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -1343,7 +1524,7 @@ func (x *WaitFundingRequest) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use WaitFundingRequest.ProtoReflect.Descriptor instead.
 func (*WaitFundingRequest) Descriptor() ([]byte, []int) {
-	return file_pong_proto_rawDescGZIP(), []int{18}
+	return file_pong_proto_rawDescGZIP(), []int{21}
 }
 
 func (x *WaitFundingRequest) GetEscrowId() string {
@@ -1367,7 +1548,7 @@ type WaitFundingResponse struct {
 
 func (x *WaitFundingResponse) Reset() {
 	*x = WaitFundingResponse{}
-	mi := &file_pong_proto_msgTypes[19]
+	mi := &file_pong_proto_msgTypes[22]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -1379,7 +1560,7 @@ func (x *WaitFundingResponse) String() string {
 func (*WaitFundingResponse) ProtoMessage() {}
 
 func (x *WaitFundingResponse) ProtoReflect() protoreflect.Message {
-	mi := &file_pong_proto_msgTypes[19]
+	mi := &file_pong_proto_msgTypes[22]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -1392,7 +1573,7 @@ func (x *WaitFundingResponse) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use WaitFundingResponse.ProtoReflect.Descriptor instead.
 func (*WaitFundingResponse) Descriptor() ([]byte, []int) {
-	return file_pong_proto_rawDescGZIP(), []int{19}
+	return file_pong_proto_rawDescGZIP(), []int{22}
 }
 
 func (x *WaitFundingResponse) GetConfs() uint32 {
@@ -1437,7 +1618,7 @@ type MatchAllocatedNtfn struct {
 
 func (x *MatchAllocatedNtfn) Reset() {
 	*x = MatchAllocatedNtfn{}
-	mi := &file_pong_proto_msgTypes[20]
+	mi := &file_pong_proto_msgTypes[23]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -1449,7 +1630,7 @@ func (x *MatchAllocatedNtfn) String() string {
 func (*MatchAllocatedNtfn) ProtoMessage() {}
 
 func (x *MatchAllocatedNtfn) ProtoReflect() protoreflect.Message {
-	mi := &file_pong_proto_msgTypes[20]
+	mi := &file_pong_proto_msgTypes[23]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -1462,7 +1643,7 @@ func (x *MatchAllocatedNtfn) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use MatchAllocatedNtfn.ProtoReflect.Descriptor instead.
 func (*MatchAllocatedNtfn) Descriptor() ([]byte, []int) {
-	return file_pong_proto_rawDescGZIP(), []int{20}
+	return file_pong_proto_rawDescGZIP(), []int{23}
 }
 
 func (x *MatchAllocatedNtfn) GetMatchId() string {
@@ -1516,7 +1697,7 @@ type UnreadyGameStreamRequest struct {
 
 func (x *UnreadyGameStreamRequest) Reset() {
 	*x = UnreadyGameStreamRequest{}
-	mi := &file_pong_proto_msgTypes[21]
+	mi := &file_pong_proto_msgTypes[24]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -1528,7 +1709,7 @@ func (x *UnreadyGameStreamRequest) String() string {
 func (*UnreadyGameStreamRequest) ProtoMessage() {}
 
 func (x *UnreadyGameStreamRequest) ProtoReflect() protoreflect.Message {
-	mi := &file_pong_proto_msgTypes[21]
+	mi := &file_pong_proto_msgTypes[24]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -1541,7 +1722,7 @@ func (x *UnreadyGameStreamRequest) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use UnreadyGameStreamRequest.ProtoReflect.Descriptor instead.
 func (*UnreadyGameStreamRequest) Descriptor() ([]byte, []int) {
-	return file_pong_proto_rawDescGZIP(), []int{21}
+	return file_pong_proto_rawDescGZIP(), []int{24}
 }
 
 func (x *UnreadyGameStreamRequest) GetClientId() string {
@@ -1559,7 +1740,7 @@ type UnreadyGameStreamResponse struct {
 
 func (x *UnreadyGameStreamResponse) Reset() {
 	*x = UnreadyGameStreamResponse{}
-	mi := &file_pong_proto_msgTypes[22]
+	mi := &file_pong_proto_msgTypes[25]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -1571,7 +1752,7 @@ func (x *UnreadyGameStreamResponse) String() string {
 func (*UnreadyGameStreamResponse) ProtoMessage() {}
 
 func (x *UnreadyGameStreamResponse) ProtoReflect() protoreflect.Message {
-	mi := &file_pong_proto_msgTypes[22]
+	mi := &file_pong_proto_msgTypes[25]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -1584,7 +1765,7 @@ func (x *UnreadyGameStreamResponse) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use UnreadyGameStreamResponse.ProtoReflect.Descriptor instead.
 func (*UnreadyGameStreamResponse) Descriptor() ([]byte, []int) {
-	return file_pong_proto_rawDescGZIP(), []int{22}
+	return file_pong_proto_rawDescGZIP(), []int{25}
 }
 
 type StartNtfnStreamRequest struct {
@@ -1596,7 +1777,7 @@ type StartNtfnStreamRequest struct {
 
 func (x *StartNtfnStreamRequest) Reset() {
 	*x = StartNtfnStreamRequest{}
-	mi := &file_pong_proto_msgTypes[23]
+	mi := &file_pong_proto_msgTypes[26]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -1608,7 +1789,7 @@ func (x *StartNtfnStreamRequest) String() string {
 func (*StartNtfnStreamRequest) ProtoMessage() {}
 
 func (x *StartNtfnStreamRequest) ProtoReflect() protoreflect.Message {
-	mi := &file_pong_proto_msgTypes[23]
+	mi := &file_pong_proto_msgTypes[26]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -1621,7 +1802,7 @@ func (x *StartNtfnStreamRequest) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use StartNtfnStreamRequest.ProtoReflect.Descriptor instead.
 func (*StartNtfnStreamRequest) Descriptor() ([]byte, []int) {
-	return file_pong_proto_rawDescGZIP(), []int{23}
+	return file_pong_proto_rawDescGZIP(), []int{26}
 }
 
 func (x *StartNtfnStreamRequest) GetClientId() string {
@@ -1650,7 +1831,7 @@ type NtfnStreamResponse struct {
 
 func (x *NtfnStreamResponse) Reset() {
 	*x = NtfnStreamResponse{}
-	mi := &file_pong_proto_msgTypes[24]
+	mi := &file_pong_proto_msgTypes[27]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -1662,7 +1843,7 @@ func (x *NtfnStreamResponse) String() string {
 func (*NtfnStreamResponse) ProtoMessage() {}
 
 func (x *NtfnStreamResponse) ProtoReflect() protoreflect.Message {
-	mi := &file_pong_proto_msgTypes[24]
+	mi := &file_pong_proto_msgTypes[27]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -1675,7 +1856,7 @@ func (x *NtfnStreamResponse) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use NtfnStreamResponse.ProtoReflect.Descriptor instead.
 func (*NtfnStreamResponse) Descriptor() ([]byte, []int) {
-	return file_pong_proto_rawDescGZIP(), []int{24}
+	return file_pong_proto_rawDescGZIP(), []int{27}
 }
 
 func (x *NtfnStreamResponse) GetNotificationType() NotificationType {
@@ -1765,7 +1946,7 @@ type WaitingRoomsRequest struct {
 
 func (x *WaitingRoomsRequest) Reset() {
 	*x = WaitingRoomsRequest{}
-	mi := &file_pong_proto_msgTypes[25]
+	mi := &file_pong_proto_msgTypes[28]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -1777,7 +1958,7 @@ func (x *WaitingRoomsRequest) String() string {
 func (*WaitingRoomsRequest) ProtoMessage() {}
 
 func (x *WaitingRoomsRequest) ProtoReflect() protoreflect.Message {
-	mi := &file_pong_proto_msgTypes[25]
+	mi := &file_pong_proto_msgTypes[28]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -1790,7 +1971,7 @@ func (x *WaitingRoomsRequest) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use WaitingRoomsRequest.ProtoReflect.Descriptor instead.
 func (*WaitingRoomsRequest) Descriptor() ([]byte, []int) {
-	return file_pong_proto_rawDescGZIP(), []int{25}
+	return file_pong_proto_rawDescGZIP(), []int{28}
 }
 
 func (x *WaitingRoomsRequest) GetRoomId() string {
@@ -1809,7 +1990,7 @@ type WaitingRoomsResponse struct {
 
 func (x *WaitingRoomsResponse) Reset() {
 	*x = WaitingRoomsResponse{}
-	mi := &file_pong_proto_msgTypes[26]
+	mi := &file_pong_proto_msgTypes[29]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -1821,7 +2002,7 @@ func (x *WaitingRoomsResponse) String() string {
 func (*WaitingRoomsResponse) ProtoMessage() {}
 
 func (x *WaitingRoomsResponse) ProtoReflect() protoreflect.Message {
-	mi := &file_pong_proto_msgTypes[26]
+	mi := &file_pong_proto_msgTypes[29]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -1834,7 +2015,7 @@ func (x *WaitingRoomsResponse) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use WaitingRoomsResponse.ProtoReflect.Descriptor instead.
 func (*WaitingRoomsResponse) Descriptor() ([]byte, []int) {
-	return file_pong_proto_rawDescGZIP(), []int{26}
+	return file_pong_proto_rawDescGZIP(), []int{29}
 }
 
 func (x *WaitingRoomsResponse) GetWr() []*WaitingRoom {
@@ -1855,7 +2036,7 @@ type JoinWaitingRoomRequest struct {
 
 func (x *JoinWaitingRoomRequest) Reset() {
 	*x = JoinWaitingRoomRequest{}
-	mi := &file_pong_proto_msgTypes[27]
+	mi := &file_pong_proto_msgTypes[30]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -1867,7 +2048,7 @@ func (x *JoinWaitingRoomRequest) String() string {
 func (*JoinWaitingRoomRequest) ProtoMessage() {}
 
 func (x *JoinWaitingRoomRequest) ProtoReflect() protoreflect.Message {
-	mi := &file_pong_proto_msgTypes[27]
+	mi := &file_pong_proto_msgTypes[30]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -1880,7 +2061,7 @@ func (x *JoinWaitingRoomRequest) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use JoinWaitingRoomRequest.ProtoReflect.Descriptor instead.
 func (*JoinWaitingRoomRequest) Descriptor() ([]byte, []int) {
-	return file_pong_proto_rawDescGZIP(), []int{27}
+	return file_pong_proto_rawDescGZIP(), []int{30}
 }
 
 func (x *JoinWaitingRoomRequest) GetRoomId() string {
@@ -1913,7 +2094,7 @@ type JoinWaitingRoomResponse struct {
 
 func (x *JoinWaitingRoomResponse) Reset() {
 	*x = JoinWaitingRoomResponse{}
-	mi := &file_pong_proto_msgTypes[28]
+	mi := &file_pong_proto_msgTypes[31]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -1925,7 +2106,7 @@ func (x *JoinWaitingRoomResponse) String() string {
 func (*JoinWaitingRoomResponse) ProtoMessage() {}
 
 func (x *JoinWaitingRoomResponse) ProtoReflect() protoreflect.Message {
-	mi := &file_pong_proto_msgTypes[28]
+	mi := &file_pong_proto_msgTypes[31]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -1938,7 +2119,7 @@ func (x *JoinWaitingRoomResponse) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use JoinWaitingRoomResponse.ProtoReflect.Descriptor instead.
 func (*JoinWaitingRoomResponse) Descriptor() ([]byte, []int) {
-	return file_pong_proto_rawDescGZIP(), []int{28}
+	return file_pong_proto_rawDescGZIP(), []int{31}
 }
 
 func (x *JoinWaitingRoomResponse) GetWr() *WaitingRoom {
@@ -1959,7 +2140,7 @@ type CreateWaitingRoomRequest struct {
 
 func (x *CreateWaitingRoomRequest) Reset() {
 	*x = CreateWaitingRoomRequest{}
-	mi := &file_pong_proto_msgTypes[29]
+	mi := &file_pong_proto_msgTypes[32]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -1971,7 +2152,7 @@ func (x *CreateWaitingRoomRequest) String() string {
 func (*CreateWaitingRoomRequest) ProtoMessage() {}
 
 func (x *CreateWaitingRoomRequest) ProtoReflect() protoreflect.Message {
-	mi := &file_pong_proto_msgTypes[29]
+	mi := &file_pong_proto_msgTypes[32]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -1984,7 +2165,7 @@ func (x *CreateWaitingRoomRequest) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use CreateWaitingRoomRequest.ProtoReflect.Descriptor instead.
 func (*CreateWaitingRoomRequest) Descriptor() ([]byte, []int) {
-	return file_pong_proto_rawDescGZIP(), []int{29}
+	return file_pong_proto_rawDescGZIP(), []int{32}
 }
 
 func (x *CreateWaitingRoomRequest) GetHostId() string {
@@ -2017,7 +2198,7 @@ type CreateWaitingRoomResponse struct {
 
 func (x *CreateWaitingRoomResponse) Reset() {
 	*x = CreateWaitingRoomResponse{}
-	mi := &file_pong_proto_msgTypes[30]
+	mi := &file_pong_proto_msgTypes[33]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -2029,7 +2210,7 @@ func (x *CreateWaitingRoomResponse) String() string {
 func (*CreateWaitingRoomResponse) ProtoMessage() {}
 
 func (x *CreateWaitingRoomResponse) ProtoReflect() protoreflect.Message {
-	mi := &file_pong_proto_msgTypes[30]
+	mi := &file_pong_proto_msgTypes[33]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -2042,7 +2223,7 @@ func (x *CreateWaitingRoomResponse) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use CreateWaitingRoomResponse.ProtoReflect.Descriptor instead.
 func (*CreateWaitingRoomResponse) Descriptor() ([]byte, []int) {
-	return file_pong_proto_rawDescGZIP(), []int{30}
+	return file_pong_proto_rawDescGZIP(), []int{33}
 }
 
 func (x *CreateWaitingRoomResponse) GetWr() *WaitingRoom {
@@ -2064,7 +2245,7 @@ type WaitingRoom struct {
 
 func (x *WaitingRoom) Reset() {
 	*x = WaitingRoom{}
-	mi := &file_pong_proto_msgTypes[31]
+	mi := &file_pong_proto_msgTypes[34]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -2076,7 +2257,7 @@ func (x *WaitingRoom) String() string {
 func (*WaitingRoom) ProtoMessage() {}
 
 func (x *WaitingRoom) ProtoReflect() protoreflect.Message {
-	mi := &file_pong_proto_msgTypes[31]
+	mi := &file_pong_proto_msgTypes[34]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -2089,7 +2270,7 @@ func (x *WaitingRoom) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use WaitingRoom.ProtoReflect.Descriptor instead.
 func (*WaitingRoom) Descriptor() ([]byte, []int) {
-	return file_pong_proto_rawDescGZIP(), []int{31}
+	return file_pong_proto_rawDescGZIP(), []int{34}
 }
 
 func (x *WaitingRoom) GetId() string {
@@ -2128,7 +2309,7 @@ type WaitingRoomRequest struct {
 
 func (x *WaitingRoomRequest) Reset() {
 	*x = WaitingRoomRequest{}
-	mi := &file_pong_proto_msgTypes[32]
+	mi := &file_pong_proto_msgTypes[35]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -2140,7 +2321,7 @@ func (x *WaitingRoomRequest) String() string {
 func (*WaitingRoomRequest) ProtoMessage() {}
 
 func (x *WaitingRoomRequest) ProtoReflect() protoreflect.Message {
-	mi := &file_pong_proto_msgTypes[32]
+	mi := &file_pong_proto_msgTypes[35]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -2153,7 +2334,7 @@ func (x *WaitingRoomRequest) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use WaitingRoomRequest.ProtoReflect.Descriptor instead.
 func (*WaitingRoomRequest) Descriptor() ([]byte, []int) {
-	return file_pong_proto_rawDescGZIP(), []int{32}
+	return file_pong_proto_rawDescGZIP(), []int{35}
 }
 
 type WaitingRoomResponse struct {
@@ -2165,7 +2346,7 @@ type WaitingRoomResponse struct {
 
 func (x *WaitingRoomResponse) Reset() {
 	*x = WaitingRoomResponse{}
-	mi := &file_pong_proto_msgTypes[33]
+	mi := &file_pong_proto_msgTypes[36]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -2177,7 +2358,7 @@ func (x *WaitingRoomResponse) String() string {
 func (*WaitingRoomResponse) ProtoMessage() {}
 
 func (x *WaitingRoomResponse) ProtoReflect() protoreflect.Message {
-	mi := &file_pong_proto_msgTypes[33]
+	mi := &file_pong_proto_msgTypes[36]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -2190,7 +2371,7 @@ func (x *WaitingRoomResponse) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use WaitingRoomResponse.ProtoReflect.Descriptor instead.
 func (*WaitingRoomResponse) Descriptor() ([]byte, []int) {
-	return file_pong_proto_rawDescGZIP(), []int{33}
+	return file_pong_proto_rawDescGZIP(), []int{36}
 }
 
 func (x *WaitingRoomResponse) GetPlayers() []*Player {
@@ -2215,7 +2396,7 @@ type Player struct {
 
 func (x *Player) Reset() {
 	*x = Player{}
-	mi := &file_pong_proto_msgTypes[34]
+	mi := &file_pong_proto_msgTypes[37]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -2227,7 +2408,7 @@ func (x *Player) String() string {
 func (*Player) ProtoMessage() {}
 
 func (x *Player) ProtoReflect() protoreflect.Message {
-	mi := &file_pong_proto_msgTypes[34]
+	mi := &file_pong_proto_msgTypes[37]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -2240,7 +2421,7 @@ func (x *Player) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use Player.ProtoReflect.Descriptor instead.
 func (*Player) Descriptor() ([]byte, []int) {
-	return file_pong_proto_rawDescGZIP(), []int{34}
+	return file_pong_proto_rawDescGZIP(), []int{37}
 }
 
 func (x *Player) GetUid() string {
@@ -2295,7 +2476,7 @@ type StartGameStreamRequest struct {
 
 func (x *StartGameStreamRequest) Reset() {
 	*x = StartGameStreamRequest{}
-	mi := &file_pong_proto_msgTypes[35]
+	mi := &file_pong_proto_msgTypes[38]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -2307,7 +2488,7 @@ func (x *StartGameStreamRequest) String() string {
 func (*StartGameStreamRequest) ProtoMessage() {}
 
 func (x *StartGameStreamRequest) ProtoReflect() protoreflect.Message {
-	mi := &file_pong_proto_msgTypes[35]
+	mi := &file_pong_proto_msgTypes[38]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -2320,7 +2501,7 @@ func (x *StartGameStreamRequest) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use StartGameStreamRequest.ProtoReflect.Descriptor instead.
 func (*StartGameStreamRequest) Descriptor() ([]byte, []int) {
-	return file_pong_proto_rawDescGZIP(), []int{35}
+	return file_pong_proto_rawDescGZIP(), []int{38}
 }
 
 func (x *StartGameStreamRequest) GetClientId() string {
@@ -2339,7 +2520,7 @@ type GameUpdateBytes struct {
 
 func (x *GameUpdateBytes) Reset() {
 	*x = GameUpdateBytes{}
-	mi := &file_pong_proto_msgTypes[36]
+	mi := &file_pong_proto_msgTypes[39]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -2351,7 +2532,7 @@ func (x *GameUpdateBytes) String() string {
 func (*GameUpdateBytes) ProtoMessage() {}
 
 func (x *GameUpdateBytes) ProtoReflect() protoreflect.Message {
-	mi := &file_pong_proto_msgTypes[36]
+	mi := &file_pong_proto_msgTypes[39]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -2364,7 +2545,7 @@ func (x *GameUpdateBytes) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use GameUpdateBytes.ProtoReflect.Descriptor instead.
 func (*GameUpdateBytes) Descriptor() ([]byte, []int) {
-	return file_pong_proto_rawDescGZIP(), []int{36}
+	return file_pong_proto_rawDescGZIP(), []int{39}
 }
 
 func (x *GameUpdateBytes) GetData() []byte {
@@ -2385,7 +2566,7 @@ type PlayerInput struct {
 
 func (x *PlayerInput) Reset() {
 	*x = PlayerInput{}
-	mi := &file_pong_proto_msgTypes[37]
+	mi := &file_pong_proto_msgTypes[40]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -2397,7 +2578,7 @@ func (x *PlayerInput) String() string {
 func (*PlayerInput) ProtoMessage() {}
 
 func (x *PlayerInput) ProtoReflect() protoreflect.Message {
-	mi := &file_pong_proto_msgTypes[37]
+	mi := &file_pong_proto_msgTypes[40]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -2410,7 +2591,7 @@ func (x *PlayerInput) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use PlayerInput.ProtoReflect.Descriptor instead.
 func (*PlayerInput) Descriptor() ([]byte, []int) {
-	return file_pong_proto_rawDescGZIP(), []int{37}
+	return file_pong_proto_rawDescGZIP(), []int{40}
 }
 
 func (x *PlayerInput) GetPlayerId() string {
@@ -2467,7 +2648,7 @@ type GameUpdate struct {
 
 func (x *GameUpdate) Reset() {
 	*x = GameUpdate{}
-	mi := &file_pong_proto_msgTypes[38]
+	mi := &file_pong_proto_msgTypes[41]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -2479,7 +2660,7 @@ func (x *GameUpdate) String() string {
 func (*GameUpdate) ProtoMessage() {}
 
 func (x *GameUpdate) ProtoReflect() protoreflect.Message {
-	mi := &file_pong_proto_msgTypes[38]
+	mi := &file_pong_proto_msgTypes[41]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -2492,7 +2673,7 @@ func (x *GameUpdate) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use GameUpdate.ProtoReflect.Descriptor instead.
 func (*GameUpdate) Descriptor() ([]byte, []int) {
-	return file_pong_proto_rawDescGZIP(), []int{38}
+	return file_pong_proto_rawDescGZIP(), []int{41}
 }
 
 func (x *GameUpdate) GetGameWidth() float64 {
@@ -2673,7 +2854,7 @@ type LeaveWaitingRoomRequest struct {
 
 func (x *LeaveWaitingRoomRequest) Reset() {
 	*x = LeaveWaitingRoomRequest{}
-	mi := &file_pong_proto_msgTypes[39]
+	mi := &file_pong_proto_msgTypes[42]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -2685,7 +2866,7 @@ func (x *LeaveWaitingRoomRequest) String() string {
 func (*LeaveWaitingRoomRequest) ProtoMessage() {}
 
 func (x *LeaveWaitingRoomRequest) ProtoReflect() protoreflect.Message {
-	mi := &file_pong_proto_msgTypes[39]
+	mi := &file_pong_proto_msgTypes[42]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -2698,7 +2879,7 @@ func (x *LeaveWaitingRoomRequest) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use LeaveWaitingRoomRequest.ProtoReflect.Descriptor instead.
 func (*LeaveWaitingRoomRequest) Descriptor() ([]byte, []int) {
-	return file_pong_proto_rawDescGZIP(), []int{39}
+	return file_pong_proto_rawDescGZIP(), []int{42}
 }
 
 func (x *LeaveWaitingRoomRequest) GetClientId() string {
@@ -2725,7 +2906,7 @@ type LeaveWaitingRoomResponse struct {
 
 func (x *LeaveWaitingRoomResponse) Reset() {
 	*x = LeaveWaitingRoomResponse{}
-	mi := &file_pong_proto_msgTypes[40]
+	mi := &file_pong_proto_msgTypes[43]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -2737,7 +2918,7 @@ func (x *LeaveWaitingRoomResponse) String() string {
 func (*LeaveWaitingRoomResponse) ProtoMessage() {}
 
 func (x *LeaveWaitingRoomResponse) ProtoReflect() protoreflect.Message {
-	mi := &file_pong_proto_msgTypes[40]
+	mi := &file_pong_proto_msgTypes[43]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -2750,7 +2931,7 @@ func (x *LeaveWaitingRoomResponse) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use LeaveWaitingRoomResponse.ProtoReflect.Descriptor instead.
 func (*LeaveWaitingRoomResponse) Descriptor() ([]byte, []int) {
-	return file_pong_proto_rawDescGZIP(), []int{40}
+	return file_pong_proto_rawDescGZIP(), []int{43}
 }
 
 func (x *LeaveWaitingRoomResponse) GetSuccess() bool {
@@ -2778,7 +2959,7 @@ type SignalReadyToPlayRequest struct {
 
 func (x *SignalReadyToPlayRequest) Reset() {
 	*x = SignalReadyToPlayRequest{}
-	mi := &file_pong_proto_msgTypes[41]
+	mi := &file_pong_proto_msgTypes[44]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -2790,7 +2971,7 @@ func (x *SignalReadyToPlayRequest) String() string {
 func (*SignalReadyToPlayRequest) ProtoMessage() {}
 
 func (x *SignalReadyToPlayRequest) ProtoReflect() protoreflect.Message {
-	mi := &file_pong_proto_msgTypes[41]
+	mi := &file_pong_proto_msgTypes[44]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -2803,7 +2984,7 @@ func (x *SignalReadyToPlayRequest) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use SignalReadyToPlayRequest.ProtoReflect.Descriptor instead.
 func (*SignalReadyToPlayRequest) Descriptor() ([]byte, []int) {
-	return file_pong_proto_rawDescGZIP(), []int{41}
+	return file_pong_proto_rawDescGZIP(), []int{44}
 }
 
 func (x *SignalReadyToPlayRequest) GetClientId() string {
@@ -2831,7 +3012,7 @@ type SignalReadyToPlayResponse struct {
 
 func (x *SignalReadyToPlayResponse) Reset() {
 	*x = SignalReadyToPlayResponse{}
-	mi := &file_pong_proto_msgTypes[42]
+	mi := &file_pong_proto_msgTypes[45]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -2843,7 +3024,7 @@ func (x *SignalReadyToPlayResponse) String() string {
 func (*SignalReadyToPlayResponse) ProtoMessage() {}
 
 func (x *SignalReadyToPlayResponse) ProtoReflect() protoreflect.Message {
-	mi := &file_pong_proto_msgTypes[42]
+	mi := &file_pong_proto_msgTypes[45]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -2856,7 +3037,7 @@ func (x *SignalReadyToPlayResponse) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use SignalReadyToPlayResponse.ProtoReflect.Descriptor instead.
 func (*SignalReadyToPlayResponse) Descriptor() ([]byte, []int) {
-	return file_pong_proto_rawDescGZIP(), []int{42}
+	return file_pong_proto_rawDescGZIP(), []int{45}
 }
 
 func (x *SignalReadyToPlayResponse) GetSuccess() bool {
@@ -2885,7 +3066,7 @@ type NeedPreSigs_PerInput struct {
 
 func (x *NeedPreSigs_PerInput) Reset() {
 	*x = NeedPreSigs_PerInput{}
-	mi := &file_pong_proto_msgTypes[43]
+	mi := &file_pong_proto_msgTypes[46]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -2897,7 +3078,7 @@ func (x *NeedPreSigs_PerInput) String() string {
 func (*NeedPreSigs_PerInput) ProtoMessage() {}
 
 func (x *NeedPreSigs_PerInput) ProtoReflect() protoreflect.Message {
-	mi := &file_pong_proto_msgTypes[43]
+	mi := &file_pong_proto_msgTypes[46]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -2952,7 +3133,7 @@ type PreSigBatch_Sig struct {
 
 func (x *PreSigBatch_Sig) Reset() {
 	*x = PreSigBatch_Sig{}
-	mi := &file_pong_proto_msgTypes[44]
+	mi := &file_pong_proto_msgTypes[47]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -2964,7 +3145,7 @@ func (x *PreSigBatch_Sig) String() string {
 func (*PreSigBatch_Sig) ProtoMessage() {}
 
 func (x *PreSigBatch_Sig) ProtoReflect() protoreflect.Message {
-	mi := &file_pong_proto_msgTypes[44]
+	mi := &file_pong_proto_msgTypes[47]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -3059,7 +3240,21 @@ const file_pong_proto_rawDesc = "" +
 	"\x04text\x18\x01 \x01(\tR\x04text\")\n" +
 	"\bServerOk\x12\x1d\n" +
 	"\n" +
-	"ack_digest\x18\x01 \x01(\fR\tackDigest\"\xb2\x01\n" +
+	"ack_digest\x18\x01 \x01(\fR\tackDigest\"T\n" +
+	"\x18GetFinalizeBundleRequest\x12\x19\n" +
+	"\bmatch_id\x18\x01 \x01(\tR\amatchId\x12\x1d\n" +
+	"\n" +
+	"winner_uid\x18\x02 \x01(\tR\twinnerUid\"\x9f\x01\n" +
+	"\rFinalizeInput\x12\x19\n" +
+	"\binput_id\x18\x01 \x01(\tR\ainputId\x12*\n" +
+	"\x11redeem_script_hex\x18\x02 \x01(\tR\x0fredeemScriptHex\x12+\n" +
+	"\x11Rprime_compressed\x18\x03 \x01(\fR\x10RprimeCompressed\x12\x1a\n" +
+	"\bsprime32\x18\x04 \x01(\fR\bsprime32\"\x84\x01\n" +
+	"\x19GetFinalizeBundleResponse\x12 \n" +
+	"\fdraft_tx_hex\x18\x01 \x01(\tR\n" +
+	"draftTxHex\x12\x18\n" +
+	"\agamma32\x18\x02 \x01(\fR\agamma32\x12+\n" +
+	"\x06inputs\x18\x03 \x03(\v2\x13.pong.FinalizeInputR\x06inputs\"\xb2\x01\n" +
 	"\x11OpenEscrowRequest\x12\x1b\n" +
 	"\towner_uid\x18\x01 \x01(\tR\bownerUid\x12\x1f\n" +
 	"\vcomp_pubkey\x18\x02 \x01(\fR\n" +
@@ -3247,13 +3442,14 @@ const file_pong_proto_rawDesc = "" +
 	"\x0fGetWaitingRooms\x12\x19.pong.WaitingRoomsRequest\x1a\x1a.pong.WaitingRoomsResponse\x12T\n" +
 	"\x11CreateWaitingRoom\x12\x1e.pong.CreateWaitingRoomRequest\x1a\x1f.pong.CreateWaitingRoomResponse\x12N\n" +
 	"\x0fJoinWaitingRoom\x12\x1c.pong.JoinWaitingRoomRequest\x1a\x1d.pong.JoinWaitingRoomResponse\x12Q\n" +
-	"\x10LeaveWaitingRoom\x12\x1d.pong.LeaveWaitingRoomRequest\x1a\x1e.pong.LeaveWaitingRoomResponse2\xee\x02\n" +
+	"\x10LeaveWaitingRoom\x12\x1d.pong.LeaveWaitingRoomRequest\x1a\x1e.pong.LeaveWaitingRoomResponse2\xc4\x03\n" +
 	"\vPongReferee\x12B\n" +
 	"\rRefOpenEscrow\x12\x17.pong.OpenEscrowRequest\x1a\x18.pong.OpenEscrowResponse\x12W\n" +
 	"\x14RefWaitEscrowFunding\x12\x1e.pong.WaitEscrowFundingRequest\x1a\x1d.pong.WaitEscrowFundingUpdate0\x01\x12B\n" +
 	"\vCreateMatch\x12\x18.pong.CreateMatchRequest\x1a\x19.pong.CreateMatchResponse\x12D\n" +
 	"\vWaitFunding\x12\x18.pong.WaitFundingRequest\x1a\x19.pong.WaitFundingResponse0\x01\x128\n" +
-	"\x10SettlementStream\x12\x0f.pong.ClientMsg\x1a\x0f.pong.ServerMsg(\x010\x01B\vZ\tgrpc/pongb\x06proto3"
+	"\x10SettlementStream\x12\x0f.pong.ClientMsg\x1a\x0f.pong.ServerMsg(\x010\x01\x12T\n" +
+	"\x11GetFinalizeBundle\x12\x1e.pong.GetFinalizeBundleRequest\x1a\x1f.pong.GetFinalizeBundleResponseB\vZ\tgrpc/pongb\x06proto3"
 
 var (
 	file_pong_proto_rawDescOnce sync.Once
@@ -3268,7 +3464,7 @@ func file_pong_proto_rawDescGZIP() []byte {
 }
 
 var file_pong_proto_enumTypes = make([]protoimpl.EnumInfo, 1)
-var file_pong_proto_msgTypes = make([]protoimpl.MessageInfo, 45)
+var file_pong_proto_msgTypes = make([]protoimpl.MessageInfo, 48)
 var file_pong_proto_goTypes = []any{
 	(NotificationType)(0),             // 0: pong.NotificationType
 	(*ClientMsg)(nil),                 // 1: pong.ClientMsg
@@ -3282,40 +3478,43 @@ var file_pong_proto_goTypes = []any{
 	(*Ack)(nil),                       // 9: pong.Ack
 	(*Info)(nil),                      // 10: pong.Info
 	(*ServerOk)(nil),                  // 11: pong.ServerOk
-	(*OpenEscrowRequest)(nil),         // 12: pong.OpenEscrowRequest
-	(*OpenEscrowResponse)(nil),        // 13: pong.OpenEscrowResponse
-	(*WaitEscrowFundingRequest)(nil),  // 14: pong.WaitEscrowFundingRequest
-	(*WaitEscrowFundingUpdate)(nil),   // 15: pong.WaitEscrowFundingUpdate
-	(*CreateMatchRequest)(nil),        // 16: pong.CreateMatchRequest
-	(*CreateMatchResponse)(nil),       // 17: pong.CreateMatchResponse
-	(*EscrowUTXO)(nil),                // 18: pong.EscrowUTXO
-	(*WaitFundingRequest)(nil),        // 19: pong.WaitFundingRequest
-	(*WaitFundingResponse)(nil),       // 20: pong.WaitFundingResponse
-	(*MatchAllocatedNtfn)(nil),        // 21: pong.MatchAllocatedNtfn
-	(*UnreadyGameStreamRequest)(nil),  // 22: pong.UnreadyGameStreamRequest
-	(*UnreadyGameStreamResponse)(nil), // 23: pong.UnreadyGameStreamResponse
-	(*StartNtfnStreamRequest)(nil),    // 24: pong.StartNtfnStreamRequest
-	(*NtfnStreamResponse)(nil),        // 25: pong.NtfnStreamResponse
-	(*WaitingRoomsRequest)(nil),       // 26: pong.WaitingRoomsRequest
-	(*WaitingRoomsResponse)(nil),      // 27: pong.WaitingRoomsResponse
-	(*JoinWaitingRoomRequest)(nil),    // 28: pong.JoinWaitingRoomRequest
-	(*JoinWaitingRoomResponse)(nil),   // 29: pong.JoinWaitingRoomResponse
-	(*CreateWaitingRoomRequest)(nil),  // 30: pong.CreateWaitingRoomRequest
-	(*CreateWaitingRoomResponse)(nil), // 31: pong.CreateWaitingRoomResponse
-	(*WaitingRoom)(nil),               // 32: pong.WaitingRoom
-	(*WaitingRoomRequest)(nil),        // 33: pong.WaitingRoomRequest
-	(*WaitingRoomResponse)(nil),       // 34: pong.WaitingRoomResponse
-	(*Player)(nil),                    // 35: pong.Player
-	(*StartGameStreamRequest)(nil),    // 36: pong.StartGameStreamRequest
-	(*GameUpdateBytes)(nil),           // 37: pong.GameUpdateBytes
-	(*PlayerInput)(nil),               // 38: pong.PlayerInput
-	(*GameUpdate)(nil),                // 39: pong.GameUpdate
-	(*LeaveWaitingRoomRequest)(nil),   // 40: pong.LeaveWaitingRoomRequest
-	(*LeaveWaitingRoomResponse)(nil),  // 41: pong.LeaveWaitingRoomResponse
-	(*SignalReadyToPlayRequest)(nil),  // 42: pong.SignalReadyToPlayRequest
-	(*SignalReadyToPlayResponse)(nil), // 43: pong.SignalReadyToPlayResponse
-	(*NeedPreSigs_PerInput)(nil),      // 44: pong.NeedPreSigs.PerInput
-	(*PreSigBatch_Sig)(nil),           // 45: pong.PreSigBatch.Sig
+	(*GetFinalizeBundleRequest)(nil),  // 12: pong.GetFinalizeBundleRequest
+	(*FinalizeInput)(nil),             // 13: pong.FinalizeInput
+	(*GetFinalizeBundleResponse)(nil), // 14: pong.GetFinalizeBundleResponse
+	(*OpenEscrowRequest)(nil),         // 15: pong.OpenEscrowRequest
+	(*OpenEscrowResponse)(nil),        // 16: pong.OpenEscrowResponse
+	(*WaitEscrowFundingRequest)(nil),  // 17: pong.WaitEscrowFundingRequest
+	(*WaitEscrowFundingUpdate)(nil),   // 18: pong.WaitEscrowFundingUpdate
+	(*CreateMatchRequest)(nil),        // 19: pong.CreateMatchRequest
+	(*CreateMatchResponse)(nil),       // 20: pong.CreateMatchResponse
+	(*EscrowUTXO)(nil),                // 21: pong.EscrowUTXO
+	(*WaitFundingRequest)(nil),        // 22: pong.WaitFundingRequest
+	(*WaitFundingResponse)(nil),       // 23: pong.WaitFundingResponse
+	(*MatchAllocatedNtfn)(nil),        // 24: pong.MatchAllocatedNtfn
+	(*UnreadyGameStreamRequest)(nil),  // 25: pong.UnreadyGameStreamRequest
+	(*UnreadyGameStreamResponse)(nil), // 26: pong.UnreadyGameStreamResponse
+	(*StartNtfnStreamRequest)(nil),    // 27: pong.StartNtfnStreamRequest
+	(*NtfnStreamResponse)(nil),        // 28: pong.NtfnStreamResponse
+	(*WaitingRoomsRequest)(nil),       // 29: pong.WaitingRoomsRequest
+	(*WaitingRoomsResponse)(nil),      // 30: pong.WaitingRoomsResponse
+	(*JoinWaitingRoomRequest)(nil),    // 31: pong.JoinWaitingRoomRequest
+	(*JoinWaitingRoomResponse)(nil),   // 32: pong.JoinWaitingRoomResponse
+	(*CreateWaitingRoomRequest)(nil),  // 33: pong.CreateWaitingRoomRequest
+	(*CreateWaitingRoomResponse)(nil), // 34: pong.CreateWaitingRoomResponse
+	(*WaitingRoom)(nil),               // 35: pong.WaitingRoom
+	(*WaitingRoomRequest)(nil),        // 36: pong.WaitingRoomRequest
+	(*WaitingRoomResponse)(nil),       // 37: pong.WaitingRoomResponse
+	(*Player)(nil),                    // 38: pong.Player
+	(*StartGameStreamRequest)(nil),    // 39: pong.StartGameStreamRequest
+	(*GameUpdateBytes)(nil),           // 40: pong.GameUpdateBytes
+	(*PlayerInput)(nil),               // 41: pong.PlayerInput
+	(*GameUpdate)(nil),                // 42: pong.GameUpdate
+	(*LeaveWaitingRoomRequest)(nil),   // 43: pong.LeaveWaitingRoomRequest
+	(*LeaveWaitingRoomResponse)(nil),  // 44: pong.LeaveWaitingRoomResponse
+	(*SignalReadyToPlayRequest)(nil),  // 45: pong.SignalReadyToPlayRequest
+	(*SignalReadyToPlayResponse)(nil), // 46: pong.SignalReadyToPlayResponse
+	(*NeedPreSigs_PerInput)(nil),      // 47: pong.NeedPreSigs.PerInput
+	(*PreSigBatch_Sig)(nil),           // 48: pong.PreSigBatch.Sig
 }
 var file_pong_proto_depIdxs = []int32{
 	3,  // 0: pong.ClientMsg.hello:type_name -> pong.Hello
@@ -3326,54 +3525,57 @@ var file_pong_proto_depIdxs = []int32{
 	8,  // 5: pong.ServerMsg.reveal:type_name -> pong.RevealGamma
 	10, // 6: pong.ServerMsg.info:type_name -> pong.Info
 	11, // 7: pong.ServerMsg.ok:type_name -> pong.ServerOk
-	44, // 8: pong.NeedPreSigs.inputs:type_name -> pong.NeedPreSigs.PerInput
+	47, // 8: pong.NeedPreSigs.inputs:type_name -> pong.NeedPreSigs.PerInput
 	6,  // 9: pong.VerifyOk.presigs:type_name -> pong.PreSig
-	45, // 10: pong.PreSigBatch.presigs:type_name -> pong.PreSigBatch.Sig
-	18, // 11: pong.WaitFundingResponse.utxo:type_name -> pong.EscrowUTXO
-	18, // 12: pong.WaitFundingResponse.opponent_utxo:type_name -> pong.EscrowUTXO
-	0,  // 13: pong.NtfnStreamResponse.notification_type:type_name -> pong.NotificationType
-	32, // 14: pong.NtfnStreamResponse.wr:type_name -> pong.WaitingRoom
-	21, // 15: pong.NtfnStreamResponse.match_alloc:type_name -> pong.MatchAllocatedNtfn
-	32, // 16: pong.WaitingRoomsResponse.wr:type_name -> pong.WaitingRoom
-	32, // 17: pong.JoinWaitingRoomResponse.wr:type_name -> pong.WaitingRoom
-	32, // 18: pong.CreateWaitingRoomResponse.wr:type_name -> pong.WaitingRoom
-	35, // 19: pong.WaitingRoom.players:type_name -> pong.Player
-	35, // 20: pong.WaitingRoomResponse.players:type_name -> pong.Player
-	38, // 21: pong.PongGame.SendInput:input_type -> pong.PlayerInput
-	36, // 22: pong.PongGame.StartGameStream:input_type -> pong.StartGameStreamRequest
-	24, // 23: pong.PongGame.StartNtfnStream:input_type -> pong.StartNtfnStreamRequest
-	22, // 24: pong.PongGame.UnreadyGameStream:input_type -> pong.UnreadyGameStreamRequest
-	42, // 25: pong.PongGame.SignalReadyToPlay:input_type -> pong.SignalReadyToPlayRequest
-	33, // 26: pong.PongGame.GetWaitingRoom:input_type -> pong.WaitingRoomRequest
-	26, // 27: pong.PongGame.GetWaitingRooms:input_type -> pong.WaitingRoomsRequest
-	30, // 28: pong.PongGame.CreateWaitingRoom:input_type -> pong.CreateWaitingRoomRequest
-	28, // 29: pong.PongGame.JoinWaitingRoom:input_type -> pong.JoinWaitingRoomRequest
-	40, // 30: pong.PongGame.LeaveWaitingRoom:input_type -> pong.LeaveWaitingRoomRequest
-	12, // 31: pong.PongReferee.RefOpenEscrow:input_type -> pong.OpenEscrowRequest
-	14, // 32: pong.PongReferee.RefWaitEscrowFunding:input_type -> pong.WaitEscrowFundingRequest
-	16, // 33: pong.PongReferee.CreateMatch:input_type -> pong.CreateMatchRequest
-	19, // 34: pong.PongReferee.WaitFunding:input_type -> pong.WaitFundingRequest
-	1,  // 35: pong.PongReferee.SettlementStream:input_type -> pong.ClientMsg
-	39, // 36: pong.PongGame.SendInput:output_type -> pong.GameUpdate
-	37, // 37: pong.PongGame.StartGameStream:output_type -> pong.GameUpdateBytes
-	25, // 38: pong.PongGame.StartNtfnStream:output_type -> pong.NtfnStreamResponse
-	23, // 39: pong.PongGame.UnreadyGameStream:output_type -> pong.UnreadyGameStreamResponse
-	43, // 40: pong.PongGame.SignalReadyToPlay:output_type -> pong.SignalReadyToPlayResponse
-	34, // 41: pong.PongGame.GetWaitingRoom:output_type -> pong.WaitingRoomResponse
-	27, // 42: pong.PongGame.GetWaitingRooms:output_type -> pong.WaitingRoomsResponse
-	31, // 43: pong.PongGame.CreateWaitingRoom:output_type -> pong.CreateWaitingRoomResponse
-	29, // 44: pong.PongGame.JoinWaitingRoom:output_type -> pong.JoinWaitingRoomResponse
-	41, // 45: pong.PongGame.LeaveWaitingRoom:output_type -> pong.LeaveWaitingRoomResponse
-	13, // 46: pong.PongReferee.RefOpenEscrow:output_type -> pong.OpenEscrowResponse
-	15, // 47: pong.PongReferee.RefWaitEscrowFunding:output_type -> pong.WaitEscrowFundingUpdate
-	17, // 48: pong.PongReferee.CreateMatch:output_type -> pong.CreateMatchResponse
-	20, // 49: pong.PongReferee.WaitFunding:output_type -> pong.WaitFundingResponse
-	2,  // 50: pong.PongReferee.SettlementStream:output_type -> pong.ServerMsg
-	36, // [36:51] is the sub-list for method output_type
-	21, // [21:36] is the sub-list for method input_type
-	21, // [21:21] is the sub-list for extension type_name
-	21, // [21:21] is the sub-list for extension extendee
-	0,  // [0:21] is the sub-list for field type_name
+	48, // 10: pong.PreSigBatch.presigs:type_name -> pong.PreSigBatch.Sig
+	13, // 11: pong.GetFinalizeBundleResponse.inputs:type_name -> pong.FinalizeInput
+	21, // 12: pong.WaitFundingResponse.utxo:type_name -> pong.EscrowUTXO
+	21, // 13: pong.WaitFundingResponse.opponent_utxo:type_name -> pong.EscrowUTXO
+	0,  // 14: pong.NtfnStreamResponse.notification_type:type_name -> pong.NotificationType
+	35, // 15: pong.NtfnStreamResponse.wr:type_name -> pong.WaitingRoom
+	24, // 16: pong.NtfnStreamResponse.match_alloc:type_name -> pong.MatchAllocatedNtfn
+	35, // 17: pong.WaitingRoomsResponse.wr:type_name -> pong.WaitingRoom
+	35, // 18: pong.JoinWaitingRoomResponse.wr:type_name -> pong.WaitingRoom
+	35, // 19: pong.CreateWaitingRoomResponse.wr:type_name -> pong.WaitingRoom
+	38, // 20: pong.WaitingRoom.players:type_name -> pong.Player
+	38, // 21: pong.WaitingRoomResponse.players:type_name -> pong.Player
+	41, // 22: pong.PongGame.SendInput:input_type -> pong.PlayerInput
+	39, // 23: pong.PongGame.StartGameStream:input_type -> pong.StartGameStreamRequest
+	27, // 24: pong.PongGame.StartNtfnStream:input_type -> pong.StartNtfnStreamRequest
+	25, // 25: pong.PongGame.UnreadyGameStream:input_type -> pong.UnreadyGameStreamRequest
+	45, // 26: pong.PongGame.SignalReadyToPlay:input_type -> pong.SignalReadyToPlayRequest
+	36, // 27: pong.PongGame.GetWaitingRoom:input_type -> pong.WaitingRoomRequest
+	29, // 28: pong.PongGame.GetWaitingRooms:input_type -> pong.WaitingRoomsRequest
+	33, // 29: pong.PongGame.CreateWaitingRoom:input_type -> pong.CreateWaitingRoomRequest
+	31, // 30: pong.PongGame.JoinWaitingRoom:input_type -> pong.JoinWaitingRoomRequest
+	43, // 31: pong.PongGame.LeaveWaitingRoom:input_type -> pong.LeaveWaitingRoomRequest
+	15, // 32: pong.PongReferee.RefOpenEscrow:input_type -> pong.OpenEscrowRequest
+	17, // 33: pong.PongReferee.RefWaitEscrowFunding:input_type -> pong.WaitEscrowFundingRequest
+	19, // 34: pong.PongReferee.CreateMatch:input_type -> pong.CreateMatchRequest
+	22, // 35: pong.PongReferee.WaitFunding:input_type -> pong.WaitFundingRequest
+	1,  // 36: pong.PongReferee.SettlementStream:input_type -> pong.ClientMsg
+	12, // 37: pong.PongReferee.GetFinalizeBundle:input_type -> pong.GetFinalizeBundleRequest
+	42, // 38: pong.PongGame.SendInput:output_type -> pong.GameUpdate
+	40, // 39: pong.PongGame.StartGameStream:output_type -> pong.GameUpdateBytes
+	28, // 40: pong.PongGame.StartNtfnStream:output_type -> pong.NtfnStreamResponse
+	26, // 41: pong.PongGame.UnreadyGameStream:output_type -> pong.UnreadyGameStreamResponse
+	46, // 42: pong.PongGame.SignalReadyToPlay:output_type -> pong.SignalReadyToPlayResponse
+	37, // 43: pong.PongGame.GetWaitingRoom:output_type -> pong.WaitingRoomResponse
+	30, // 44: pong.PongGame.GetWaitingRooms:output_type -> pong.WaitingRoomsResponse
+	34, // 45: pong.PongGame.CreateWaitingRoom:output_type -> pong.CreateWaitingRoomResponse
+	32, // 46: pong.PongGame.JoinWaitingRoom:output_type -> pong.JoinWaitingRoomResponse
+	44, // 47: pong.PongGame.LeaveWaitingRoom:output_type -> pong.LeaveWaitingRoomResponse
+	16, // 48: pong.PongReferee.RefOpenEscrow:output_type -> pong.OpenEscrowResponse
+	18, // 49: pong.PongReferee.RefWaitEscrowFunding:output_type -> pong.WaitEscrowFundingUpdate
+	20, // 50: pong.PongReferee.CreateMatch:output_type -> pong.CreateMatchResponse
+	23, // 51: pong.PongReferee.WaitFunding:output_type -> pong.WaitFundingResponse
+	2,  // 52: pong.PongReferee.SettlementStream:output_type -> pong.ServerMsg
+	14, // 53: pong.PongReferee.GetFinalizeBundle:output_type -> pong.GetFinalizeBundleResponse
+	38, // [38:54] is the sub-list for method output_type
+	22, // [22:38] is the sub-list for method input_type
+	22, // [22:22] is the sub-list for extension type_name
+	22, // [22:22] is the sub-list for extension extendee
+	0,  // [0:22] is the sub-list for field type_name
 }
 
 func init() { file_pong_proto_init() }
@@ -3399,7 +3601,7 @@ func file_pong_proto_init() {
 			GoPackagePath: reflect.TypeOf(x{}).PkgPath(),
 			RawDescriptor: unsafe.Slice(unsafe.StringData(file_pong_proto_rawDesc), len(file_pong_proto_rawDesc)),
 			NumEnums:      1,
-			NumMessages:   45,
+			NumMessages:   48,
 			NumExtensions: 0,
 			NumServices:   2,
 		},

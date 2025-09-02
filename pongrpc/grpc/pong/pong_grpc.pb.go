@@ -500,6 +500,8 @@ type PongRefereeClient interface {
 	WaitFunding(ctx context.Context, in *WaitFundingRequest, opts ...grpc.CallOption) (PongReferee_WaitFundingClient, error)
 	// Phase 1 streaming settlement
 	SettlementStream(ctx context.Context, opts ...grpc.CallOption) (PongReferee_SettlementStreamClient, error)
+	// Winner fetches gamma and both presigs to finalize the exact winning draft
+	GetFinalizeBundle(ctx context.Context, in *GetFinalizeBundleRequest, opts ...grpc.CallOption) (*GetFinalizeBundleResponse, error)
 }
 
 type pongRefereeClient struct {
@@ -623,6 +625,15 @@ func (x *pongRefereeSettlementStreamClient) Recv() (*ServerMsg, error) {
 	return m, nil
 }
 
+func (c *pongRefereeClient) GetFinalizeBundle(ctx context.Context, in *GetFinalizeBundleRequest, opts ...grpc.CallOption) (*GetFinalizeBundleResponse, error) {
+	out := new(GetFinalizeBundleResponse)
+	err := c.cc.Invoke(ctx, "/pong.PongReferee/GetFinalizeBundle", in, out, opts...)
+	if err != nil {
+		return nil, err
+	}
+	return out, nil
+}
+
 // PongRefereeServer is the server API for PongReferee service.
 // All implementations must embed UnimplementedPongRefereeServer
 // for forward compatibility
@@ -636,6 +647,8 @@ type PongRefereeServer interface {
 	WaitFunding(*WaitFundingRequest, PongReferee_WaitFundingServer) error
 	// Phase 1 streaming settlement
 	SettlementStream(PongReferee_SettlementStreamServer) error
+	// Winner fetches gamma and both presigs to finalize the exact winning draft
+	GetFinalizeBundle(context.Context, *GetFinalizeBundleRequest) (*GetFinalizeBundleResponse, error)
 	mustEmbedUnimplementedPongRefereeServer()
 }
 
@@ -657,6 +670,9 @@ func (UnimplementedPongRefereeServer) WaitFunding(*WaitFundingRequest, PongRefer
 }
 func (UnimplementedPongRefereeServer) SettlementStream(PongReferee_SettlementStreamServer) error {
 	return status.Errorf(codes.Unimplemented, "method SettlementStream not implemented")
+}
+func (UnimplementedPongRefereeServer) GetFinalizeBundle(context.Context, *GetFinalizeBundleRequest) (*GetFinalizeBundleResponse, error) {
+	return nil, status.Errorf(codes.Unimplemented, "method GetFinalizeBundle not implemented")
 }
 func (UnimplementedPongRefereeServer) mustEmbedUnimplementedPongRefereeServer() {}
 
@@ -775,6 +791,24 @@ func (x *pongRefereeSettlementStreamServer) Recv() (*ClientMsg, error) {
 	return m, nil
 }
 
+func _PongReferee_GetFinalizeBundle_Handler(srv interface{}, ctx context.Context, dec func(interface{}) error, interceptor grpc.UnaryServerInterceptor) (interface{}, error) {
+	in := new(GetFinalizeBundleRequest)
+	if err := dec(in); err != nil {
+		return nil, err
+	}
+	if interceptor == nil {
+		return srv.(PongRefereeServer).GetFinalizeBundle(ctx, in)
+	}
+	info := &grpc.UnaryServerInfo{
+		Server:     srv,
+		FullMethod: "/pong.PongReferee/GetFinalizeBundle",
+	}
+	handler := func(ctx context.Context, req interface{}) (interface{}, error) {
+		return srv.(PongRefereeServer).GetFinalizeBundle(ctx, req.(*GetFinalizeBundleRequest))
+	}
+	return interceptor(ctx, in, info, handler)
+}
+
 // PongReferee_ServiceDesc is the grpc.ServiceDesc for PongReferee service.
 // It's only intended for direct use with grpc.RegisterService,
 // and not to be introspected or modified (even as a copy)
@@ -789,6 +823,10 @@ var PongReferee_ServiceDesc = grpc.ServiceDesc{
 		{
 			MethodName: "CreateMatch",
 			Handler:    _PongReferee_CreateMatch_Handler,
+		},
+		{
+			MethodName: "GetFinalizeBundle",
+			Handler:    _PongReferee_GetFinalizeBundle_Handler,
 		},
 	},
 	Streams: []grpc.StreamDesc{
