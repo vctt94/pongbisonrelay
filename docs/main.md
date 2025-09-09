@@ -72,9 +72,7 @@ This document explains how the Pong betting system works in a self-custodial way
 
 ## Client usage (TUI/CLI hints)
 
-- **Generate a key**: Create a fresh secp256k1 key; keep the private key client‑side only.
-- **Allocate escrow**: 
-...
+- **Generate a key**:
 
 ---
 

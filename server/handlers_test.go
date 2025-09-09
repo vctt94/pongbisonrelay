@@ -9,22 +9,18 @@ import (
 	"github.com/decred/dcrd/txscript/v4/stdaddr"
 )
 
-// Note: this uses dummy XA/XB and AC values; the exact values are irrelevant
-// as long as buildEscrowRedeemScript produces a deterministic redeem.
+// Note: this uses a dummy AC value; the exact value is irrelevant as long as
+// BuildPerDepositorRedeemScript produces a deterministic redeem.
 func TestPkScriptFromRedeemConsistency(t *testing.T) {
-	xaHex := "02aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"
-	xbHex := "02bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb"
 	acHex := "03cccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccc"
-	xa, _ := hex.DecodeString(xaHex)
-	xb, _ := hex.DecodeString(xbHex)
 	ac, _ := hex.DecodeString(acHex)
-	state := &refMatchState{csv: 10, xa: xa, xb: xb}
-	redeem, err := buildEscrowRedeemScript(state, ac)
+	redeem, err := buildPerDepositorRedeemScript(ac, 10)
 	if err != nil {
-		t.Fatalf("buildEscrowRedeemScript error: %v", err)
+		t.Fatalf("build redeem error: %v", err)
 	}
-	if err := setDepositFromRedeemLocked(state, hex.EncodeToString(redeem)); err != nil {
-		t.Fatalf("setDepositFromRedeemLocked error: %v", err)
+	pkHex, _, err := pkScriptAndAddrFromRedeem(redeem, chaincfg.TestNet3Params())
+	if err != nil {
+		t.Fatalf("pkScript from redeem error: %v", err)
 	}
 
 	// Address from redeem
@@ -35,7 +31,7 @@ func TestPkScriptFromRedeemConsistency(t *testing.T) {
 	}
 
 	// Address from pkScript
-	pkb, err := hex.DecodeString(state.depositPkScriptHex)
+	pkb, err := hex.DecodeString(pkHex)
 	if err != nil {
 		t.Fatalf("decode pkScriptHex: %v", err)
 	}
@@ -78,27 +74,17 @@ func TestRedeemScriptNoOpponentKey(t *testing.T) {
 	acHex := "03cccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccc"
 	ac, _ := hex.DecodeString(acHex)
 
-	xa1Hex := "02aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"
-	xb1Hex := "02bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb"
-	xa2Hex := "020101010101010101010101010101010101010101010101010101010101010101"
-	xb2Hex := "020202020202020202020202020202020202020202020202020202020202020202"
-	xa1, _ := hex.DecodeString(xa1Hex)
-	xb1, _ := hex.DecodeString(xb1Hex)
-	xa2, _ := hex.DecodeString(xa2Hex)
-	xb2, _ := hex.DecodeString(xb2Hex)
-
-	s1 := &refMatchState{csv: 10, xa: xa1, xb: xb1}
-	s2 := &refMatchState{csv: 10, xa: xa2, xb: xb2}
-
-	r1, err := buildEscrowRedeemScript(s1, ac)
+	// Two different XA/XB pairs should not affect the redeem produced by
+	// BuildPerDepositorRedeemScript since it depends only on AC and CSV.
+	r1, err := buildPerDepositorRedeemScript(ac, 10)
 	if err != nil {
-		t.Fatalf("buildEscrowRedeemScript s1: %v", err)
+		t.Fatalf("build redeem r1: %v", err)
 	}
-	r2, err := buildEscrowRedeemScript(s2, ac)
+	r2, err := buildPerDepositorRedeemScript(ac, 10)
 	if err != nil {
-		t.Fatalf("buildEscrowRedeemScript s2: %v", err)
+		t.Fatalf("build redeem r2: %v", err)
 	}
 	if hex.EncodeToString(r1) != hex.EncodeToString(r2) {
-		t.Fatalf("redeem differs with different XA/XB; got %s vs %s", hex.EncodeToString(r1), hex.EncodeToString(r2))
+		t.Fatalf("redeem differs unexpectedly; got %s vs %s", hex.EncodeToString(r1), hex.EncodeToString(r2))
 	}
 }

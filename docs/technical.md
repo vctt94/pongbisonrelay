@@ -166,7 +166,57 @@ s·G + e·X = (s' + γ)·G + e·X
 
 ---
 
-## 10) Appendix — Equations (DCRv0)
+## 10) Appendix — Script Views (OP codes)
+
+This section lists the exact scripts used in the current implementation.
+
+### Deposit redeem script (P2SH redeem, script version 0)
+Spends are by the depositor only, with an immediate path and a CSV-delayed path.
+
+```
+OP_IF
+  <A_c (33B)> 2 OP_CHECKSIGALTVERIFY
+  OP_TRUE
+OP_ELSE
+  <csv_blocks> OP_CHECKSEQUENCEVERIFY OP_DROP
+  <A_c (33B)> 2 OP_CHECKSIGALTVERIFY
+  OP_TRUE
+OP_ENDIF
+```
+
+Where:
+- `<A_c>`: depositor’s compressed secp256k1 pubkey (33 bytes).
+- `2`: Schnorr-secp256k1 signature type for OP_CHECKSIGALT.
+- `csv_blocks`: relative timelock enforced via OP_CHECKSEQUENCEVERIFY.
+
+### Deposit P2SH pkScript (script version 0)
+```
+OP_HASH160 <Hash160(redeem)> OP_EQUAL
+```
+
+### Unlocking scripts for the deposit
+- Immediate path (selects OP_IF branch):
+```
+<sig65> OP_1 <redeem>
+```
+- CSV refund path (selects OP_ELSE branch):
+```
+<sig65> OP_0 <redeem>
+```
+
+Notes:
+- `sig65 = r || s || 0x01`, where `0x01` is SigHashAll.
+- CSV branch requires the input’s sequence to satisfy `csv_blocks` per Decred relative timelock rules.
+
+### Winner payout output script (script version 0)
+Payout is P2PK-alt to the winner’s compressed pubkey.
+```
+<X_winner (33B)> 2 OP_CHECKSIGALT
+```
+
+---
+
+## 11) Appendix — Equations (DCRv0)
 
 - Challenge: `e = BLAKE256(r || m)`
 - Pre-sig:   `s' = k − e·x (mod n)`

@@ -1,9 +1,11 @@
-package client
+package server
 
 import (
 	"bytes"
 	"encoding/hex"
 	"testing"
+
+	clientpkg "github.com/vctt94/pong-bisonrelay/client"
 
 	"github.com/decred/dcrd/dcrec/secp256k1/v4"
 	"github.com/decred/dcrd/dcrec/secp256k1/v4/schnorr"
@@ -11,47 +13,14 @@ import (
 	"github.com/decred/dcrd/wire"
 )
 
-// buildWinnerRedeem builds the minimal winner-branch snippet used in this repo:
-// <P_c> OP_SWAP OP_2 OP_CHECKSIGALTVERIFY OP_TRUE
-func buildWinnerRedeem(pub33 []byte) []byte {
-	b := txscript.NewScriptBuilder()
-	b.AddData(pub33)
-	b.AddOp(txscript.OP_SWAP)
-	b.AddOp(txscript.OP_2)
-	b.AddOp(txscript.OP_CHECKSIGALTVERIFY)
-	b.AddOp(txscript.OP_TRUE)
-	s, _ := b.Script()
-	return s
-}
-
-// deriveEvenYGamma derives a random gamma and returns (gamma32, Tcompressed-evenY).
-func deriveEvenYGamma() ([32]byte, []byte) {
-	// Use a random private key as gamma source.
-	priv, _ := secp256k1.GeneratePrivateKey()
-	var g32 [32]byte
-	copy(g32[:], priv.Serialize())
-	T := priv.PubKey()
-	comp := T.SerializeCompressed()
-	if comp[0] == 0x03 { // odd Y → negate gamma
-		var sc secp256k1.ModNScalar
-		sc.SetByteSlice(g32[:])
-		var neg secp256k1.ModNScalar
-		neg.NegateVal(&sc)
-		g32 = [32]byte{}
-		nb := neg.Bytes()
-		copy(g32[:], nb[:])
-		priv = secp256k1.PrivKeyFromBytes(nb[:])
-		T = priv.PubKey()
-		comp = T.SerializeCompressed()
-	}
-	return g32, comp
-}
-
 func TestFinalizeSchnorrSuccess(t *testing.T) {
 	// Key pair for the depositor
 	xPriv, _ := secp256k1.GeneratePrivateKey()
 	X := xPriv.PubKey().SerializeCompressed()
-	redeem := buildWinnerRedeem(X)
+	redeem, err := buildPerDepositorRedeemScript(X, 10)
+	if err != nil {
+		t.Fatalf("build redeem: %v", err)
+	}
 
 	// Draft tx spending arbitrary prevout with 1 output (values irrelevant for m here)
 	var prev wire.OutPoint
@@ -66,12 +35,18 @@ func TestFinalizeSchnorrSuccess(t *testing.T) {
 	}
 	mHex := hex.EncodeToString(mNode)
 
-	// Adaptor secret and point (even-Y)
-	gamma32, Tcomp := deriveEvenYGamma()
-	THex := hex.EncodeToString(Tcomp)
+	// Adaptor secret and point (even-Y) using server's derivation method
+	const pocServerPrivHex = "11ee22dd33cc44bb55aa66ff77ee88dd99cc00bbaa11223344556677889900aa"
+	gammaHex, THex := deriveAdaptorGamma("", "test", 0, "test", pocServerPrivHex)
+	gb, err := hex.DecodeString(gammaHex)
+	if err != nil || len(gb) != 32 {
+		t.Fatalf("derive gamma: %v", err)
+	}
+	var gamma32 [32]byte
+	copy(gamma32[:], gb)
 
 	// Compute pre-signature (R', s') bound to m and T
-	rComp, sPrime, err := ComputePreSigMinusFull(hex.EncodeToString(xPriv.Serialize()), mHex, THex)
+	rComp, sPrime, err := clientpkg.ComputePreSigMinusFull(hex.EncodeToString(xPriv.Serialize()), mHex, THex)
 	if err != nil {
 		t.Fatalf("ComputePreSigMinusFull: %v", err)
 	}
@@ -105,7 +80,10 @@ func TestFinalizeSchnorrSuccess(t *testing.T) {
 func TestFinalizeSchnorrFailsOnMutation(t *testing.T) {
 	xPriv, _ := secp256k1.GeneratePrivateKey()
 	X := xPriv.PubKey().SerializeCompressed()
-	redeem := buildWinnerRedeem(X)
+	redeem, err := buildPerDepositorRedeemScript(X, 10)
+	if err != nil {
+		t.Fatalf("build redeem: %v", err)
+	}
 
 	var prev wire.OutPoint
 	tx := wire.NewMsgTx()
@@ -118,9 +96,15 @@ func TestFinalizeSchnorrFailsOnMutation(t *testing.T) {
 	}
 	mHex := hex.EncodeToString(mNode)
 
-	gamma32, Tcomp := deriveEvenYGamma()
-	THex := hex.EncodeToString(Tcomp)
-	rComp, sPrime, err := ComputePreSigMinusFull(hex.EncodeToString(xPriv.Serialize()), mHex, THex)
+	const pocServerPrivHex2 = "11ee22dd33cc44bb55aa66ff77ee88dd99cc00bbaa11223344556677889900aa"
+	gammaHex2, THex := deriveAdaptorGamma("", "test", 0, "test", pocServerPrivHex2)
+	gb2, err := hex.DecodeString(gammaHex2)
+	if err != nil || len(gb2) != 32 {
+		t.Fatalf("derive gamma: %v", err)
+	}
+	var gamma32 [32]byte
+	copy(gamma32[:], gb2)
+	rComp, sPrime, err := clientpkg.ComputePreSigMinusFull(hex.EncodeToString(xPriv.Serialize()), mHex, THex)
 	if err != nil {
 		t.Fatalf("ComputePreSigMinusFull: %v", err)
 	}
