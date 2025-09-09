@@ -2,6 +2,7 @@ package client
 
 import (
 	"context"
+	"encoding/hex"
 	"errors"
 	"fmt"
 	"io"
@@ -10,6 +11,7 @@ import (
 	"sync"
 	"time"
 
+	"github.com/decred/dcrd/dcrec/secp256k1/v4"
 	"github.com/decred/slog"
 
 	tea "github.com/charmbracelet/bubbletea"
@@ -38,6 +40,7 @@ type PongClientCfg struct {
 	// initialization.
 	Notifications *NotificationManager
 }
+
 type PongClient struct {
 	sync.RWMutex
 	ID string
@@ -70,6 +73,40 @@ type PongClient struct {
 	cancelFunc   context.CancelFunc
 	reconnecting bool
 	reconnectMu  sync.Mutex
+
+	// Settlement session key (in-memory, per-process)
+	settlePrivHex string
+	settlePubHex  string
+}
+
+// RequireSettlementSessionKey returns the current session key or an error if unset.
+func (pc *PongClient) RequireSettlementSessionKey() (string, string, error) {
+	pc.RLock()
+	defer pc.RUnlock()
+	if pc.settlePrivHex == "" || pc.settlePubHex == "" {
+		return "", "", fmt.Errorf("no settlement session key; generate one with [K] in the UI or via GenerateNewSettlementSessionKey()")
+	}
+	return pc.settlePrivHex, pc.settlePubHex, nil
+}
+
+// GenerateNewSettlementSessionKey always creates a new session key and overwrites the cached one.
+func (pc *PongClient) GenerateNewSettlementSessionKey() (string, string, error) {
+	pc.Lock()
+	defer pc.Unlock()
+	p, err := secp256k1.GeneratePrivateKey()
+	if err != nil {
+		return "", "", err
+	}
+	pc.settlePrivHex = hex.EncodeToString(p.Serialize())
+	pc.settlePubHex = hex.EncodeToString(p.PubKey().SerializeCompressed())
+	return pc.settlePrivHex, pc.settlePubHex, nil
+}
+
+// GetSettlementSessionKey returns the currently cached session key (may be empty strings).
+func (pc *PongClient) GetSettlementSessionKey() (string, string) {
+	pc.RLock()
+	defer pc.RUnlock()
+	return pc.settlePrivHex, pc.settlePubHex
 }
 
 func (pc *PongClient) StartNotifier(ctx context.Context) error {
@@ -313,7 +350,9 @@ func (pc *PongClient) reconnect() error {
 			}),
 		)
 
-		if err == nil {
+		if err != nil {
+			// Sleep with backoff before retrying below
+		} else {
 			// Successfully reconnected
 			pc.conn = pongConn
 			pc.gc = pong.NewPongGameClient(pongConn)
@@ -488,4 +527,54 @@ func (pc *PongClient) RefStartSettlementStream(ctx context.Context) (pong.PongRe
 func (pc *PongClient) RefGetFinalizeBundle(matchID string) (*pong.GetFinalizeBundleResponse, error) {
 	ctx := context.Background()
 	return pc.rc.GetFinalizeBundle(ctx, &pong.GetFinalizeBundleRequest{MatchId: matchID, WinnerUid: pc.ID})
+}
+
+// OpenEscrowWithSession opens an escrow using the cached settlement session pubkey.
+func (pc *PongClient) OpenEscrowWithSession(ctx context.Context, payoutPubkey []byte, betAtoms uint64, csvBlocks uint32) (*pong.OpenEscrowResponse, error) {
+	pc.RLock()
+	pubHex := pc.settlePubHex
+	pc.RUnlock()
+	if pubHex == "" {
+		return nil, fmt.Errorf("no settlement session key; generate one with GenerateNewSettlementSessionKey()")
+	}
+	pubBytes, err := hex.DecodeString(pubHex)
+	if err != nil {
+		return nil, fmt.Errorf("bad session pubkey: %w", err)
+	}
+	return pc.RefOpenEscrow(pc.ID, pubBytes, payoutPubkey, betAtoms, csvBlocks)
+}
+
+// StartSettlementHandshake performs HELLO -> REQ -> VERIFY_OK -> SERVER_OK.
+func (pc *PongClient) StartSettlementHandshake(ctx context.Context, matchID string) error {
+	priv, _, err := pc.RequireSettlementSessionKey()
+	if err != nil {
+		return err
+	}
+	stream, err := pc.RefStartSettlementStream(ctx)
+	if err != nil {
+		return err
+	}
+	pubHex := pc.settlePubHex
+	pubBytes, _ := hex.DecodeString(pubHex)
+	_ = stream.Send(&pong.ClientMsg{MatchId: matchID, Kind: &pong.ClientMsg_Hello{Hello: &pong.Hello{MatchId: matchID, CompPubkey: pubBytes, ClientVersion: "poc"}}})
+	for {
+		in, err := stream.Recv()
+		if err != nil {
+			_ = stream.CloseSend()
+			return err
+		}
+		if req := in.GetReq(); req != nil {
+			verify, err := BuildVerifyOk(priv, req)
+			if err != nil {
+				_ = stream.CloseSend()
+				return err
+			}
+			_ = stream.Send(&pong.ClientMsg{MatchId: matchID, Kind: &pong.ClientMsg_VerifyOk{VerifyOk: verify}})
+			continue
+		}
+		if ok := in.GetOk(); ok != nil {
+			_ = stream.CloseSend()
+			return nil
+		}
+	}
 }

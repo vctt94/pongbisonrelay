@@ -46,7 +46,7 @@ func TestFinalizeSchnorrSuccess(t *testing.T) {
 	copy(gamma32[:], gb)
 
 	// Compute pre-signature (R', s') bound to m and T
-	rComp, sPrime, err := clientpkg.ComputePreSigMinusFull(hex.EncodeToString(xPriv.Serialize()), mHex, THex)
+	rComp, sPrime, err := clientpkg.DeriveAdaptorPreSig(hex.EncodeToString(xPriv.Serialize()), mHex, THex)
 	if err != nil {
 		t.Fatalf("ComputePreSigMinusFull: %v", err)
 	}
@@ -104,7 +104,7 @@ func TestFinalizeSchnorrFailsOnMutation(t *testing.T) {
 	}
 	var gamma32 [32]byte
 	copy(gamma32[:], gb2)
-	rComp, sPrime, err := clientpkg.ComputePreSigMinusFull(hex.EncodeToString(xPriv.Serialize()), mHex, THex)
+	rComp, sPrime, err := clientpkg.DeriveAdaptorPreSig(hex.EncodeToString(xPriv.Serialize()), mHex, THex)
 	if err != nil {
 		t.Fatalf("ComputePreSigMinusFull: %v", err)
 	}
