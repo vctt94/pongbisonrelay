@@ -24,11 +24,12 @@ import (
 type UpdatedMsg struct{}
 
 type PongClientCfg struct {
-	ServerAddr    string      // Address of the Pong server
-	GRPCCertPath  string      // Cert to the grpc server
-	Log           slog.Logger // Application's logger
-	ChatClient    types.ChatServiceClient
-	PaymentClient types.PaymentsServiceClient
+	ServerAddr     string      // Address of the Pong server
+	GRPCCertPath   string      // Cert to the grpc server
+	GRPCServerName string      // Expected server name (CN/SAN) for TLS
+	Log            slog.Logger // Application's logger
+	ChatClient     types.ChatServiceClient
+	PaymentClient  types.PaymentsServiceClient
 
 	// Notifications tracks handlers for client events. If nil, the client
 	// will initialize a new notification manager. Specifying a
@@ -49,6 +50,8 @@ type PongClient struct {
 	conn         *grpc.ClientConn
 	// game client
 	gc pong.PongGameClient
+	// referee client
+	rc pong.PongRefereeClient
 	// br clientrpc
 	chat    types.ChatServiceClient
 	payment types.PaymentsServiceClient
@@ -108,6 +111,7 @@ func (pc *PongClient) StartNotifier(ctx context.Context) error {
 				case pong.NotificationType_ON_WR_CREATED:
 					pc.ntfns.notifyOnWRCreated(ntfn.Wr, time.Now())
 				case pong.NotificationType_MESSAGE:
+					pc.UpdatesCh <- ntfn
 				case pong.NotificationType_PLAYER_JOINED_WR:
 					pc.ntfns.notifyPlayerJoinedWR(ntfn.Wr, time.Now())
 				case pong.NotificationType_PLAYER_LEFT_WR:
@@ -218,24 +222,26 @@ func (pc *PongClient) GetWRPlayers() ([]*pong.Player, error) {
 	return wr.Players, nil
 }
 
-func (pc *PongClient) CreateWaitingRoom(clientId string, betAmt int64) (*pong.WaitingRoom, error) {
+func (pc *PongClient) CreateWaitingRoom(clientId string, betAmt int64, escrowID string) (*pong.WaitingRoom, error) {
 	ctx := context.Background()
-	res, err := pc.gc.CreateWaitingRoom(ctx, &pong.CreateWaitingRoomRequest{
-		HostId: clientId,
-		BetAmt: betAmt,
-	})
+	req := &pong.CreateWaitingRoomRequest{HostId: clientId, BetAmt: betAmt}
+	if escrowID != "" {
+		req.EscrowId = escrowID
+	}
+	res, err := pc.gc.CreateWaitingRoom(ctx, req)
 	if err != nil {
 		return nil, fmt.Errorf("error creating wr: %w", err)
 	}
 	return res.Wr, nil
 }
 
-func (pc *PongClient) JoinWaitingRoom(roomID string) (*pong.JoinWaitingRoomResponse, error) {
+func (pc *PongClient) JoinWaitingRoom(roomID string, escrowID string) (*pong.JoinWaitingRoomResponse, error) {
 	ctx := context.Background()
-	res, err := pc.gc.JoinWaitingRoom(ctx, &pong.JoinWaitingRoomRequest{
-		ClientId: pc.ID,
-		RoomId:   roomID,
-	})
+	req := &pong.JoinWaitingRoomRequest{ClientId: pc.ID, RoomId: roomID}
+	if escrowID != "" {
+		req.EscrowId = escrowID
+	}
+	res, err := pc.gc.JoinWaitingRoom(ctx, req)
 	if err != nil {
 		return nil, fmt.Errorf("error joining wr: %w", err)
 	}
@@ -311,6 +317,7 @@ func (pc *PongClient) reconnect() error {
 			// Successfully reconnected
 			pc.conn = pongConn
 			pc.gc = pong.NewPongGameClient(pongConn)
+			pc.rc = pong.NewPongRefereeClient(pongConn)
 
 			// Re-establish streams
 			err = pc.StartNotifier(pc.ctx)
@@ -393,9 +400,10 @@ func NewPongClient(clientID string, cfg *PongClientCfg) (*PongClient, error) {
 		cfg:        cfg,
 		conn:       pongConn,
 		gc:         pong.NewPongGameClient(pongConn),
+		rc:         pong.NewPongRefereeClient(pongConn),
 		chat:       cfg.ChatClient,
 		payment:    cfg.PaymentClient,
-		UpdatesCh:  make(chan tea.Msg),
+		UpdatesCh:  make(chan tea.Msg, 64),
 		ErrorsCh:   make(chan error),
 		log:        cfg.Log,
 		ntfns:      ntfns,
@@ -434,6 +442,7 @@ func (pc *PongClient) SignalUnready() error {
 	}
 
 	// Notify UI of state change
+	pc.IsReady = false
 	pc.UpdatesCh <- UpdatedMsg{}
 
 	return nil
@@ -456,4 +465,27 @@ func (pc *PongClient) SignalReadyToPlay(gameID string) error {
 	}
 
 	return nil
+}
+
+// Referee helpers
+func (pc *PongClient) RefCreateMatch(aCompHex, bCompHex string, csv uint32) (*pong.CreateMatchResponse, error) {
+	ctx := context.Background()
+	return pc.rc.CreateMatch(ctx, &pong.CreateMatchRequest{AC: aCompHex, BC: bCompHex, Csv: csv})
+}
+
+// Escrow-first referee helpers
+func (pc *PongClient) RefOpenEscrow(ownerID string, compPub []byte, payoutPubkey []byte, betAtoms uint64, csv uint32) (*pong.OpenEscrowResponse, error) {
+	ctx := context.Background()
+	return pc.rc.RefOpenEscrow(ctx, &pong.OpenEscrowRequest{OwnerUid: ownerID, CompPubkey: compPub, PayoutPubkey: payoutPubkey, BetAtoms: betAtoms, CsvBlocks: csv})
+}
+
+// RefStartSettlementStream starts the bidirectional settlement stream.
+func (pc *PongClient) RefStartSettlementStream(ctx context.Context) (pong.PongReferee_SettlementStreamClient, error) {
+	return pc.rc.SettlementStream(ctx)
+}
+
+// RefGetFinalizeBundle fetches gamma and both presigs for the winning branch.
+func (pc *PongClient) RefGetFinalizeBundle(matchID string) (*pong.GetFinalizeBundleResponse, error) {
+	ctx := context.Background()
+	return pc.rc.GetFinalizeBundle(ctx, &pong.GetFinalizeBundleRequest{MatchId: matchID, WinnerUid: pc.ID})
 }

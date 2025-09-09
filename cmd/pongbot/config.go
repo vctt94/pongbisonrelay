@@ -18,6 +18,12 @@ type PongBotConfig struct {
 	GRPCHost  string
 	GRPCPort  string
 	HttpPort  string
+
+	// dcrd connectivity (optional)
+	DcrdHost string
+	DcrdCert string
+	DcrdUser string
+	DcrdPass string
 }
 
 // Load config function
@@ -40,6 +46,10 @@ func LoadPongBotConfig(dataDir, configFile string) (*PongBotConfig, error) {
 		GRPCHost:  baseConfig.ExtraConfig["grpchost"],
 		GRPCPort:  baseConfig.ExtraConfig["grpcport"],
 		HttpPort:  baseConfig.ExtraConfig["httpport"],
+		DcrdHost:  baseConfig.ExtraConfig["dcrdhost"],
+		DcrdCert:  baseConfig.ExtraConfig["dcrdcert"],
+		DcrdUser:  baseConfig.ExtraConfig["dcrduser"],
+		DcrdPass:  baseConfig.ExtraConfig["dcrdpass"],
 	}
 
 	// Load the config file if it exists

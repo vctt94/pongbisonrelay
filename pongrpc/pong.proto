@@ -20,6 +20,193 @@ service PongGame {
   rpc LeaveWaitingRoom(LeaveWaitingRoomRequest) returns (LeaveWaitingRoomResponse);
 }
 
+// Referee service coordinating escrow and settlement
+service PongReferee {
+  // Escrow-first funding
+  rpc RefOpenEscrow (OpenEscrowRequest) returns (OpenEscrowResponse);
+  rpc RefWaitEscrowFunding (WaitEscrowFundingRequest) returns (stream WaitEscrowFundingUpdate);
+  rpc CreateMatch(CreateMatchRequest) returns (CreateMatchResponse);
+  // New endpoints for server-managed deposits and settlement
+  // v0-min POC minimal API
+  rpc WaitFunding(WaitFundingRequest) returns (stream WaitFundingResponse);
+  // Phase 1 streaming settlement
+  rpc SettlementStream(stream ClientMsg) returns (stream ServerMsg);
+  // Winner fetches gamma and both presigs to finalize the exact winning draft
+  rpc GetFinalizeBundle(GetFinalizeBundleRequest) returns (GetFinalizeBundleResponse);
+}
+
+
+// === Phase 1 streaming messages ===
+message ClientMsg {
+  string match_id = 1;
+  oneof kind {
+    Hello hello = 10;
+    // Deprecated: presigs/ack split. Use verify_ok.
+    PreSigBatch presigs = 11;
+    Ack ack = 12;
+    // New minimal handshake message carrying ack_digest and presigs.
+    VerifyOk verify_ok = 13;
+  }
+}
+
+message ServerMsg {
+  string match_id = 1;
+  oneof kind {
+    NeedPreSigs req = 11;
+    RevealGamma reveal = 12; // Not used in minimal handshake; gamma delivered later via separate RPC.
+    Info info = 13;
+    // New handshake completion ack from server.
+    ServerOk ok = 14;
+  }
+}
+
+message Hello {
+  string match_id = 1;
+  bytes comp_pubkey = 2;  // 33B compressed pubkey (A_c/B_c)
+  string client_version = 3;
+}
+
+
+
+message NeedPreSigs {
+  string draft_tx_hex = 2;
+  message PerInput {
+    string input_id = 1;
+    string redeem_script_hex = 2;
+    string m_hex = 3;
+    bytes  T_compressed = 4; // 33B
+  }
+  repeated PerInput inputs = 4;
+}
+
+// Client VERIFY_OK message: verifies draft, builds presigs, and includes ack digest.
+message VerifyOk {
+  bytes ack_digest = 1; // 32B BLAKE256(draft_tx_hex || canonical(inputs))
+  repeated PreSig presigs = 2;
+}
+
+// Per-input pre-signature using minus variant and normalized R'.
+message PreSig {
+  string input_id = 1;
+  bytes  Rprime_compressed = 2; // 33B normalized (even-Y) R'
+  bytes  sprime32 = 3;         // 32B little endian mod-n scalar
+}
+
+message PreSigBatch {
+  message Sig {
+    string input_id = 1;
+    bytes  rprime32 = 2; // 32B (Deprecated; use PreSig with full R')
+    bytes  sprime32 = 3; // 32B (Deprecated; use PreSig)
+  }
+  repeated Sig presigs = 2;
+}
+
+message RevealGamma {
+  bytes gamma32 = 1; // 32B
+}
+
+message Ack { string note = 1; }
+message Info { string text = 1; }
+
+// Server SERVER_OK message: acknowledges successful verification.
+message ServerOk { bytes ack_digest = 1; }
+
+// === Finalization bundle for winner ===
+message GetFinalizeBundleRequest {
+  string match_id = 1;   // "<wrID>|<hostUID>"
+  string winner_uid = 2; // caller uid
+}
+
+message FinalizeInput {
+  string input_id = 1;
+  string redeem_script_hex = 2;
+  bytes  Rprime_compressed = 3;
+  bytes  sprime32 = 4;
+}
+
+message GetFinalizeBundleResponse {
+  string draft_tx_hex = 1; // exact winning branch draft
+  bytes  gamma32 = 2;      // 32B gamma (normalized to even-Y T)
+  repeated FinalizeInput inputs = 3; // one per vin in draft
+}
+
+// === Existing API below ===
+// Escrow-first RPCs
+message OpenEscrowRequest {
+  string owner_uid = 1;
+  bytes  comp_pubkey = 2;     // 33 bytes (compressed)
+  uint64 bet_atoms = 3;
+  uint32 csv_blocks = 4;
+  bytes  payout_pubkey = 5; // 33B compressed pubkey address for payout
+}
+
+message OpenEscrowResponse {
+  string escrow_id = 1;
+  string deposit_address = 2;
+  string pk_script_hex = 3;
+}
+
+message WaitEscrowFundingRequest {
+  string escrow_id = 1;
+}
+
+message WaitEscrowFundingUpdate {
+  bool   funded = 1;
+  bool   confirmed = 2;
+  string utxo_id = 3;      // "txid:vout"
+  uint64 value_atoms = 4;
+}
+
+message CreateMatchRequest {
+  string a_c = 1; // compressed pubkey hex (33B)
+  string b_c = 2; // compressed pubkey hex (33B)
+  uint32 csv = 3; // CSV delay blocks
+}
+
+message CreateMatchResponse {
+  string match_id = 1;
+  string s_c = 2; // server compressed pubkey hex (33B)
+  string a_a = 3; // coeff a_A (32B hex)
+  string a_b = 4; // coeff a_B (32B hex)
+  string a_s = 5; // coeff a_S (32B hex)
+  string x_a = 6; // branch agg pubkey for A wins (33B hex)
+  string x_b = 7; // branch agg pubkey for B wins (33B hex)
+  uint32 csv = 8; // echoed
+  string escrow_template_a = 9; // redeemScript hex template (may contain placeholders)
+  string escrow_template_b = 10; // redeemScript hex template (may contain placeholders)
+}
+
+message EscrowUTXO {
+  string txid = 1;
+  uint32 vout = 2;
+  uint64 value = 3; // atoms
+  string redeem_script_hex = 4;
+  string pk_script_hex = 5;
+  string owner = 6; // "A" or "B"
+}
+
+
+
+
+message WaitFundingRequest {
+  string escrow_id = 1;
+}
+
+message WaitFundingResponse {
+  uint32 confs = 1;
+  uint64 value = 2;
+  EscrowUTXO utxo = 3;
+  // Optional: if both players' deposits are known in the room, the server can
+  // include the opponent UTXO to prepare two-input drafts.
+  EscrowUTXO opponent_utxo = 4;
+}
+
+// Deprecated both-branches draft RPC removed; server pushes NeedPreSigs via SettlementStream
+
+
+
+
+
 // Notification Messages
 enum NotificationType {
   UNKNOWN = 0;
@@ -35,6 +222,16 @@ enum NotificationType {
   PLAYER_LEFT_WR = 10;
   COUNTDOWN_UPDATE = 11;
   GAME_READY_TO_PLAY = 12;
+  MATCH_ALLOCATED = 13;
+}
+
+message MatchAllocatedNtfn {
+  string match_id = 1;
+  string room_id = 2;
+  uint64 bet_atoms = 3;
+  uint32 csv_blocks = 4;
+  bytes  a_comp = 5; // optional debug
+  bytes  b_comp = 6; // optional debug
 }
 
 message UnreadyGameStreamRequest {
@@ -58,6 +255,7 @@ message NtfnStreamResponse {
   string room_id = 8;
   WaitingRoom wr=9;
   bool ready = 10;
+  MatchAllocatedNtfn match_alloc = 11;
 }
 
 // Waiting Room Messages
@@ -72,6 +270,7 @@ message WaitingRoomsResponse {
 message JoinWaitingRoomRequest {
   string room_id = 1;
   string client_id = 2;
+  string escrow_id = 3; // optional
 }
 
 message JoinWaitingRoomResponse {
@@ -81,6 +280,7 @@ message JoinWaitingRoomResponse {
 message CreateWaitingRoomRequest {
   string host_id = 1;
   int64 betAmt = 2;
+  string escrow_id = 3; // optional; server may auto-pick if empty
 }
 
 message CreateWaitingRoomResponse {

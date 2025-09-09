@@ -28,6 +28,7 @@ class NotificationType extends $pb.ProtobufEnum {
   static const NotificationType PLAYER_LEFT_WR = NotificationType._(10, _omitEnumNames ? '' : 'PLAYER_LEFT_WR');
   static const NotificationType COUNTDOWN_UPDATE = NotificationType._(11, _omitEnumNames ? '' : 'COUNTDOWN_UPDATE');
   static const NotificationType GAME_READY_TO_PLAY = NotificationType._(12, _omitEnumNames ? '' : 'GAME_READY_TO_PLAY');
+  static const NotificationType MATCH_ALLOCATED = NotificationType._(13, _omitEnumNames ? '' : 'MATCH_ALLOCATED');
 
   static const $core.List<NotificationType> values = <NotificationType> [
     UNKNOWN,
@@ -43,6 +44,7 @@ class NotificationType extends $pb.ProtobufEnum {
     PLAYER_LEFT_WR,
     COUNTDOWN_UPDATE,
     GAME_READY_TO_PLAY,
+    MATCH_ALLOCATED,
   ];
 
   static final $core.Map<$core.int, NotificationType> _byValue = $pb.ProtobufEnum.initByValue(values);

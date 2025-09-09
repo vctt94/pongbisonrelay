@@ -30,6 +30,7 @@ const NotificationType$json = {
     {'1': 'PLAYER_LEFT_WR', '2': 10},
     {'1': 'COUNTDOWN_UPDATE', '2': 11},
     {'1': 'GAME_READY_TO_PLAY', '2': 12},
+    {'1': 'MATCH_ALLOCATED', '2': 13},
   ],
 };
 
@@ -39,7 +40,419 @@ final $typed_data.Uint8List notificationTypeDescriptor = $convert.base64Decode(
     'FSVBACEgwKCEdBTUVfRU5EEAMSGQoVT1BQT05FTlRfRElTQ09OTkVDVEVEEAQSFQoRQkVUX0FN'
     'T1VOVF9VUERBVEUQBRIUChBQTEFZRVJfSk9JTkVEX1dSEAYSEQoNT05fV1JfQ1JFQVRFRBAHEh'
     'MKD09OX1BMQVlFUl9SRUFEWRAIEhEKDU9OX1dSX1JFTU9WRUQQCRISCg5QTEFZRVJfTEVGVF9X'
-    'UhAKEhQKEENPVU5URE9XTl9VUERBVEUQCxIWChJHQU1FX1JFQURZX1RPX1BMQVkQDA==');
+    'UhAKEhQKEENPVU5URE9XTl9VUERBVEUQCxIWChJHQU1FX1JFQURZX1RPX1BMQVkQDBITCg9NQV'
+    'RDSF9BTExPQ0FURUQQDQ==');
+
+@$core.Deprecated('Use clientMsgDescriptor instead')
+const ClientMsg$json = {
+  '1': 'ClientMsg',
+  '2': [
+    {'1': 'match_id', '3': 1, '4': 1, '5': 9, '10': 'matchId'},
+    {'1': 'hello', '3': 10, '4': 1, '5': 11, '6': '.pong.Hello', '9': 0, '10': 'hello'},
+    {'1': 'presigs', '3': 11, '4': 1, '5': 11, '6': '.pong.PreSigBatch', '9': 0, '10': 'presigs'},
+    {'1': 'ack', '3': 12, '4': 1, '5': 11, '6': '.pong.Ack', '9': 0, '10': 'ack'},
+    {'1': 'verify_ok', '3': 13, '4': 1, '5': 11, '6': '.pong.VerifyOk', '9': 0, '10': 'verifyOk'},
+  ],
+  '8': [
+    {'1': 'kind'},
+  ],
+};
+
+/// Descriptor for `ClientMsg`. Decode as a `google.protobuf.DescriptorProto`.
+final $typed_data.Uint8List clientMsgDescriptor = $convert.base64Decode(
+    'CglDbGllbnRNc2cSGQoIbWF0Y2hfaWQYASABKAlSB21hdGNoSWQSIwoFaGVsbG8YCiABKAsyCy'
+    '5wb25nLkhlbGxvSABSBWhlbGxvEi0KB3ByZXNpZ3MYCyABKAsyES5wb25nLlByZVNpZ0JhdGNo'
+    'SABSB3ByZXNpZ3MSHQoDYWNrGAwgASgLMgkucG9uZy5BY2tIAFIDYWNrEi0KCXZlcmlmeV9vax'
+    'gNIAEoCzIOLnBvbmcuVmVyaWZ5T2tIAFIIdmVyaWZ5T2tCBgoEa2luZA==');
+
+@$core.Deprecated('Use serverMsgDescriptor instead')
+const ServerMsg$json = {
+  '1': 'ServerMsg',
+  '2': [
+    {'1': 'match_id', '3': 1, '4': 1, '5': 9, '10': 'matchId'},
+    {'1': 'req', '3': 11, '4': 1, '5': 11, '6': '.pong.NeedPreSigs', '9': 0, '10': 'req'},
+    {'1': 'reveal', '3': 12, '4': 1, '5': 11, '6': '.pong.RevealGamma', '9': 0, '10': 'reveal'},
+    {'1': 'info', '3': 13, '4': 1, '5': 11, '6': '.pong.Info', '9': 0, '10': 'info'},
+    {'1': 'ok', '3': 14, '4': 1, '5': 11, '6': '.pong.ServerOk', '9': 0, '10': 'ok'},
+  ],
+  '8': [
+    {'1': 'kind'},
+  ],
+};
+
+/// Descriptor for `ServerMsg`. Decode as a `google.protobuf.DescriptorProto`.
+final $typed_data.Uint8List serverMsgDescriptor = $convert.base64Decode(
+    'CglTZXJ2ZXJNc2cSGQoIbWF0Y2hfaWQYASABKAlSB21hdGNoSWQSJQoDcmVxGAsgASgLMhEucG'
+    '9uZy5OZWVkUHJlU2lnc0gAUgNyZXESKwoGcmV2ZWFsGAwgASgLMhEucG9uZy5SZXZlYWxHYW1t'
+    'YUgAUgZyZXZlYWwSIAoEaW5mbxgNIAEoCzIKLnBvbmcuSW5mb0gAUgRpbmZvEiAKAm9rGA4gAS'
+    'gLMg4ucG9uZy5TZXJ2ZXJPa0gAUgJva0IGCgRraW5k');
+
+@$core.Deprecated('Use helloDescriptor instead')
+const Hello$json = {
+  '1': 'Hello',
+  '2': [
+    {'1': 'match_id', '3': 1, '4': 1, '5': 9, '10': 'matchId'},
+    {'1': 'comp_pubkey', '3': 2, '4': 1, '5': 12, '10': 'compPubkey'},
+    {'1': 'client_version', '3': 3, '4': 1, '5': 9, '10': 'clientVersion'},
+  ],
+};
+
+/// Descriptor for `Hello`. Decode as a `google.protobuf.DescriptorProto`.
+final $typed_data.Uint8List helloDescriptor = $convert.base64Decode(
+    'CgVIZWxsbxIZCghtYXRjaF9pZBgBIAEoCVIHbWF0Y2hJZBIfCgtjb21wX3B1YmtleRgCIAEoDF'
+    'IKY29tcFB1YmtleRIlCg5jbGllbnRfdmVyc2lvbhgDIAEoCVINY2xpZW50VmVyc2lvbg==');
+
+@$core.Deprecated('Use needPreSigsDescriptor instead')
+const NeedPreSigs$json = {
+  '1': 'NeedPreSigs',
+  '2': [
+    {'1': 'draft_tx_hex', '3': 2, '4': 1, '5': 9, '10': 'draftTxHex'},
+    {'1': 'inputs', '3': 4, '4': 3, '5': 11, '6': '.pong.NeedPreSigs.PerInput', '10': 'inputs'},
+  ],
+  '3': [NeedPreSigs_PerInput$json],
+};
+
+@$core.Deprecated('Use needPreSigsDescriptor instead')
+const NeedPreSigs_PerInput$json = {
+  '1': 'PerInput',
+  '2': [
+    {'1': 'input_id', '3': 1, '4': 1, '5': 9, '10': 'inputId'},
+    {'1': 'redeem_script_hex', '3': 2, '4': 1, '5': 9, '10': 'redeemScriptHex'},
+    {'1': 'm_hex', '3': 3, '4': 1, '5': 9, '10': 'mHex'},
+    {'1': 'T_compressed', '3': 4, '4': 1, '5': 12, '10': 'TCompressed'},
+  ],
+};
+
+/// Descriptor for `NeedPreSigs`. Decode as a `google.protobuf.DescriptorProto`.
+final $typed_data.Uint8List needPreSigsDescriptor = $convert.base64Decode(
+    'CgtOZWVkUHJlU2lncxIgCgxkcmFmdF90eF9oZXgYAiABKAlSCmRyYWZ0VHhIZXgSMgoGaW5wdX'
+    'RzGAQgAygLMhoucG9uZy5OZWVkUHJlU2lncy5QZXJJbnB1dFIGaW5wdXRzGokBCghQZXJJbnB1'
+    'dBIZCghpbnB1dF9pZBgBIAEoCVIHaW5wdXRJZBIqChFyZWRlZW1fc2NyaXB0X2hleBgCIAEoCV'
+    'IPcmVkZWVtU2NyaXB0SGV4EhMKBW1faGV4GAMgASgJUgRtSGV4EiEKDFRfY29tcHJlc3NlZBgE'
+    'IAEoDFILVENvbXByZXNzZWQ=');
+
+@$core.Deprecated('Use verifyOkDescriptor instead')
+const VerifyOk$json = {
+  '1': 'VerifyOk',
+  '2': [
+    {'1': 'ack_digest', '3': 1, '4': 1, '5': 12, '10': 'ackDigest'},
+    {'1': 'presigs', '3': 2, '4': 3, '5': 11, '6': '.pong.PreSig', '10': 'presigs'},
+  ],
+};
+
+/// Descriptor for `VerifyOk`. Decode as a `google.protobuf.DescriptorProto`.
+final $typed_data.Uint8List verifyOkDescriptor = $convert.base64Decode(
+    'CghWZXJpZnlPaxIdCgphY2tfZGlnZXN0GAEgASgMUglhY2tEaWdlc3QSJgoHcHJlc2lncxgCIA'
+    'MoCzIMLnBvbmcuUHJlU2lnUgdwcmVzaWdz');
+
+@$core.Deprecated('Use preSigDescriptor instead')
+const PreSig$json = {
+  '1': 'PreSig',
+  '2': [
+    {'1': 'input_id', '3': 1, '4': 1, '5': 9, '10': 'inputId'},
+    {'1': 'Rprime_compressed', '3': 2, '4': 1, '5': 12, '10': 'RprimeCompressed'},
+    {'1': 'sprime32', '3': 3, '4': 1, '5': 12, '10': 'sprime32'},
+  ],
+};
+
+/// Descriptor for `PreSig`. Decode as a `google.protobuf.DescriptorProto`.
+final $typed_data.Uint8List preSigDescriptor = $convert.base64Decode(
+    'CgZQcmVTaWcSGQoIaW5wdXRfaWQYASABKAlSB2lucHV0SWQSKwoRUnByaW1lX2NvbXByZXNzZW'
+    'QYAiABKAxSEFJwcmltZUNvbXByZXNzZWQSGgoIc3ByaW1lMzIYAyABKAxSCHNwcmltZTMy');
+
+@$core.Deprecated('Use preSigBatchDescriptor instead')
+const PreSigBatch$json = {
+  '1': 'PreSigBatch',
+  '2': [
+    {'1': 'presigs', '3': 2, '4': 3, '5': 11, '6': '.pong.PreSigBatch.Sig', '10': 'presigs'},
+  ],
+  '3': [PreSigBatch_Sig$json],
+};
+
+@$core.Deprecated('Use preSigBatchDescriptor instead')
+const PreSigBatch_Sig$json = {
+  '1': 'Sig',
+  '2': [
+    {'1': 'input_id', '3': 1, '4': 1, '5': 9, '10': 'inputId'},
+    {'1': 'rprime32', '3': 2, '4': 1, '5': 12, '10': 'rprime32'},
+    {'1': 'sprime32', '3': 3, '4': 1, '5': 12, '10': 'sprime32'},
+  ],
+};
+
+/// Descriptor for `PreSigBatch`. Decode as a `google.protobuf.DescriptorProto`.
+final $typed_data.Uint8List preSigBatchDescriptor = $convert.base64Decode(
+    'CgtQcmVTaWdCYXRjaBIvCgdwcmVzaWdzGAIgAygLMhUucG9uZy5QcmVTaWdCYXRjaC5TaWdSB3'
+    'ByZXNpZ3MaWAoDU2lnEhkKCGlucHV0X2lkGAEgASgJUgdpbnB1dElkEhoKCHJwcmltZTMyGAIg'
+    'ASgMUghycHJpbWUzMhIaCghzcHJpbWUzMhgDIAEoDFIIc3ByaW1lMzI=');
+
+@$core.Deprecated('Use revealGammaDescriptor instead')
+const RevealGamma$json = {
+  '1': 'RevealGamma',
+  '2': [
+    {'1': 'gamma32', '3': 1, '4': 1, '5': 12, '10': 'gamma32'},
+  ],
+};
+
+/// Descriptor for `RevealGamma`. Decode as a `google.protobuf.DescriptorProto`.
+final $typed_data.Uint8List revealGammaDescriptor = $convert.base64Decode(
+    'CgtSZXZlYWxHYW1tYRIYCgdnYW1tYTMyGAEgASgMUgdnYW1tYTMy');
+
+@$core.Deprecated('Use ackDescriptor instead')
+const Ack$json = {
+  '1': 'Ack',
+  '2': [
+    {'1': 'note', '3': 1, '4': 1, '5': 9, '10': 'note'},
+  ],
+};
+
+/// Descriptor for `Ack`. Decode as a `google.protobuf.DescriptorProto`.
+final $typed_data.Uint8List ackDescriptor = $convert.base64Decode(
+    'CgNBY2sSEgoEbm90ZRgBIAEoCVIEbm90ZQ==');
+
+@$core.Deprecated('Use infoDescriptor instead')
+const Info$json = {
+  '1': 'Info',
+  '2': [
+    {'1': 'text', '3': 1, '4': 1, '5': 9, '10': 'text'},
+  ],
+};
+
+/// Descriptor for `Info`. Decode as a `google.protobuf.DescriptorProto`.
+final $typed_data.Uint8List infoDescriptor = $convert.base64Decode(
+    'CgRJbmZvEhIKBHRleHQYASABKAlSBHRleHQ=');
+
+@$core.Deprecated('Use serverOkDescriptor instead')
+const ServerOk$json = {
+  '1': 'ServerOk',
+  '2': [
+    {'1': 'ack_digest', '3': 1, '4': 1, '5': 12, '10': 'ackDigest'},
+  ],
+};
+
+/// Descriptor for `ServerOk`. Decode as a `google.protobuf.DescriptorProto`.
+final $typed_data.Uint8List serverOkDescriptor = $convert.base64Decode(
+    'CghTZXJ2ZXJPaxIdCgphY2tfZGlnZXN0GAEgASgMUglhY2tEaWdlc3Q=');
+
+@$core.Deprecated('Use getFinalizeBundleRequestDescriptor instead')
+const GetFinalizeBundleRequest$json = {
+  '1': 'GetFinalizeBundleRequest',
+  '2': [
+    {'1': 'match_id', '3': 1, '4': 1, '5': 9, '10': 'matchId'},
+    {'1': 'winner_uid', '3': 2, '4': 1, '5': 9, '10': 'winnerUid'},
+  ],
+};
+
+/// Descriptor for `GetFinalizeBundleRequest`. Decode as a `google.protobuf.DescriptorProto`.
+final $typed_data.Uint8List getFinalizeBundleRequestDescriptor = $convert.base64Decode(
+    'ChhHZXRGaW5hbGl6ZUJ1bmRsZVJlcXVlc3QSGQoIbWF0Y2hfaWQYASABKAlSB21hdGNoSWQSHQ'
+    'oKd2lubmVyX3VpZBgCIAEoCVIJd2lubmVyVWlk');
+
+@$core.Deprecated('Use finalizeInputDescriptor instead')
+const FinalizeInput$json = {
+  '1': 'FinalizeInput',
+  '2': [
+    {'1': 'input_id', '3': 1, '4': 1, '5': 9, '10': 'inputId'},
+    {'1': 'redeem_script_hex', '3': 2, '4': 1, '5': 9, '10': 'redeemScriptHex'},
+    {'1': 'Rprime_compressed', '3': 3, '4': 1, '5': 12, '10': 'RprimeCompressed'},
+    {'1': 'sprime32', '3': 4, '4': 1, '5': 12, '10': 'sprime32'},
+  ],
+};
+
+/// Descriptor for `FinalizeInput`. Decode as a `google.protobuf.DescriptorProto`.
+final $typed_data.Uint8List finalizeInputDescriptor = $convert.base64Decode(
+    'Cg1GaW5hbGl6ZUlucHV0EhkKCGlucHV0X2lkGAEgASgJUgdpbnB1dElkEioKEXJlZGVlbV9zY3'
+    'JpcHRfaGV4GAIgASgJUg9yZWRlZW1TY3JpcHRIZXgSKwoRUnByaW1lX2NvbXByZXNzZWQYAyAB'
+    'KAxSEFJwcmltZUNvbXByZXNzZWQSGgoIc3ByaW1lMzIYBCABKAxSCHNwcmltZTMy');
+
+@$core.Deprecated('Use getFinalizeBundleResponseDescriptor instead')
+const GetFinalizeBundleResponse$json = {
+  '1': 'GetFinalizeBundleResponse',
+  '2': [
+    {'1': 'draft_tx_hex', '3': 1, '4': 1, '5': 9, '10': 'draftTxHex'},
+    {'1': 'gamma32', '3': 2, '4': 1, '5': 12, '10': 'gamma32'},
+    {'1': 'inputs', '3': 3, '4': 3, '5': 11, '6': '.pong.FinalizeInput', '10': 'inputs'},
+  ],
+};
+
+/// Descriptor for `GetFinalizeBundleResponse`. Decode as a `google.protobuf.DescriptorProto`.
+final $typed_data.Uint8List getFinalizeBundleResponseDescriptor = $convert.base64Decode(
+    'ChlHZXRGaW5hbGl6ZUJ1bmRsZVJlc3BvbnNlEiAKDGRyYWZ0X3R4X2hleBgBIAEoCVIKZHJhZn'
+    'RUeEhleBIYCgdnYW1tYTMyGAIgASgMUgdnYW1tYTMyEisKBmlucHV0cxgDIAMoCzITLnBvbmcu'
+    'RmluYWxpemVJbnB1dFIGaW5wdXRz');
+
+@$core.Deprecated('Use openEscrowRequestDescriptor instead')
+const OpenEscrowRequest$json = {
+  '1': 'OpenEscrowRequest',
+  '2': [
+    {'1': 'owner_uid', '3': 1, '4': 1, '5': 9, '10': 'ownerUid'},
+    {'1': 'comp_pubkey', '3': 2, '4': 1, '5': 12, '10': 'compPubkey'},
+    {'1': 'bet_atoms', '3': 3, '4': 1, '5': 4, '10': 'betAtoms'},
+    {'1': 'csv_blocks', '3': 4, '4': 1, '5': 13, '10': 'csvBlocks'},
+    {'1': 'payout_pubkey', '3': 5, '4': 1, '5': 12, '10': 'payoutPubkey'},
+  ],
+};
+
+/// Descriptor for `OpenEscrowRequest`. Decode as a `google.protobuf.DescriptorProto`.
+final $typed_data.Uint8List openEscrowRequestDescriptor = $convert.base64Decode(
+    'ChFPcGVuRXNjcm93UmVxdWVzdBIbCglvd25lcl91aWQYASABKAlSCG93bmVyVWlkEh8KC2NvbX'
+    'BfcHVia2V5GAIgASgMUgpjb21wUHVia2V5EhsKCWJldF9hdG9tcxgDIAEoBFIIYmV0QXRvbXMS'
+    'HQoKY3N2X2Jsb2NrcxgEIAEoDVIJY3N2QmxvY2tzEiMKDXBheW91dF9wdWJrZXkYBSABKAxSDH'
+    'BheW91dFB1YmtleQ==');
+
+@$core.Deprecated('Use openEscrowResponseDescriptor instead')
+const OpenEscrowResponse$json = {
+  '1': 'OpenEscrowResponse',
+  '2': [
+    {'1': 'escrow_id', '3': 1, '4': 1, '5': 9, '10': 'escrowId'},
+    {'1': 'deposit_address', '3': 2, '4': 1, '5': 9, '10': 'depositAddress'},
+    {'1': 'pk_script_hex', '3': 3, '4': 1, '5': 9, '10': 'pkScriptHex'},
+  ],
+};
+
+/// Descriptor for `OpenEscrowResponse`. Decode as a `google.protobuf.DescriptorProto`.
+final $typed_data.Uint8List openEscrowResponseDescriptor = $convert.base64Decode(
+    'ChJPcGVuRXNjcm93UmVzcG9uc2USGwoJZXNjcm93X2lkGAEgASgJUghlc2Nyb3dJZBInCg9kZX'
+    'Bvc2l0X2FkZHJlc3MYAiABKAlSDmRlcG9zaXRBZGRyZXNzEiIKDXBrX3NjcmlwdF9oZXgYAyAB'
+    'KAlSC3BrU2NyaXB0SGV4');
+
+@$core.Deprecated('Use waitEscrowFundingRequestDescriptor instead')
+const WaitEscrowFundingRequest$json = {
+  '1': 'WaitEscrowFundingRequest',
+  '2': [
+    {'1': 'escrow_id', '3': 1, '4': 1, '5': 9, '10': 'escrowId'},
+  ],
+};
+
+/// Descriptor for `WaitEscrowFundingRequest`. Decode as a `google.protobuf.DescriptorProto`.
+final $typed_data.Uint8List waitEscrowFundingRequestDescriptor = $convert.base64Decode(
+    'ChhXYWl0RXNjcm93RnVuZGluZ1JlcXVlc3QSGwoJZXNjcm93X2lkGAEgASgJUghlc2Nyb3dJZA'
+    '==');
+
+@$core.Deprecated('Use waitEscrowFundingUpdateDescriptor instead')
+const WaitEscrowFundingUpdate$json = {
+  '1': 'WaitEscrowFundingUpdate',
+  '2': [
+    {'1': 'funded', '3': 1, '4': 1, '5': 8, '10': 'funded'},
+    {'1': 'confirmed', '3': 2, '4': 1, '5': 8, '10': 'confirmed'},
+    {'1': 'utxo_id', '3': 3, '4': 1, '5': 9, '10': 'utxoId'},
+    {'1': 'value_atoms', '3': 4, '4': 1, '5': 4, '10': 'valueAtoms'},
+  ],
+};
+
+/// Descriptor for `WaitEscrowFundingUpdate`. Decode as a `google.protobuf.DescriptorProto`.
+final $typed_data.Uint8List waitEscrowFundingUpdateDescriptor = $convert.base64Decode(
+    'ChdXYWl0RXNjcm93RnVuZGluZ1VwZGF0ZRIWCgZmdW5kZWQYASABKAhSBmZ1bmRlZBIcCgljb2'
+    '5maXJtZWQYAiABKAhSCWNvbmZpcm1lZBIXCgd1dHhvX2lkGAMgASgJUgZ1dHhvSWQSHwoLdmFs'
+    'dWVfYXRvbXMYBCABKARSCnZhbHVlQXRvbXM=');
+
+@$core.Deprecated('Use createMatchRequestDescriptor instead')
+const CreateMatchRequest$json = {
+  '1': 'CreateMatchRequest',
+  '2': [
+    {'1': 'a_c', '3': 1, '4': 1, '5': 9, '10': 'aC'},
+    {'1': 'b_c', '3': 2, '4': 1, '5': 9, '10': 'bC'},
+    {'1': 'csv', '3': 3, '4': 1, '5': 13, '10': 'csv'},
+  ],
+};
+
+/// Descriptor for `CreateMatchRequest`. Decode as a `google.protobuf.DescriptorProto`.
+final $typed_data.Uint8List createMatchRequestDescriptor = $convert.base64Decode(
+    'ChJDcmVhdGVNYXRjaFJlcXVlc3QSDwoDYV9jGAEgASgJUgJhQxIPCgNiX2MYAiABKAlSAmJDEh'
+    'AKA2NzdhgDIAEoDVIDY3N2');
+
+@$core.Deprecated('Use createMatchResponseDescriptor instead')
+const CreateMatchResponse$json = {
+  '1': 'CreateMatchResponse',
+  '2': [
+    {'1': 'match_id', '3': 1, '4': 1, '5': 9, '10': 'matchId'},
+    {'1': 's_c', '3': 2, '4': 1, '5': 9, '10': 'sC'},
+    {'1': 'a_a', '3': 3, '4': 1, '5': 9, '10': 'aA'},
+    {'1': 'a_b', '3': 4, '4': 1, '5': 9, '10': 'aB'},
+    {'1': 'a_s', '3': 5, '4': 1, '5': 9, '10': 'aS'},
+    {'1': 'x_a', '3': 6, '4': 1, '5': 9, '10': 'xA'},
+    {'1': 'x_b', '3': 7, '4': 1, '5': 9, '10': 'xB'},
+    {'1': 'csv', '3': 8, '4': 1, '5': 13, '10': 'csv'},
+    {'1': 'escrow_template_a', '3': 9, '4': 1, '5': 9, '10': 'escrowTemplateA'},
+    {'1': 'escrow_template_b', '3': 10, '4': 1, '5': 9, '10': 'escrowTemplateB'},
+  ],
+};
+
+/// Descriptor for `CreateMatchResponse`. Decode as a `google.protobuf.DescriptorProto`.
+final $typed_data.Uint8List createMatchResponseDescriptor = $convert.base64Decode(
+    'ChNDcmVhdGVNYXRjaFJlc3BvbnNlEhkKCG1hdGNoX2lkGAEgASgJUgdtYXRjaElkEg8KA3NfYx'
+    'gCIAEoCVICc0MSDwoDYV9hGAMgASgJUgJhQRIPCgNhX2IYBCABKAlSAmFCEg8KA2FfcxgFIAEo'
+    'CVICYVMSDwoDeF9hGAYgASgJUgJ4QRIPCgN4X2IYByABKAlSAnhCEhAKA2NzdhgIIAEoDVIDY3'
+    'N2EioKEWVzY3Jvd190ZW1wbGF0ZV9hGAkgASgJUg9lc2Nyb3dUZW1wbGF0ZUESKgoRZXNjcm93'
+    'X3RlbXBsYXRlX2IYCiABKAlSD2VzY3Jvd1RlbXBsYXRlQg==');
+
+@$core.Deprecated('Use escrowUTXODescriptor instead')
+const EscrowUTXO$json = {
+  '1': 'EscrowUTXO',
+  '2': [
+    {'1': 'txid', '3': 1, '4': 1, '5': 9, '10': 'txid'},
+    {'1': 'vout', '3': 2, '4': 1, '5': 13, '10': 'vout'},
+    {'1': 'value', '3': 3, '4': 1, '5': 4, '10': 'value'},
+    {'1': 'redeem_script_hex', '3': 4, '4': 1, '5': 9, '10': 'redeemScriptHex'},
+    {'1': 'pk_script_hex', '3': 5, '4': 1, '5': 9, '10': 'pkScriptHex'},
+    {'1': 'owner', '3': 6, '4': 1, '5': 9, '10': 'owner'},
+  ],
+};
+
+/// Descriptor for `EscrowUTXO`. Decode as a `google.protobuf.DescriptorProto`.
+final $typed_data.Uint8List escrowUTXODescriptor = $convert.base64Decode(
+    'CgpFc2Nyb3dVVFhPEhIKBHR4aWQYASABKAlSBHR4aWQSEgoEdm91dBgCIAEoDVIEdm91dBIUCg'
+    'V2YWx1ZRgDIAEoBFIFdmFsdWUSKgoRcmVkZWVtX3NjcmlwdF9oZXgYBCABKAlSD3JlZGVlbVNj'
+    'cmlwdEhleBIiCg1wa19zY3JpcHRfaGV4GAUgASgJUgtwa1NjcmlwdEhleBIUCgVvd25lchgGIA'
+    'EoCVIFb3duZXI=');
+
+@$core.Deprecated('Use waitFundingRequestDescriptor instead')
+const WaitFundingRequest$json = {
+  '1': 'WaitFundingRequest',
+  '2': [
+    {'1': 'escrow_id', '3': 1, '4': 1, '5': 9, '10': 'escrowId'},
+  ],
+};
+
+/// Descriptor for `WaitFundingRequest`. Decode as a `google.protobuf.DescriptorProto`.
+final $typed_data.Uint8List waitFundingRequestDescriptor = $convert.base64Decode(
+    'ChJXYWl0RnVuZGluZ1JlcXVlc3QSGwoJZXNjcm93X2lkGAEgASgJUghlc2Nyb3dJZA==');
+
+@$core.Deprecated('Use waitFundingResponseDescriptor instead')
+const WaitFundingResponse$json = {
+  '1': 'WaitFundingResponse',
+  '2': [
+    {'1': 'confs', '3': 1, '4': 1, '5': 13, '10': 'confs'},
+    {'1': 'value', '3': 2, '4': 1, '5': 4, '10': 'value'},
+    {'1': 'utxo', '3': 3, '4': 1, '5': 11, '6': '.pong.EscrowUTXO', '10': 'utxo'},
+    {'1': 'opponent_utxo', '3': 4, '4': 1, '5': 11, '6': '.pong.EscrowUTXO', '10': 'opponentUtxo'},
+  ],
+};
+
+/// Descriptor for `WaitFundingResponse`. Decode as a `google.protobuf.DescriptorProto`.
+final $typed_data.Uint8List waitFundingResponseDescriptor = $convert.base64Decode(
+    'ChNXYWl0RnVuZGluZ1Jlc3BvbnNlEhQKBWNvbmZzGAEgASgNUgVjb25mcxIUCgV2YWx1ZRgCIA'
+    'EoBFIFdmFsdWUSJAoEdXR4bxgDIAEoCzIQLnBvbmcuRXNjcm93VVRYT1IEdXR4bxI1Cg1vcHBv'
+    'bmVudF91dHhvGAQgASgLMhAucG9uZy5Fc2Nyb3dVVFhPUgxvcHBvbmVudFV0eG8=');
+
+@$core.Deprecated('Use matchAllocatedNtfnDescriptor instead')
+const MatchAllocatedNtfn$json = {
+  '1': 'MatchAllocatedNtfn',
+  '2': [
+    {'1': 'match_id', '3': 1, '4': 1, '5': 9, '10': 'matchId'},
+    {'1': 'room_id', '3': 2, '4': 1, '5': 9, '10': 'roomId'},
+    {'1': 'bet_atoms', '3': 3, '4': 1, '5': 4, '10': 'betAtoms'},
+    {'1': 'csv_blocks', '3': 4, '4': 1, '5': 13, '10': 'csvBlocks'},
+    {'1': 'a_comp', '3': 5, '4': 1, '5': 12, '10': 'aComp'},
+    {'1': 'b_comp', '3': 6, '4': 1, '5': 12, '10': 'bComp'},
+  ],
+};
+
+/// Descriptor for `MatchAllocatedNtfn`. Decode as a `google.protobuf.DescriptorProto`.
+final $typed_data.Uint8List matchAllocatedNtfnDescriptor = $convert.base64Decode(
+    'ChJNYXRjaEFsbG9jYXRlZE50Zm4SGQoIbWF0Y2hfaWQYASABKAlSB21hdGNoSWQSFwoHcm9vbV'
+    '9pZBgCIAEoCVIGcm9vbUlkEhsKCWJldF9hdG9tcxgDIAEoBFIIYmV0QXRvbXMSHQoKY3N2X2Js'
+    'b2NrcxgEIAEoDVIJY3N2QmxvY2tzEhUKBmFfY29tcBgFIAEoDFIFYUNvbXASFQoGYl9jb21wGA'
+    'YgASgMUgViQ29tcA==');
 
 @$core.Deprecated('Use unreadyGameStreamRequestDescriptor instead')
 const UnreadyGameStreamRequest$json = {
@@ -89,6 +502,7 @@ const NtfnStreamResponse$json = {
     {'1': 'room_id', '3': 8, '4': 1, '5': 9, '10': 'roomId'},
     {'1': 'wr', '3': 9, '4': 1, '5': 11, '6': '.pong.WaitingRoom', '10': 'wr'},
     {'1': 'ready', '3': 10, '4': 1, '5': 8, '10': 'ready'},
+    {'1': 'match_alloc', '3': 11, '4': 1, '5': 11, '6': '.pong.MatchAllocatedNtfn', '10': 'matchAlloc'},
   ],
 };
 
@@ -100,7 +514,8 @@ final $typed_data.Uint8List ntfnStreamResponseDescriptor = $convert.base64Decode
     'IWCgZiZXRBbXQYBSABKANSBmJldEFtdBIjCg1wbGF5ZXJfbnVtYmVyGAYgASgFUgxwbGF5ZXJO'
     'dW1iZXISGwoJcGxheWVyX2lkGAcgASgJUghwbGF5ZXJJZBIXCgdyb29tX2lkGAggASgJUgZyb2'
     '9tSWQSIQoCd3IYCSABKAsyES5wb25nLldhaXRpbmdSb29tUgJ3chIUCgVyZWFkeRgKIAEoCFIF'
-    'cmVhZHk=');
+    'cmVhZHkSOQoLbWF0Y2hfYWxsb2MYCyABKAsyGC5wb25nLk1hdGNoQWxsb2NhdGVkTnRmblIKbW'
+    'F0Y2hBbGxvYw==');
 
 @$core.Deprecated('Use waitingRoomsRequestDescriptor instead')
 const WaitingRoomsRequest$json = {
@@ -133,13 +548,14 @@ const JoinWaitingRoomRequest$json = {
   '2': [
     {'1': 'room_id', '3': 1, '4': 1, '5': 9, '10': 'roomId'},
     {'1': 'client_id', '3': 2, '4': 1, '5': 9, '10': 'clientId'},
+    {'1': 'escrow_id', '3': 3, '4': 1, '5': 9, '10': 'escrowId'},
   ],
 };
 
 /// Descriptor for `JoinWaitingRoomRequest`. Decode as a `google.protobuf.DescriptorProto`.
 final $typed_data.Uint8List joinWaitingRoomRequestDescriptor = $convert.base64Decode(
     'ChZKb2luV2FpdGluZ1Jvb21SZXF1ZXN0EhcKB3Jvb21faWQYASABKAlSBnJvb21JZBIbCgljbG'
-    'llbnRfaWQYAiABKAlSCGNsaWVudElk');
+    'llbnRfaWQYAiABKAlSCGNsaWVudElkEhsKCWVzY3Jvd19pZBgDIAEoCVIIZXNjcm93SWQ=');
 
 @$core.Deprecated('Use joinWaitingRoomResponseDescriptor instead')
 const JoinWaitingRoomResponse$json = {
@@ -160,13 +576,14 @@ const CreateWaitingRoomRequest$json = {
   '2': [
     {'1': 'host_id', '3': 1, '4': 1, '5': 9, '10': 'hostId'},
     {'1': 'betAmt', '3': 2, '4': 1, '5': 3, '10': 'betAmt'},
+    {'1': 'escrow_id', '3': 3, '4': 1, '5': 9, '10': 'escrowId'},
   ],
 };
 
 /// Descriptor for `CreateWaitingRoomRequest`. Decode as a `google.protobuf.DescriptorProto`.
 final $typed_data.Uint8List createWaitingRoomRequestDescriptor = $convert.base64Decode(
     'ChhDcmVhdGVXYWl0aW5nUm9vbVJlcXVlc3QSFwoHaG9zdF9pZBgBIAEoCVIGaG9zdElkEhYKBm'
-    'JldEFtdBgCIAEoA1IGYmV0QW10');
+    'JldEFtdBgCIAEoA1IGYmV0QW10EhsKCWVzY3Jvd19pZBgDIAEoCVIIZXNjcm93SWQ=');
 
 @$core.Deprecated('Use createWaitingRoomResponseDescriptor instead')
 const CreateWaitingRoomResponse$json = {

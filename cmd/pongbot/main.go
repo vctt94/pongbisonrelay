@@ -39,6 +39,12 @@ var (
 	flagRPCUser        = flag.String("rpcuser", "", "RPC user")
 	flagRPCPass        = flag.String("rpcpass", "", "RPC password")
 	flagDebug          = flag.String("debug", "", "Debug level")
+
+	// dcrd connectivity (optional)
+	flagDcrdHost = flag.String("dcrdhost", "", "dcrd host:port (e.g. 127.0.0.1:19109)")
+	flagDcrdCert = flag.String("dcrdcert", "", "Path to dcrd rpc.cert")
+	flagDcrdUser = flag.String("dcrduser", "", "dcrd RPC user (default: rpcuser)")
+	flagDcrdPass = flag.String("dcrdpass", "", "dcrd RPC password (default: rpcpass)")
 )
 
 func realMain() error {
@@ -117,6 +123,30 @@ func realMain() error {
 		cfg.Debug = *flagDebug
 	}
 
+	// dcrd flags override config when provided
+	dcrdHost := cfg.DcrdHost
+	dcrdCert := cfg.DcrdCert
+	dcrdUser := cfg.DcrdUser
+	if dcrdUser == "" {
+		dcrdUser = cfg.RPCUser
+	}
+	dcrdPass := cfg.DcrdPass
+	if dcrdPass == "" {
+		dcrdPass = cfg.RPCPass
+	}
+	if *flagDcrdHost != "" {
+		dcrdHost = *flagDcrdHost
+	}
+	if *flagDcrdCert != "" {
+		dcrdCert = utils.CleanAndExpandPath(*flagDcrdCert)
+	}
+	if *flagDcrdUser != "" {
+		dcrdUser = *flagDcrdUser
+	}
+	if *flagDcrdPass != "" {
+		dcrdPass = *flagDcrdPass
+	}
+
 	ctx, cancel := context.WithCancel(context.Background())
 	defer cancel()
 
@@ -155,44 +185,22 @@ func realMain() error {
 	copy(zkShortID[:], clientID)
 
 	srv, err := server.NewServer(&zkShortID, server.ServerConfig{
-		Bot:        bot,
-		ServerDir:  cfg.DataDir,
-		IsF2P:      cfg.IsF2P,
-		MinBetAmt:  cfg.MinBetAmt,
-		HTTPPort:   cfg.HttpPort,
-		LogBackend: logBackend,
+		Bot:             bot,
+		ServerDir:       cfg.DataDir,
+		IsF2P:           cfg.IsF2P,
+		MinBetAmt:       cfg.MinBetAmt,
+		HTTPPort:        cfg.HttpPort,
+		LogBackend:      logBackend,
+		DcrdHostPort:    dcrdHost,
+		DcrdRPCCertPath: dcrdCert,
+		DcrdRPCUser:     dcrdUser,
+		DcrdRPCPass:     dcrdPass,
 	})
 	if err != nil {
 		return fmt.Errorf("failed to create server: %w", err)
 	}
 
 	g.Go(func() error { return srv.Run(gctx) })
-
-	g.Go(func() error {
-		for {
-			select {
-			case tip := <-tipChan:
-				if err := srv.HandleReceiveTip(ctx, &tip); err != nil {
-					log.Errorf("Error processing received tip: %v", err)
-				}
-			case <-gctx.Done():
-				return nil
-			}
-		}
-	})
-
-	g.Go(func() error {
-		for {
-			select {
-			case tip := <-tipProgressChan:
-				if err := srv.HandleTipProgress(ctx, &tip); err != nil {
-					log.Errorf("Error processing tip progress: %v", err)
-				}
-			case <-gctx.Done():
-				return nil
-			}
-		}
-	})
 
 	certPath := filepath.Join(cfg.DataDir, "server.cert")
 	keyPath := filepath.Join(cfg.DataDir, "server.key")
@@ -220,6 +228,7 @@ func realMain() error {
 	)
 
 	pong.RegisterPongGameServer(grpcServer, srv)
+	pong.RegisterPongRefereeServer(grpcServer, srv)
 
 	g.Go(func() error {
 		<-gctx.Done()
