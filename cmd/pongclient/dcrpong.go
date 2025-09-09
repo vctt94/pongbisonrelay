@@ -204,6 +204,13 @@ func realMain() error {
 	if *datadir == "" {
 		*datadir = utils.AppDataDir("pongclient", false)
 	}
+	// Require payout address at startup
+	if addressFlag == nil || *addressFlag == "" {
+		return fmt.Errorf("missing required -address flag (33-byte compressed pubkey hex for winner payout)")
+	}
+	if _, err := client.PayoutPubkeyFromConfHex(*addressFlag); err != nil {
+		return fmt.Errorf("invalid -address: %v", err)
+	}
 	cfg, err := basecfg.LoadClientConfig(*datadir, "pongclient.conf")
 	if err != nil {
 		fmt.Println("Error loading configuration:", err)
