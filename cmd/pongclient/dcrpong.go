@@ -7,14 +7,13 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
+	"strings"
 	"sync"
 	"time"
 
 	"github.com/vctt94/pong-bisonrelay/client"
 	"github.com/vctt94/pong-bisonrelay/pongrpc/grpc/pong"
 	"golang.org/x/sync/errgroup"
-
-	basecfg "github.com/vctt94/bisonbotkit/config"
 
 	"github.com/charmbracelet/bubbles/viewport"
 	tea "github.com/charmbracelet/bubbletea"
@@ -201,57 +200,51 @@ func (m *appstate) preSign() {
 
 func realMain() error {
 	flag.Parse()
+
 	if *datadir == "" {
 		*datadir = utils.AppDataDir("pongclient", false)
 	}
-	// Require payout address at startup
-	if addressFlag == nil || *addressFlag == "" {
-		return fmt.Errorf("missing required -address flag (33-byte compressed pubkey hex for winner payout)")
-	}
-	if _, err := client.PayoutPubkeyFromConfHex(*addressFlag); err != nil {
-		return fmt.Errorf("invalid -address: %v", err)
-	}
-	cfg, err := basecfg.LoadClientConfig(*datadir, "pongclient.conf")
+
+	// Load consolidated app config and apply overrides from flags
+	appCfg, err := client.LoadAppConfig(*datadir, client.ConfigOverrides{
+		RPCURL:          *flagURL,
+		BRClientCert:    *flagServerCertPath,
+		BRClientRPCCert: *flagClientCertPath,
+		BRClientRPCKey:  *flagClientKeyPath,
+		RPCUser:         *rpcUser,
+		RPCPass:         *rpcPass,
+		ServerAddr:      *serverAddr,
+		GRPCServerCert:  *grpcServerCert,
+	})
 	if err != nil {
 		fmt.Println("Error loading configuration:", err)
 		os.Exit(1)
 	}
 
-	// Apply overrides from flags
-	if *flagURL != "" {
-		cfg.RPCURL = *flagURL
+	// Determine payout address from flag or config file
+	addrValue := ""
+	if addressFlag != nil && *addressFlag != "" {
+		addrValue = *addressFlag
+	} else {
+		addrValue = appCfg.Address
 	}
-	if *flagServerCertPath != "" {
-		cfg.ServerCertPath = *flagServerCertPath
+	if strings.TrimSpace(addrValue) == "" {
+		return fmt.Errorf("missing payout address: pass -address flag or set address= in %s", filepath.Join(appCfg.DataDir, "pongclient.conf"))
 	}
-	if *flagClientCertPath != "" {
-		cfg.ClientCertPath = *flagClientCertPath
+	if _, err := client.PayoutPubkeyFromConfHex(addrValue); err != nil {
+		return fmt.Errorf("invalid payout address: %v", err)
 	}
-	if *flagClientKeyPath != "" {
-		cfg.ClientKeyPath = *flagClientKeyPath
-	}
-	if *rpcUser != "" {
-		cfg.RPCUser = *rpcUser
-	}
-	if *rpcPass != "" {
-		cfg.RPCPass = *rpcPass
-	}
-	if *serverAddr != "" {
-		cfg.ServerAddr = *serverAddr
-	}
-	if *grpcServerCert != "" {
-		cfg.GRPCServerCert = *grpcServerCert
-	}
+	*addressFlag = addrValue
 
 	ctx, cancel := context.WithCancel(context.Background())
 	defer cancel()
-
 	g, gctx := errgroup.WithContext(ctx)
 
+	// Logging
 	useStdout := false
 	lb, err := logging.NewLogBackend(logging.LogConfig{
-		LogFile:        filepath.Join(*datadir, "logs", "pongclient.log"),
-		DebugLevel:     cfg.Debug,
+		LogFile:        filepath.Join(appCfg.DataDir, "logs", "pongclient.log"),
+		DebugLevel:     appCfg.BR.Debug,
 		MaxLogFiles:    10,
 		MaxBufferLines: 1000,
 		UseStdout:      &useStdout,
@@ -259,23 +252,27 @@ func realMain() error {
 	if err != nil {
 		return err
 	}
+
 	log := lb.Logger("BotClient")
-	c, err := botclient.NewClient(cfg, lb)
+
+	c, err := botclient.NewClient(appCfg.BR)
 	if err != nil {
 		return err
 	}
 	g.Go(func() error { return c.RPCClient.Run(gctx) })
 
+	// Identify ourselves
 	var zkShortID zkidentity.ShortID
 	req := &types.PublicIdentityReq{}
 	var publicIdentity types.PublicIdentity
-	err = c.Chat.UserPublicIdentity(ctx, req, &publicIdentity)
-	if err != nil {
+	if err := c.Chat.UserPublicIdentity(ctx, req, &publicIdentity); err != nil {
 		return fmt.Errorf("failed to get user public identity: %v", err)
 	}
-
 	clientID := hex.EncodeToString(publicIdentity.Identity[:])
-	copy(zkShortID[:], clientID)
+	if idBytes, decErr := hex.DecodeString(clientID); decErr == nil && len(idBytes) >= len(zkShortID) {
+		copy(zkShortID[:], idBytes[:len(zkShortID)])
+	}
+
 	as := &appstate{
 		ctx:        ctx,
 		cancel:     cancel,
@@ -283,8 +280,9 @@ func realMain() error {
 		logBackend: lb,
 		mode:       gameIdle,
 	}
-	as.dataDir = *datadir
-	// Setup notification handlers.
+	as.dataDir = appCfg.DataDir
+
+	// Notifications
 	ntfns := client.NewNotificationManager()
 	ntfns.RegisterSync(client.OnWRCreatedNtfn(func(wr *pong.WaitingRoom, ts time.Time) {
 		as.Lock()
@@ -307,9 +305,7 @@ func realMain() error {
 			}
 		}()
 	}))
-
 	ntfns.Register(client.OnBetAmtChangedNtfn(func(playerID string, betAmt int64, ts time.Time) {
-		// Update bet amount for the player in the local state (e.g., as.Players).
 		if clientID == playerID {
 			as.notification = "bet amount updated"
 			as.betAmount = float64(betAmt) / 1e8
@@ -320,7 +316,6 @@ func realMain() error {
 				as.Lock()
 				as.players[i].BetAmt = betAmt
 				as.Unlock()
-
 				break
 			}
 		}
@@ -331,34 +326,24 @@ func realMain() error {
 			}
 		}()
 	}))
-
 	ntfns.Register(client.OnGameStartedNtfn(func(id string, ts time.Time) {
 		as.mode = gameMode
 		as.isGameRunning = true
 		as.notification = fmt.Sprintf("game started with ID %s", id)
-		go func() {
-			as.msgCh <- client.UpdatedMsg{}
-		}()
+		go func() { as.msgCh <- client.UpdatedMsg{} }()
 	}))
-
 	ntfns.Register(client.OnPlayerJoinedNtfn(func(wr *pong.WaitingRoom, ts time.Time) {
 		as.currentWR = wr
 		as.notification = "new player joined your waiting room"
-		go func() {
-			as.msgCh <- client.UpdatedMsg{}
-		}()
+		go func() { as.msgCh <- client.UpdatedMsg{} }()
 	}))
-
 	ntfns.Register(client.OnGameEndedNtfn(func(gameID, msg string, ts time.Time) {
 		as.notification = fmt.Sprintf("game %s ended\n%s", gameID, msg)
 		as.betAmount = 0
 		as.isGameRunning = false
 		as.mode = gameIdle
-		go func() {
-			as.msgCh <- client.UpdatedMsg{}
-		}()
+		go func() { as.msgCh <- client.UpdatedMsg{} }()
 	}))
-
 	ntfns.Register(client.OnPlayerLeftNtfn(func(wr *pong.WaitingRoom, playerID string, ts time.Time) {
 		if playerID == clientID {
 			as.currentWR = nil
@@ -367,37 +352,34 @@ func realMain() error {
 			as.currentWR = wr
 			as.notification = fmt.Sprintf("Player %s left the waiting room", playerID)
 		}
-		go func() {
-			as.msgCh <- client.UpdatedMsg{}
-		}()
+		go func() { as.msgCh <- client.UpdatedMsg{} }()
 	}))
 
+	// Create Pong client (use appCfg values pulled from config/flags)
 	pc, err := client.NewPongClient(clientID, &client.PongClientCfg{
-		ServerAddr:    cfg.ServerAddr,
+		ServerAddr:    appCfg.ServerAddr,
 		Notifications: ntfns,
 		Log:           log,
-		GRPCCertPath:  cfg.GRPCServerCert,
+		GRPCCertPath:  appCfg.GRPCCertPath,
 	})
 	if err != nil {
 		return fmt.Errorf("failed to create pong client: %v", err)
 	}
 	as.pc = pc
 
-	log.Infof("Connected to server at %s with ID %s", cfg.ServerAddr, clientID)
+	log.Infof("Connected to server at %s with ID %s", appCfg.ServerAddr, clientID)
 
-	// Test the connection immediately after creating the client
-	_, err = pc.GetWaitingRooms()
-	if err != nil {
+	// Quick gRPC sanity check
+	if _, err := pc.GetWaitingRooms(); err != nil {
 		return fmt.Errorf("gRPC server connection failed: %v", err)
 	}
 
-	// Start the notifier in a goroutine
+	// Start notifier
 	g.Go(func() error { return pc.StartNotifier(ctx) })
 
 	defer as.cancel()
 
 	p := tea.NewProgram(as)
-
 	_, err = p.Run()
 	if err != nil {
 		return err

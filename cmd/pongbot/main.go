@@ -161,7 +161,7 @@ func realMain() error {
 		return fmt.Errorf("failed to listen on gRPC port: %v", err)
 	}
 
-	bot, err := bisonbotkit.NewBot(cfg.BotConfig, logBackend)
+	bot, err := bisonbotkit.NewBot(cfg.BotConfig)
 	if err != nil {
 		return fmt.Errorf("failed to create JSON-RPC client: %w", err)
 	}
