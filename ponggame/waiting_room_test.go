@@ -7,7 +7,6 @@ import (
 	"github.com/companyzero/bisonrelay/client/clientintf"
 	"github.com/companyzero/bisonrelay/zkidentity"
 	"github.com/stretchr/testify/assert"
-	"github.com/stretchr/testify/require"
 )
 
 func createTestWaitingRoom() *WaitingRoom {
@@ -88,8 +87,7 @@ func TestWaitingRoom_Marshal(t *testing.T) {
 	players := createTestPlayers()
 
 	// Test marshaling empty waiting room
-	pongWR, err := wr.Marshal()
-	require.NoError(t, err)
+	pongWR := wr.Marshal()
 	assert.Equal(t, wr.ID, pongWR.Id)
 	assert.Equal(t, wr.BetAmount, pongWR.BetAmt)
 	assert.Equal(t, 0, len(pongWR.Players))
@@ -98,8 +96,7 @@ func TestWaitingRoom_Marshal(t *testing.T) {
 	wr.AddPlayer(players[0])
 	wr.AddPlayer(players[1])
 
-	pongWR, err = wr.Marshal()
-	require.NoError(t, err)
+	pongWR = wr.Marshal()
 	assert.Equal(t, wr.ID, pongWR.Id)
 	assert.Equal(t, wr.BetAmount, pongWR.BetAmt)
 	assert.Equal(t, 2, len(pongWR.Players))
@@ -302,8 +299,7 @@ func TestWaitingRoom_StateConsistency(t *testing.T) {
 	wr.AddPlayer(players[1])
 
 	// Marshal and verify consistency
-	pongWR, err := wr.Marshal()
-	require.NoError(t, err)
+	pongWR := wr.Marshal()
 	assert.Equal(t, wr.ID, pongWR.Id)
 	assert.Equal(t, len(wr.Players), len(pongWR.Players))
 

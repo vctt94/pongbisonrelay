@@ -14,9 +14,21 @@ import (
 	"github.com/vctt94/pong-bisonrelay/pongrpc/grpc/pong"
 )
 
-// computePreSig derives k via RFC6979 and enforces even-Y on R' = k*G + T.
-// Returns r_x, s', R' (all hex).
+// computePreSig derives adaptor pre-signature for (x, m, T).
+// Math (DCRv0):
+//
+//	R  = k·G
+//	R' = R + T, require even-Y
+//	e  = BLAKE256(r_x || m) mod n
+//	s' = k - e·x  (mod n)
+//
+// Returns hex: (r_x, s', R').
+//
+// Notes:
+//   - k via RFC6979 with domain-sep “extra” binding to T (and optional branch).
+//   - Deterministic retry until: k≠0, R'≠∞, even-Y(R'), e<n.
 func computePreSig(xPrivHex, mHex, TCompHex string) (rXHex string, sPrimeHex string, rCompHex string, err error) {
+	// Inputs: x (scalar), m (32B sighash), T (33B adaptor point).
 	xb, err := hex.DecodeString(xPrivHex)
 	if err != nil {
 		return "", "", "", err
@@ -40,52 +52,53 @@ func computePreSig(xPrivHex, mHex, TCompHex string) (rXHex string, sPrimeHex str
 		return "", "", "", err
 	}
 
-	// Domain separation for nonce derivation:
-	// extra = BLAKE256(tag32 || Tcompressed [|| branch/inputID...])
+	// RFC6979 domain separation: bind nonce to T (and version if used).
+	// extra = BLAKE256(tag32 || T_compressed [|| branch/inputID...])
 	extra := blake256.Sum256(append(schnorrV0ExtraTag[:], Tb...))
-	var version []byte // optional 16-byte version tag; nil is fine
+	var version []byte // optional 16B tag; nil = unused
 
-	// Deterministic retry loop: iterate RFC6979 stream until all constraints pass.
+	// Deterministic retry loop: enforce all constraints.
 	for iter := uint32(0); ; iter++ {
 		k := secp256k1.NonceRFC6979(xb, mb, extra[:], version, iter)
 		if k == nil || k.IsZero() {
-			continue // ultra-rare, but stay deterministic
+			continue
 		}
 		kbArr := k.Bytes()
 
-		// R = k·G
+		// R = kG
 		R := secp256k1.PrivKeyFromBytes(kbArr[:]).PubKey()
 
-		// R' = R + T  (retry on infinity)
+		// R' = R + T ; skip if infinity.
 		Rp, err := addPoints(R, Tpub)
-		if err != nil { // point at infinity
+		if err != nil { // infinity
 			continue
 		}
 		cp := Rp.SerializeCompressed()
 		if len(cp) != 33 {
 			continue
 		}
-		// Enforce even-Y on R' (required by EC-Schnorr-DCRv0 verification).
+
+		// Even-Y(R') (DCRv0 normalization): compressed prefix must be 0x02.
 		if cp[0] != 0x02 {
 			continue
 		}
-		// e = BLAKE256(r_x || m). Retry if e >= n (spec says to try next nonce).
+
+		// e = H(r_x || m). Retry if e ≥ n (per spec).
 		// https://github.com/decred/dcrd/blob/master/dcrec/secp256k1/schnorr/README.md?plain=1#L257
 		var r32 [32]byte
 		copy(r32[:], cp[1:33])
 		h := blake256.Sum256(append(r32[:], mb...))
-
 		var e secp256k1.ModNScalar
 		if overflow := e.SetByteSlice(h[:]); overflow {
-			continue // e >= n -> try next deterministic nonce
+			continue
 		}
 
-		// s' = k - e*x  (mod n)
+		// s' = k - e·x (mod n)
 		var ex, sLine, negex secp256k1.ModNScalar
 		ex.Set(&e)
 		ex.Mul(&x)
 		negex.NegateVal(&ex)
-		sLine.Set(k) // k is already a *ModNScalar from NonceRFC6979
+		sLine.Set(k) // k is already ModNScalar
 		sLine.Add(&negex)
 
 		spb := sLine.Bytes()
@@ -113,8 +126,19 @@ func DeriveAdaptorPreSig(xPrivHex, mHex, TCompHex string) (rPrimeCompressed []by
 	return rb, sb, nil
 }
 
-// BuildVerifyOk validates draft and inputs and constructs PreSig list and ack digest.
+// BuildVerifyOk validates server REQ and produces adaptor pre-sigs.
+//
+// Math (minus-variant, DCRv0):
+//
+//	e = BLAKE256(r_x || m) mod n
+//	s' = k - e·x
+//	R' = k·G + T  (normalized to even-Y in DeriveAdaptorPreSig)
+//
+// Server check: s'G ?= R' - eX - T
+//
+// Ack binds what we sign to: draft tx, per-input (InputId, m, T).
 func BuildVerifyOk(xPrivHex string, req *pong.NeedPreSigs) (*pong.VerifyOk, error) {
+	// Parse draft tx.
 	txb, err := hex.DecodeString(req.DraftTxHex)
 	if err != nil {
 		return nil, err
@@ -123,9 +147,13 @@ func BuildVerifyOk(xPrivHex string, req *pong.NeedPreSigs) (*pong.VerifyOk, erro
 	if err := tx.Deserialize(bytes.NewReader(txb)); err != nil {
 		return nil, err
 	}
+
+	// Canonicalize per-input order for deterministic ack/presigs.
 	inputs := make([]*pong.NeedPreSigs_PerInput, len(req.Inputs))
 	copy(inputs, req.Inputs)
 	sort.Slice(inputs, func(i, j int) bool { return inputs[i].InputId < inputs[j].InputId })
+
+	// Build ack = BLAKE256(draftHex || ⊕_i(InputId || m_i || T_i)).
 	var concat []byte
 	concat = append(concat, []byte(req.DraftTxHex)...)
 	for _, in := range inputs {
@@ -134,16 +162,20 @@ func BuildVerifyOk(xPrivHex string, req *pong.NeedPreSigs) (*pong.VerifyOk, erro
 		concat = append(concat, in.TCompressed...)
 	}
 	ack := blake256.Sum256(concat)
+
+	// For each input: recompute m, then derive (R', s').
 	pres := make([]*pong.PreSig, 0, len(inputs))
 	for _, in := range inputs {
 		redeem, err := hex.DecodeString(in.RedeemScriptHex)
 		if err != nil {
 			return nil, fmt.Errorf("bad redeem: %w", err)
 		}
+		// Map InputId → tx input index.
 		idx, err := findInputIndex(&tx, in.InputId)
 		if err != nil {
 			return nil, err
 		}
+		// Recompute Decred SigHashAll(m) and compare with REQ.
 		mBytes, err := txscript.CalcSignatureHash(redeem, txscript.SigHashAll, &tx, idx, nil)
 		if err != nil || len(mBytes) != 32 {
 			return nil, fmt.Errorf("sighash")
@@ -152,12 +184,20 @@ func BuildVerifyOk(xPrivHex string, req *pong.NeedPreSigs) (*pong.VerifyOk, erro
 		if mHex != in.MHex {
 			return nil, fmt.Errorf("m mismatch")
 		}
+
+		// Derive adaptor pre-sig using session x and server T:
+		//   RFC6979 k, R' = kG + T (even-Y), e = H(r_x||m), s' = k - e·x.
 		rComp, sLine, err := DeriveAdaptorPreSig(xPrivHex, mHex, hex.EncodeToString(in.TCompressed))
 		if err != nil {
 			return nil, err
 		}
-		pres = append(pres, &pong.PreSig{InputId: in.InputId, RLineCompressed: rComp, SLine32: sLine})
+		pres = append(pres, &pong.PreSig{
+			InputId:         in.InputId,
+			RLineCompressed: rComp, // R' (33B)
+			SLine32:         sLine, // s' (32B)
+		})
 	}
+
 	return &pong.VerifyOk{AckDigest: ack[:], Presigs: pres}, nil
 }
 
@@ -193,16 +233,27 @@ func (pc *PongClient) OpenEscrowWithSession(ctx context.Context, payoutPubkey []
 	return pc.RefOpenEscrow(pc.ID, pubBytes, payoutPubkey, betAtoms, csvBlocks)
 }
 
-// StartSettlementHandshake performs HELLO -> REQ -> VERIFY_OK -> SERVER_OK.
-func (pc *PongClient) StartSettlementHandshake(ctx context.Context, matchID string) error {
+// RefStartSettlementHandshake starts a schnorr adaptor pre-sign handshake:
+//
+//	C→S HELLO{X}          // publish session X so server can bind/verify pre-sigs
+//	S→C REQ{tx, m_i, T_i} // draft, per-input sighash m, adaptor T
+//	C→S VERIFY_OK{ack, (R'_i, s'_i)_i} // pre-sigs created with x via RFC6979 nonces
+//	S→C OK                // server accepted all (R', s')
+func (pc *PongClient) RefStartSettlementHandshake(ctx context.Context, matchID string) error {
+	// x := session private scalar used to derive all (R', s') in BuildVerifyOk.
 	priv, _, err := pc.RequireSettlementSessionKey()
 	if err != nil {
 		return err
 	}
+
+	// Open stream to referee.
 	stream, err := pc.RefStartSettlementStream(ctx)
 	if err != nil {
 		return err
 	}
+
+	// HELLO — publish session pubkey X (= xG) in compressed form (33B).
+	// Server will later verify s'G ?= R' - eX - T using this X.
 	pubHex := pc.settlePubHex
 	pubBytes, _ := hex.DecodeString(pubHex)
 	_ = stream.Send(&pong.ClientMsg{
@@ -210,15 +261,29 @@ func (pc *PongClient) StartSettlementHandshake(ctx context.Context, matchID stri
 		Kind: &pong.ClientMsg_Hello{
 			Hello: &pong.Hello{
 				MatchId:       matchID,
-				CompPubkey:    pubBytes,
+				CompPubkey:    pubBytes, // X
 				ClientVersion: "poc",
-			}}})
+			},
+		},
+	})
+
+	// Drive REQ → VERIFY_OK → OK.
 	for {
 		in, err := stream.Recv()
 		if err != nil {
 			_ = stream.CloseSend()
 			return err
 		}
+
+		// On REQ: build adaptor pre-sigs bound to the server’s challenge.
+		// BuildVerifyOk does:
+		//   • Parse draft tx; recompute each m_i = SigHashAll(redeem, tx, idx) and match REQ.m_i.
+		//   • ack = BLAKE256(draft || ⊕_i(InputId || m_i || T_i)) to bind tx/input order and T_i.
+		//   • For each input i:
+		//       - RFC6979 derive k
+		//       - R' = kG + T_i, enforce even-Y
+		//       - e = H(r_x || m_i), s' = k - e·x
+		//       - emit PreSig{RLineCompressed=R', SLine32=s'}.
 		if req := in.GetReq(); req != nil {
 			verify, err := BuildVerifyOk(priv, req)
 			if err != nil {
@@ -228,10 +293,13 @@ func (pc *PongClient) StartSettlementHandshake(ctx context.Context, matchID stri
 			_ = stream.Send(&pong.ClientMsg{
 				MatchId: matchID,
 				Kind: &pong.ClientMsg_VerifyOk{
-					VerifyOk: verify,
-				}})
+					VerifyOk: verify, // {ack, presigs_i=(R'_i, s'_i)}
+				},
+			})
 			continue
 		}
+
+		// On OK: server validated s'G == R' - eX - T for all inputs → handshake complete.
 		if ok := in.GetOk(); ok != nil {
 			_ = stream.CloseSend()
 			return nil

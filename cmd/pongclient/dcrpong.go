@@ -188,7 +188,7 @@ func (m *appstate) preSign() {
 	}
 	// Use room-scoped match_id anchored to the host so branch mapping is stable (host = A/0).
 	m.settle.matchID = fmt.Sprintf("%s|%s", m.currentWR.Id, m.currentWR.HostId)
-	if err := m.pc.StartSettlementHandshake(ctx, m.settle.matchID); err != nil {
+	if err := m.pc.RefStartSettlementHandshake(ctx, m.settle.matchID); err != nil {
 		m.notification = fmt.Sprintf("handshake error: %v", err)
 		m.msgCh <- client.UpdatedMsg{}
 		return

@@ -7,7 +7,6 @@ import (
 	"github.com/companyzero/bisonrelay/zkidentity"
 	"github.com/decred/slog"
 	"github.com/stretchr/testify/assert"
-	"github.com/stretchr/testify/require"
 )
 
 // Basic working tests for core functionality
@@ -46,17 +45,13 @@ func TestBasic_PlayerMarshal(t *testing.T) {
 		Ready:        true,
 	}
 
-	pongPlayer, err := player.Marshal()
-	require.NoError(t, err)
+	pongPlayer := player.Marshal()
 	assert.Equal(t, "TestPlayer", pongPlayer.Nick)
 	assert.Equal(t, int64(100), pongPlayer.BetAmt)
 	assert.Equal(t, int32(1), pongPlayer.Number)
 	assert.Equal(t, int32(5), pongPlayer.Score)
 	assert.True(t, pongPlayer.Ready)
 
-	// Test nil player
-	_, err = (*Player)(nil).Marshal()
-	assert.Error(t, err)
 }
 
 func TestBasic_PlayerReset(t *testing.T) {
@@ -126,8 +121,7 @@ func TestBasic_WaitingRoomMarshal(t *testing.T) {
 		BetAmount: 100,
 	}
 
-	pongWR, err := wr.Marshal()
-	require.NoError(t, err)
+	pongWR := wr.Marshal()
 	assert.Equal(t, "test-room", pongWR.Id)
 	assert.Equal(t, int64(100), pongWR.BetAmt)
 	assert.Equal(t, 0, len(pongWR.Players))

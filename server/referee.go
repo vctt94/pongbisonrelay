@@ -832,6 +832,7 @@ func (s *Server) GetFinalizeBundle(ctx context.Context, req *pong.GetFinalizeBun
 	sort.Slice(list, func(i, j int) bool { return list[i].id < list[j].id })
 
 	// Derive gamma for that branch (same domain sep. as presign)
+	// XXX move to confs
 	const pocServerPrivHex = "11ee22dd33cc44bb55aa66ff77ee88dd99cc00bbaa11223344556677889900aa"
 	branchTag := fmt.Sprintf("branch-%d", branch)
 	gammaHex, _ := deriveAdaptorGamma("", branchTag, branch, branchTag, pocServerPrivHex)
