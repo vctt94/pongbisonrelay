@@ -9,32 +9,21 @@ import (
 	"github.com/vctt94/pong-bisonrelay/pongrpc/grpc/pong"
 )
 
-//GetWaitingRoom ??
-
 func (s *Server) GetWaitingRoom(ctx context.Context, req *pong.WaitingRoomRequest) (*pong.WaitingRoomResponse, error) {
-	s.Lock()
-	defer s.Unlock()
-
 	wr := s.gameManager.GetWaitingRoom(req.RoomId)
 	if wr == nil {
 		return nil, fmt.Errorf("waiting room not found: %s", req.RoomId)
 	}
 
 	return &pong.WaitingRoomResponse{
-		Wr: wr.MarshalProto(),
+		Wr: wr.Marshal(),
 	}, nil
 }
 
 func (s *Server) GetWaitingRooms(ctx context.Context, req *pong.WaitingRoomsRequest) (*pong.WaitingRoomsResponse, error) {
-	s.Lock()
-	defer s.Unlock()
-
 	pongWaitingRooms := make([]*pong.WaitingRoom, len(s.gameManager.WaitingRooms))
 	for i, room := range s.gameManager.WaitingRooms {
-		wr, err := room.Marshal()
-		if err != nil {
-			return nil, err
-		}
+		wr := room.Marshal()
 		pongWaitingRooms[i] = wr
 	}
 
@@ -136,13 +125,15 @@ func (s *Server) CreateWaitingRoom(ctx context.Context, req *pong.CreateWaitingR
 	default:
 	}
 
+
+	pongWR := wr.Marshal()
+
 	// Notify all users.
-	pongWR, err := wr.Marshal()
-	if err != nil {
-		return nil, err
-	}
 	s.RLock()
-	for _, user := range s.users {
+	users := s.users
+	s.RUnlock()
+
+	for _, user := range users {
 		if user.NotifierStream == nil {
 			s.log.Errorf("user %s without NotifierStream", user.ID)
 			continue
@@ -152,7 +143,6 @@ func (s *Server) CreateWaitingRoom(ctx context.Context, req *pong.CreateWaitingR
 			NotificationType: pong.NotificationType_ON_WR_CREATED,
 		})
 	}
-	s.RUnlock()
 
 	return &pong.CreateWaitingRoomResponse{Wr: pongWR}, nil
 }
@@ -203,13 +193,10 @@ func (s *Server) JoinWaitingRoom(ctx context.Context, req *pong.JoinWaitingRoomR
 		s.roomEscrows[wr.ID] = make(map[string]string)
 	}
 	s.roomEscrows[wr.ID][player.ID.String()] = es.escrowID
+	// Notify room.
 	s.Unlock()
 
-	// Notify room.
-	pwr, err := wr.Marshal()
-	if err != nil {
-		return nil, err
-	}
+	pwr := wr.Marshal()
 	for _, p := range wr.Players {
 		if p.NotifierStream == nil {
 			s.log.Errorf("player %s has nil NotifierStream", p.ID.String())
@@ -272,17 +259,15 @@ func (s *Server) LeaveWaitingRoom(ctx context.Context, req *pong.LeaveWaitingRoo
 		s.gameManager.RemoveWaitingRoom(wr.ID)
 	} else {
 		// Notify remaining players that someone left
-		pwrMarshaled, err := wr.Marshal()
-		if err == nil {
-			for _, p := range wr.Players {
-				// Send notification to remaining players
-				p.NotifierStream.Send(&pong.NtfnStreamResponse{
-					NotificationType: pong.NotificationType_PLAYER_LEFT_WR,
-					RoomId:           wr.ID,
-					Wr:               pwrMarshaled,
-					PlayerId:         req.ClientId,
-				})
-			}
+		pwrMarshaled := wr.Marshal()
+		for _, p := range wr.Players {
+			// Send notification to remaining players
+			p.NotifierStream.Send(&pong.NtfnStreamResponse{
+				NotificationType: pong.NotificationType_PLAYER_LEFT_WR,
+				RoomId:           wr.ID,
+				Wr:               pwrMarshaled,
+				PlayerId:         req.ClientId,
+			})
 		}
 	}
 

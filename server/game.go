@@ -109,10 +109,7 @@ func (s *Server) StartGameStream(req *pong.StartGameStreamRequest, stream pong.P
 	// Notify all players in the waiting room that this player is ready
 	if player.WR != nil {
 		// Marshal the waiting room state to include in notifications
-		pwr, err := player.WR.Marshal()
-		if err != nil {
-			return err
-		}
+		pwr := player.WR.Marshal()
 		for _, p := range player.WR.Players {
 			p.NotifierStream.Send(&pong.NtfnStreamResponse{
 				NotificationType: pong.NotificationType_ON_PLAYER_READY,
@@ -159,19 +156,19 @@ func (s *Server) UnreadyGameStream(ctx context.Context, req *pong.UnreadyGameStr
 		player.GameStream = nil
 
 		// Notify other players in the waiting room
-		pwr, err := player.WR.Marshal()
-		if err == nil {
-			for _, p := range player.WR.Players {
-				p.NotifierStream.Send(&pong.NtfnStreamResponse{
-					NotificationType: pong.NotificationType_ON_PLAYER_READY,
-					Message:          fmt.Sprintf("Player %s is not ready", player.Nick),
-					PlayerId:         player.ID.String(),
-					RoomId:           player.WR.ID,
-					Wr:               pwr,
-					Ready:            false,
-				})
-			}
+		pwr := player.WR.Marshal()
+
+		for _, p := range player.WR.Players {
+			p.NotifierStream.Send(&pong.NtfnStreamResponse{
+				NotificationType: pong.NotificationType_ON_PLAYER_READY,
+				Message:          fmt.Sprintf("Player %s is not ready", player.Nick),
+				PlayerId:         player.ID.String(),
+				RoomId:           player.WR.ID,
+				Wr:               pwr,
+				Ready:            false,
+			})
 		}
+
 	}
 
 	return &pong.UnreadyGameStreamResponse{}, nil

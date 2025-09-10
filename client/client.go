@@ -41,9 +41,10 @@ type PongClient struct {
 
 	ntfns *NotificationManager
 
-	log       slog.Logger
-	stream    pong.PongGame_StartGameStreamClient
-	notifier  pong.PongGame_StartNtfnStreamClient
+	log      slog.Logger
+	stream   pong.PongGame_StartGameStreamClient
+	notifier pong.PongGame_StartNtfnStreamClient
+
 	UpdatesCh chan tea.Msg
 	GameCh    chan *pong.GameUpdateBytes
 	ErrorsCh  chan error

@@ -354,10 +354,6 @@ func (s *Server) Shutdown(ctx context.Context) error {
 	s.gameManager.WaitingRooms = nil // Clear all waiting rooms
 	s.gameManager.Unlock()
 
-	s.Lock()
-	s.users = nil
-	s.Unlock()
-
 	// Close database LAST after all operations are done
 	s.log.Info("Closing database...")
 	if err := s.db.Close(); err != nil {
