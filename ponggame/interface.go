@@ -49,6 +49,16 @@ type Player struct {
 	WR *WaitingRoom
 }
 
+func (p *Player) MarshalProto() *pong.Player {
+	return &pong.Player{
+		Uid:    p.ID.String(),
+		Nick:   p.Nick,
+		BetAmt: p.BetAmt,
+		Number: p.PlayerNumber,
+		Score:  int32(p.Score),
+	}
+}
+
 func (p *Player) ResetPlayer() {
 	p.GameStream = nil
 	p.Score = 0
@@ -97,6 +107,21 @@ type WaitingRoom struct {
 	Players      []*Player
 	BetAmount    int64
 	ReservedTips []*types.ReceivedTip
+}
+
+func (wr *WaitingRoom) MarshalProto() *pong.WaitingRoom {
+	wr.RLock()
+	defer wr.RUnlock()
+	players := make([]*pong.Player, len(wr.Players))
+	for i, player := range wr.Players {
+		players[i] = player.MarshalProto()
+	}
+	return &pong.WaitingRoom{
+		Id:      wr.ID,
+		HostId:  wr.HostID.String(),
+		Players: players,
+		BetAmt:  wr.BetAmount,
+	}
 }
 
 type GameManager struct {

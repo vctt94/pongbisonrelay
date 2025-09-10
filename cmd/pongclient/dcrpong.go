@@ -357,10 +357,9 @@ func realMain() error {
 
 	// Create Pong client (use appCfg values pulled from config/flags)
 	pc, err := client.NewPongClient(clientID, &client.PongClientCfg{
-		ServerAddr:    appCfg.ServerAddr,
+		AppCfg:        appCfg,
 		Notifications: ntfns,
 		Log:           log,
-		GRPCCertPath:  appCfg.GRPCCertPath,
 	})
 	if err != nil {
 		return fmt.Errorf("failed to create pong client: %v", err)

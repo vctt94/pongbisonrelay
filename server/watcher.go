@@ -8,6 +8,7 @@ import (
 	"sync"
 	"time"
 
+	"github.com/decred/dcrd/chaincfg/chainhash"
 	"github.com/decred/dcrd/rpcclient/v8"
 	"github.com/decred/slog"
 	"github.com/vctt94/pong-bisonrelay/pongrpc/grpc/pong"
@@ -174,6 +175,42 @@ func (w *chainWatcher) pollOnce(ctx context.Context) {
 				}
 			} else {
 				w.log.Debugf("watcher: GetRawMempool failed; skipping mempool scan for %s", pkHex)
+			}
+		}
+
+		// Filter to only include currently unspent outputs and compute min confirmations.
+		if len(utxos) > 0 {
+			filtered := make([]*pong.EscrowUTXO, 0, len(utxos))
+			minConfs := int64(^uint32(0)) // start large; res.Confirmations is int64
+			for _, u := range utxos {
+				var h chainhash.Hash
+				if err := chainhash.Decode(&h, u.Txid); err != nil {
+					continue
+				}
+				res, err := w.dcrd.GetTxOut(ctx, &h, u.Vout, 0, true)
+				if err != nil || res == nil {
+					// Spent or not found
+					continue
+				}
+				filtered = append(filtered, u)
+				if res.Confirmations < minConfs {
+					minConfs = res.Confirmations
+				}
+			}
+			utxos = filtered
+			if len(utxos) > 0 {
+				found = true
+				if minConfs < 0 {
+					confs = 0
+				} else if minConfs > int64(^uint32(0)) {
+					confs = ^uint32(0)
+				} else {
+					confs = uint32(minConfs)
+				}
+				w.log.Debugf("watcher: pk=%s unspent utxos=%d confs(min)=%d", pkHex, len(utxos), confs)
+			} else {
+				found = false
+				confs = 0
 			}
 		}
 

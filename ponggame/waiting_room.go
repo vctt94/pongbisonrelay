@@ -70,20 +70,19 @@ func (wr *WaitingRoom) AddPlayer(player *Player) {
 	wr.Players = append(wr.Players, player)
 }
 
-func (wr *WaitingRoom) ReadyPlayers() ([]*Player, bool) {
-	wr.Lock()
-	defer wr.Unlock()
-	if len(wr.Players) >= 2 {
-		for i := range wr.Players {
-			if !wr.Players[i].Ready {
-				return nil, false
-			}
+// ReadyPlayers returns all ready players in the waiting room.
+func (wr *WaitingRoom) ReadyPlayers() []*Player {
+	wr.RLock()
+	defer wr.RUnlock()
+
+	// Collect all ready players without mutating room state.
+	var selected []*Player
+	for _, p := range wr.Players {
+		if p.Ready {
+			selected = append(selected, p)
 		}
-		players := wr.Players[:2]
-		wr.Players = wr.Players[2:]
-		return players, true
 	}
-	return nil, false
+	return selected
 }
 
 func (wr *WaitingRoom) GetPlayer(clientID *zkidentity.ShortID) *Player {

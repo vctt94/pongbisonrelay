@@ -117,13 +117,15 @@ func TestWaitingRoom_ReadyPlayers(t *testing.T) {
 	players := createTestPlayers()
 
 	// Test with no players
-	readyPlayers, canStart := wr.ReadyPlayers()
+	readyPlayers := wr.ReadyPlayers()
+	canStart := len(readyPlayers) == 0
 	assert.Nil(t, readyPlayers)
 	assert.False(t, canStart)
 
 	// Test with one player
 	wr.AddPlayer(players[0])
-	readyPlayers, canStart = wr.ReadyPlayers()
+	readyPlayers = wr.ReadyPlayers()
+	canStart = len(readyPlayers) == 1
 	assert.Nil(t, readyPlayers)
 	assert.False(t, canStart)
 
@@ -131,14 +133,16 @@ func TestWaitingRoom_ReadyPlayers(t *testing.T) {
 	players[0].Ready = false
 	players[1].Ready = false
 	wr.AddPlayer(players[1])
-	readyPlayers, canStart = wr.ReadyPlayers()
+	readyPlayers = wr.ReadyPlayers()
+	canStart = len(readyPlayers) == 0
 	assert.Nil(t, readyPlayers)
 	assert.False(t, canStart)
 
 	// Test with two ready players
 	players[0].Ready = true
 	players[1].Ready = true
-	readyPlayers, canStart = wr.ReadyPlayers()
+	readyPlayers = wr.ReadyPlayers()
+	canStart = len(readyPlayers) == 2
 	assert.NotNil(t, readyPlayers)
 	assert.True(t, canStart)
 	assert.Equal(t, 2, len(readyPlayers))

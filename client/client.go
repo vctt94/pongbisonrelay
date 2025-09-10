@@ -2,7 +2,6 @@ package client
 
 import (
 	"context"
-	"encoding/hex"
 	"errors"
 	"fmt"
 	"io"
@@ -11,11 +10,9 @@ import (
 	"sync"
 	"time"
 
-	"github.com/decred/dcrd/dcrec/secp256k1/v4"
 	"github.com/decred/slog"
 
 	tea "github.com/charmbracelet/bubbletea"
-	"github.com/companyzero/bisonrelay/clientrpc/types"
 
 	"github.com/vctt94/pong-bisonrelay/pongrpc/grpc/pong"
 	"google.golang.org/grpc"
@@ -25,22 +22,6 @@ import (
 
 type UpdatedMsg struct{}
 
-type PongClientCfg struct {
-	ServerAddr     string      // Address of the Pong server
-	GRPCCertPath   string      // Cert to the grpc server
-	GRPCServerName string      // Expected server name (CN/SAN) for TLS
-	Log            slog.Logger // Application's logger
-	ChatClient     types.ChatServiceClient
-	PaymentClient  types.PaymentsServiceClient
-
-	// Notifications tracks handlers for client events. If nil, the client
-	// will initialize a new notification manager. Specifying a
-	// notification manager in the config is useful to ensure no
-	// notifications are lost due to race conditions in client
-	// initialization.
-	Notifications *NotificationManager
-}
-
 type PongClient struct {
 	sync.RWMutex
 	ID string
@@ -49,15 +30,14 @@ type PongClient struct {
 
 	BetAmt       int64 // bet amt in mAtoms
 	playerNumber int32
-	cfg          *PongClientCfg
 	conn         *grpc.ClientConn
+	appCfg       *AppConfig
 	// game client
 	gc pong.PongGameClient
+	// waiting room client
+	wr pong.PongWaitingRoomClient
 	// referee client
 	rc pong.PongRefereeClient
-	// br clientrpc
-	chat    types.ChatServiceClient
-	payment types.PaymentsServiceClient
 
 	ntfns *NotificationManager
 
@@ -86,19 +66,6 @@ func (pc *PongClient) RequireSettlementSessionKey() (string, string, error) {
 	if pc.settlePrivHex == "" || pc.settlePubHex == "" {
 		return "", "", fmt.Errorf("no settlement session key; generate one with [K] in the UI or via GenerateNewSettlementSessionKey()")
 	}
-	return pc.settlePrivHex, pc.settlePubHex, nil
-}
-
-// GenerateNewSettlementSessionKey always creates a new session key and overwrites the cached one.
-func (pc *PongClient) GenerateNewSettlementSessionKey() (string, string, error) {
-	pc.Lock()
-	defer pc.Unlock()
-	p, err := secp256k1.GeneratePrivateKey()
-	if err != nil {
-		return "", "", err
-	}
-	pc.settlePrivHex = hex.EncodeToString(p.Serialize())
-	pc.settlePubHex = hex.EncodeToString(p.PubKey().SerializeCompressed())
 	return pc.settlePrivHex, pc.settlePubHex, nil
 }
 
@@ -240,7 +207,7 @@ func (pc *PongClient) SendInput(input string) error {
 func (pc *PongClient) GetWaitingRooms() ([]*pong.WaitingRoom, error) {
 	ctx := context.Background()
 
-	res, err := pc.gc.GetWaitingRooms(ctx, &pong.WaitingRoomsRequest{})
+	res, err := pc.wr.GetWaitingRooms(ctx, &pong.WaitingRoomsRequest{})
 	if err != nil {
 		return nil, fmt.Errorf("error getting wr: %w", err)
 	}
@@ -252,11 +219,11 @@ func (pc *PongClient) GetWaitingRooms() ([]*pong.WaitingRoom, error) {
 func (pc *PongClient) GetWRPlayers() ([]*pong.Player, error) {
 	ctx := context.Background()
 
-	wr, err := pc.gc.GetWaitingRoom(ctx, &pong.WaitingRoomRequest{})
+	res, err := pc.wr.GetWaitingRoom(ctx, &pong.WaitingRoomRequest{})
 	if err != nil {
 		return nil, fmt.Errorf("error getting wr players: %w", err)
 	}
-	return wr.Players, nil
+	return res.Wr.Players, nil
 }
 
 func (pc *PongClient) CreateWaitingRoom(clientId string, betAmt int64, escrowID string) (*pong.WaitingRoom, error) {
@@ -265,7 +232,7 @@ func (pc *PongClient) CreateWaitingRoom(clientId string, betAmt int64, escrowID 
 	if escrowID != "" {
 		req.EscrowId = escrowID
 	}
-	res, err := pc.gc.CreateWaitingRoom(ctx, req)
+	res, err := pc.wr.CreateWaitingRoom(ctx, req)
 	if err != nil {
 		return nil, fmt.Errorf("error creating wr: %w", err)
 	}
@@ -278,7 +245,7 @@ func (pc *PongClient) JoinWaitingRoom(roomID string, escrowID string) (*pong.Joi
 	if escrowID != "" {
 		req.EscrowId = escrowID
 	}
-	res, err := pc.gc.JoinWaitingRoom(ctx, req)
+	res, err := pc.wr.JoinWaitingRoom(ctx, req)
 	if err != nil {
 		return nil, fmt.Errorf("error joining wr: %w", err)
 	}
@@ -287,7 +254,7 @@ func (pc *PongClient) JoinWaitingRoom(roomID string, escrowID string) (*pong.Joi
 
 func (pc *PongClient) LeaveWaitingRoom(roomID string) error {
 	ctx := context.Background()
-	res, err := pc.gc.LeaveWaitingRoom(ctx, &pong.LeaveWaitingRoomRequest{
+	res, err := pc.wr.LeaveWaitingRoom(ctx, &pong.LeaveWaitingRoomRequest{
 		ClientId: pc.ID,
 		RoomId:   roomID,
 	})
@@ -302,101 +269,6 @@ func (pc *PongClient) LeaveWaitingRoom(roomID string) error {
 	return nil
 }
 
-func (pc *PongClient) reconnect() error {
-	pc.reconnectMu.Lock()
-	if pc.reconnecting {
-		pc.reconnectMu.Unlock()
-		return nil // Already reconnecting
-	}
-	pc.reconnecting = true
-	pc.reconnectMu.Unlock()
-
-	defer func() {
-		pc.reconnectMu.Lock()
-		pc.reconnecting = false
-		pc.reconnectMu.Unlock()
-	}()
-
-	pc.log.Infof("Attempting to reconnect to server...")
-
-	// Load credentials
-	creds, err := credentials.NewClientTLSFromFile(pc.cfg.GRPCCertPath, "")
-	if err != nil {
-		return fmt.Errorf("failed to load credentials for reconnection: %w", err)
-	}
-
-	// Close existing connection if it's still around
-	if pc.conn != nil {
-		pc.conn.Close()
-	}
-
-	// Implement exponential backoff for reconnection attempts
-	backoff := 1 * time.Second
-	maxBackoff := 30 * time.Second
-	for i := 0; i < 10; i++ { // Try 10 times before giving up
-		// Check if context was canceled
-		if pc.ctx.Err() != nil {
-			return pc.ctx.Err()
-		}
-
-		// Attempt to reconnect
-		pongConn, err := grpc.Dial(pc.cfg.ServerAddr,
-			grpc.WithTransportCredentials(creds),
-			grpc.WithBlock(),
-			grpc.WithKeepaliveParams(keepalive.ClientParameters{
-				Time:                30 * time.Second, // Send pings every 60 seconds instead of 10
-				Timeout:             10 * time.Second, // Wait 20 seconds for ping ack
-				PermitWithoutStream: false,            // Allow pings when there are no active streams
-			}),
-		)
-
-		if err != nil {
-			// Sleep with backoff before retrying below
-		} else {
-			// Successfully reconnected
-			pc.conn = pongConn
-			pc.gc = pong.NewPongGameClient(pongConn)
-			pc.rc = pong.NewPongRefereeClient(pongConn)
-
-			// Re-establish streams
-			err = pc.StartNotifier(pc.ctx)
-			if err != nil {
-				pc.log.Errorf("Failed to restart notifier after reconnection: %v", err)
-				// Close connection and try again
-				pongConn.Close()
-			} else {
-				// If we were in a game, we need to re-establish the game stream
-				if pc.stream != nil {
-					err = pc.SignalReady()
-					if err != nil {
-						pc.log.Errorf("Failed to restart game stream after reconnection: %v", err)
-						// Continue with the reconnected client even if we couldn't restart the game stream
-					}
-				}
-
-				pc.log.Infof("Successfully reconnected to server")
-				// Send notification that we've reconnected
-				pc.UpdatesCh <- UpdatedMsg{}
-				return nil
-			}
-		}
-
-		// Sleep with backoff before retrying
-		select {
-		case <-pc.ctx.Done():
-			return pc.ctx.Err()
-		case <-time.After(backoff):
-			// Increase backoff for next attempt, but cap it
-			backoff *= 2
-			if backoff > maxBackoff {
-				backoff = maxBackoff
-			}
-		}
-	}
-
-	return fmt.Errorf("failed to reconnect after multiple attempts")
-}
-
 func NewPongClient(clientID string, cfg *PongClientCfg) (*PongClient, error) {
 	if cfg.Log == nil {
 		return nil, fmt.Errorf("client must have logger")
@@ -406,7 +278,7 @@ func NewPongClient(clientID string, cfg *PongClientCfg) (*PongClient, error) {
 	ctx, cancel := context.WithCancel(context.Background())
 
 	// Load the credentials from the certificate file
-	creds, err := credentials.NewClientTLSFromFile(cfg.GRPCCertPath, "")
+	creds, err := credentials.NewClientTLSFromFile(cfg.AppCfg.GRPCCertPath, "")
 	if err != nil {
 		cancel() // Clean up the context
 		log.Fatalf("Failed to load credentials: %v", err)
@@ -422,7 +294,7 @@ func NewPongClient(clientID string, cfg *PongClientCfg) (*PongClient, error) {
 	}
 
 	// Dial the gRPC server with TLS credentials
-	pongConn, err := grpc.Dial(cfg.ServerAddr, dialOpts...)
+	pongConn, err := grpc.Dial(cfg.AppCfg.ServerAddr, dialOpts...)
 	if err != nil {
 		cancel() // Clean up the context
 		log.Fatalf("Failed to connect to server: %v", err)
@@ -436,12 +308,11 @@ func NewPongClient(clientID string, cfg *PongClientCfg) (*PongClient, error) {
 	// Initialize the pongClient instance
 	pc := &PongClient{
 		ID:         clientID,
-		cfg:        cfg,
 		conn:       pongConn,
+		appCfg:     cfg.AppCfg,
 		gc:         pong.NewPongGameClient(pongConn),
+		wr:         pong.NewPongWaitingRoomClient(pongConn),
 		rc:         pong.NewPongRefereeClient(pongConn),
-		chat:       cfg.ChatClient,
-		payment:    cfg.PaymentClient,
 		UpdatesCh:  make(chan tea.Msg, 64),
 		ErrorsCh:   make(chan error),
 		log:        cfg.Log,
@@ -504,77 +375,4 @@ func (pc *PongClient) SignalReadyToPlay(gameID string) error {
 	}
 
 	return nil
-}
-
-// Referee helpers
-func (pc *PongClient) RefCreateMatch(aCompHex, bCompHex string, csv uint32) (*pong.CreateMatchResponse, error) {
-	ctx := context.Background()
-	return pc.rc.CreateMatch(ctx, &pong.CreateMatchRequest{AC: aCompHex, BC: bCompHex, Csv: csv})
-}
-
-// Escrow-first referee helpers
-func (pc *PongClient) RefOpenEscrow(ownerID string, compPub []byte, payoutPubkey []byte, betAtoms uint64, csv uint32) (*pong.OpenEscrowResponse, error) {
-	ctx := context.Background()
-	return pc.rc.RefOpenEscrow(ctx, &pong.OpenEscrowRequest{OwnerUid: ownerID, CompPubkey: compPub, PayoutPubkey: payoutPubkey, BetAtoms: betAtoms, CsvBlocks: csv})
-}
-
-// RefStartSettlementStream starts the bidirectional settlement stream.
-func (pc *PongClient) RefStartSettlementStream(ctx context.Context) (pong.PongReferee_SettlementStreamClient, error) {
-	return pc.rc.SettlementStream(ctx)
-}
-
-// RefGetFinalizeBundle fetches gamma and both presigs for the winning branch.
-func (pc *PongClient) RefGetFinalizeBundle(matchID string) (*pong.GetFinalizeBundleResponse, error) {
-	ctx := context.Background()
-	return pc.rc.GetFinalizeBundle(ctx, &pong.GetFinalizeBundleRequest{MatchId: matchID, WinnerUid: pc.ID})
-}
-
-// OpenEscrowWithSession opens an escrow using the cached settlement session pubkey.
-func (pc *PongClient) OpenEscrowWithSession(ctx context.Context, payoutPubkey []byte, betAtoms uint64, csvBlocks uint32) (*pong.OpenEscrowResponse, error) {
-	pc.RLock()
-	pubHex := pc.settlePubHex
-	pc.RUnlock()
-	if pubHex == "" {
-		return nil, fmt.Errorf("no settlement session key; generate one with GenerateNewSettlementSessionKey()")
-	}
-	pubBytes, err := hex.DecodeString(pubHex)
-	if err != nil {
-		return nil, fmt.Errorf("bad session pubkey: %w", err)
-	}
-	return pc.RefOpenEscrow(pc.ID, pubBytes, payoutPubkey, betAtoms, csvBlocks)
-}
-
-// StartSettlementHandshake performs HELLO -> REQ -> VERIFY_OK -> SERVER_OK.
-func (pc *PongClient) StartSettlementHandshake(ctx context.Context, matchID string) error {
-	priv, _, err := pc.RequireSettlementSessionKey()
-	if err != nil {
-		return err
-	}
-	stream, err := pc.RefStartSettlementStream(ctx)
-	if err != nil {
-		return err
-	}
-	pubHex := pc.settlePubHex
-	pubBytes, _ := hex.DecodeString(pubHex)
-	_ = stream.Send(&pong.ClientMsg{MatchId: matchID, Kind: &pong.ClientMsg_Hello{Hello: &pong.Hello{MatchId: matchID, CompPubkey: pubBytes, ClientVersion: "poc"}}})
-	for {
-		in, err := stream.Recv()
-		if err != nil {
-			_ = stream.CloseSend()
-			return err
-		}
-		if req := in.GetReq(); req != nil {
-			verify, err := BuildVerifyOk(priv, req)
-			if err != nil {
-				_ = stream.CloseSend()
-				return err
-			}
-			_ = stream.Send(&pong.ClientMsg{MatchId: matchID, Kind: &pong.ClientMsg_VerifyOk{VerifyOk: verify}})
-			continue
-		}
-		if ok := in.GetOk(); ok != nil {
-			_ = stream.CloseSend()
-			return nil
-		}
-	}
 }

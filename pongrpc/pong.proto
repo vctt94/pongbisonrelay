@@ -11,7 +11,9 @@ service PongGame {
   rpc StartNtfnStream(StartNtfnStreamRequest) returns (stream NtfnStreamResponse);
   rpc UnreadyGameStream(UnreadyGameStreamRequest) returns (UnreadyGameStreamResponse);
   rpc SignalReadyToPlay(SignalReadyToPlayRequest) returns (SignalReadyToPlayResponse);
-  
+}
+
+service PongWaitingRoom {
   // waiting room
   rpc GetWaitingRoom(WaitingRoomRequest) returns (WaitingRoomResponse);
   rpc GetWaitingRooms(WaitingRoomsRequest) returns (WaitingRoomsResponse);
@@ -23,13 +25,8 @@ service PongGame {
 // Referee service coordinating escrow and settlement
 service PongReferee {
   // Escrow-first funding
-  rpc RefOpenEscrow (OpenEscrowRequest) returns (OpenEscrowResponse);
-  rpc RefWaitEscrowFunding (WaitEscrowFundingRequest) returns (stream WaitEscrowFundingUpdate);
-  rpc CreateMatch(CreateMatchRequest) returns (CreateMatchResponse);
-  // New endpoints for server-managed deposits and settlement
-  // v0-min POC minimal API
-  rpc WaitFunding(WaitFundingRequest) returns (stream WaitFundingResponse);
-  // Phase 1 streaming settlement
+  rpc OpenEscrow (OpenEscrowRequest) returns (OpenEscrowResponse);
+  // SettlementStream streams the settlement process
   rpc SettlementStream(stream ClientMsg) returns (stream ServerMsg);
   // Winner fetches gamma and both presigs to finalize the exact winning draft
   rpc GetFinalizeBundle(GetFinalizeBundleRequest) returns (GetFinalizeBundleResponse);
@@ -41,10 +38,8 @@ message ClientMsg {
   string match_id = 1;
   oneof kind {
     Hello hello = 10;
-    // Deprecated: presigs/ack split. Use verify_ok.
-    PreSigBatch presigs = 11;
     Ack ack = 12;
-    // New minimal handshake message carrying ack_digest and presigs.
+    // minimal handshake message carrying ack_digest and presigs.
     VerifyOk verify_ok = 13;
   }
 }
@@ -53,7 +48,6 @@ message ServerMsg {
   string match_id = 1;
   oneof kind {
     NeedPreSigs req = 11;
-    RevealGamma reveal = 12; // Not used in minimal handshake; gamma delivered later via separate RPC.
     Info info = 13;
     // New handshake completion ack from server.
     ServerOk ok = 14;
@@ -65,8 +59,6 @@ message Hello {
   bytes comp_pubkey = 2;  // 33B compressed pubkey (A_c/B_c)
   string client_version = 3;
 }
-
-
 
 message NeedPreSigs {
   string draft_tx_hex = 2;
@@ -88,21 +80,8 @@ message VerifyOk {
 // Per-input pre-signature using minus variant and normalized R'.
 message PreSig {
   string input_id = 1;
-  bytes  Rprime_compressed = 2; // 33B normalized (even-Y) R'
-  bytes  sprime32 = 3;         // 32B little endian mod-n scalar
-}
-
-message PreSigBatch {
-  message Sig {
-    string input_id = 1;
-    bytes  rprime32 = 2; // 32B (Deprecated; use PreSig with full R')
-    bytes  sprime32 = 3; // 32B (Deprecated; use PreSig)
-  }
-  repeated Sig presigs = 2;
-}
-
-message RevealGamma {
-  bytes gamma32 = 1; // 32B
+  bytes  RLine_compressed = 2; // 33B normalized (even-Y) R'
+  bytes  sLine32 = 3;         // 32B little endian mod-n scalar
 }
 
 message Ack { string note = 1; }
@@ -120,8 +99,8 @@ message GetFinalizeBundleRequest {
 message FinalizeInput {
   string input_id = 1;
   string redeem_script_hex = 2;
-  bytes  Rprime_compressed = 3;
-  bytes  sprime32 = 4;
+  bytes  RLine_compressed = 3;
+  bytes  sLine32 = 4;
 }
 
 message GetFinalizeBundleResponse {
@@ -130,8 +109,6 @@ message GetFinalizeBundleResponse {
   repeated FinalizeInput inputs = 3; // one per vin in draft
 }
 
-// === Existing API below ===
-// Escrow-first RPCs
 message OpenEscrowRequest {
   string owner_uid = 1;
   bytes  comp_pubkey = 2;     // 33 bytes (compressed)
@@ -146,36 +123,6 @@ message OpenEscrowResponse {
   string pk_script_hex = 3;
 }
 
-message WaitEscrowFundingRequest {
-  string escrow_id = 1;
-}
-
-message WaitEscrowFundingUpdate {
-  bool   funded = 1;
-  bool   confirmed = 2;
-  string utxo_id = 3;      // "txid:vout"
-  uint64 value_atoms = 4;
-}
-
-message CreateMatchRequest {
-  string a_c = 1; // compressed pubkey hex (33B)
-  string b_c = 2; // compressed pubkey hex (33B)
-  uint32 csv = 3; // CSV delay blocks
-}
-
-message CreateMatchResponse {
-  string match_id = 1;
-  string s_c = 2; // server compressed pubkey hex (33B)
-  string a_a = 3; // coeff a_A (32B hex)
-  string a_b = 4; // coeff a_B (32B hex)
-  string a_s = 5; // coeff a_S (32B hex)
-  string x_a = 6; // branch agg pubkey for A wins (33B hex)
-  string x_b = 7; // branch agg pubkey for B wins (33B hex)
-  uint32 csv = 8; // echoed
-  string escrow_template_a = 9; // redeemScript hex template (may contain placeholders)
-  string escrow_template_b = 10; // redeemScript hex template (may contain placeholders)
-}
-
 message EscrowUTXO {
   string txid = 1;
   uint32 vout = 2;
@@ -184,26 +131,6 @@ message EscrowUTXO {
   string pk_script_hex = 5;
   string owner = 6; // "A" or "B"
 }
-
-
-
-
-message WaitFundingRequest {
-  string escrow_id = 1;
-}
-
-message WaitFundingResponse {
-  uint32 confs = 1;
-  uint64 value = 2;
-  EscrowUTXO utxo = 3;
-  // Optional: if both players' deposits are known in the room, the server can
-  // include the opponent UTXO to prepare two-input drafts.
-  EscrowUTXO opponent_utxo = 4;
-}
-
-// Deprecated both-branches draft RPC removed; server pushes NeedPreSigs via SettlementStream
-
-
 
 
 
@@ -294,13 +221,14 @@ message WaitingRoom {
   int64 bet_amt = 4;
 }
 
-message WaitingRoomRequest {}
-
-message WaitingRoomResponse {
-  repeated Player players = 1;
+message WaitingRoomRequest {
+  string room_id = 1;
 }
 
-// Game Messages
+message WaitingRoomResponse {
+  WaitingRoom wr = 1;
+}
+
 message Player {
   string uid = 1;
   string nick = 2;

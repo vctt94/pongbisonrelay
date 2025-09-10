@@ -126,7 +126,7 @@ func (m *appstate) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 						presigs := make(map[string]*pong.PreSig)
 						inputs := make([]*pong.NeedPreSigs_PerInput, 0, len(bundle.Inputs))
 						for _, fin := range bundle.Inputs {
-							presigs[strings.ToLower(fin.InputId)] = &pong.PreSig{InputId: fin.InputId, RprimeCompressed: fin.RprimeCompressed, Sprime32: fin.Sprime32}
+							presigs[strings.ToLower(fin.InputId)] = &pong.PreSig{InputId: fin.InputId, RLineCompressed: fin.RLineCompressed, SLine32: fin.SLine32}
 							inputs = append(inputs, &pong.NeedPreSigs_PerInput{InputId: fin.InputId, RedeemScriptHex: fin.RedeemScriptHex})
 						}
 						if m.settle.draftPresigs == nil {
@@ -234,6 +234,64 @@ func (m *appstate) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 				m.mode = settlementMode
 				m.notification = "Settlement: stream driven. [p]=retry stream, [Esc]=back"
 				go func() { m.startSettlement(); m.msgCh <- client.UpdatedMsg{} }()
+				return m, nil
+			}
+
+		case "r":
+			// Refund via CSV to the same payout address configured
+			if m.mode == settlementMode {
+				if m.settle.activeEscrowID == "" {
+					m.notification = "No active escrow to refund"
+					return m, nil
+				}
+				payoutBytes, err := m.payoutPubkeyFromConfHex()
+				if err != nil || len(payoutBytes) != 33 {
+					m.notification = "Invalid payout address for refund"
+					return m, nil
+				}
+				// Build refund asynchronously
+				go func() {
+					m.notification = "Building CSV refund..."
+					m.msgCh <- client.UpdatedMsg{}
+					// Fetch escrow utxo from server stream
+					utxo, err := m.pc.GetEscrowUTXO(m.settle.activeEscrowID)
+					if err != nil || utxo == nil {
+						m.notification = "Refund failed: funding not found or not indexed yet"
+						m.msgCh <- client.UpdatedMsg{}
+						return
+					}
+					// Use the session private key for the refund (same key controls the deposit)
+					priv := m.genPrivHex
+					if strings.TrimSpace(priv) == "" {
+						m.notification = "Refund failed: session private key not available (generate with [K])"
+						m.msgCh <- client.UpdatedMsg{}
+						return
+					}
+					fee := uint64(20000)
+					csv := m.settle.csvBlocks
+					if csv == 0 {
+						csv = 64
+					}
+					// Destination: reuse the configured payout address text
+					dest := *addressFlag
+					xHex, err := client.BuildCSVRefundTx(
+						priv,
+						utxo.Txid,
+						utxo.Vout,
+						utxo.Value,
+						utxo.RedeemScriptHex,
+						dest,
+						fee,
+						csv,
+					)
+					if err != nil {
+						m.notification = "Refund build error: " + err.Error()
+						m.msgCh <- client.UpdatedMsg{}
+						return
+					}
+					m.notification = "Refund tx hex (broadcast with your node): " + xHex
+					m.msgCh <- client.UpdatedMsg{}
+				}()
 				return m, nil
 			}
 
@@ -369,11 +427,11 @@ func (m *appstate) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			if m.mode == gameMode {
 				// When exiting game mode, stop all paddle movement
 				if m.upKeyPressed {
-					m.pc.SendInput("ArrowUpStop")
+					m.pc.RefSendInput("ArrowUpStop")
 					m.upKeyPressed = false
 				}
 				if m.downKeyPressed {
-					m.pc.SendInput("ArrowDownStop")
+					m.pc.RefSendInput("ArrowDownStop")
 					m.downKeyPressed = false
 				}
 			}
@@ -410,7 +468,7 @@ func (m *appstate) waitForMsg() tea.Cmd {
 }
 
 func (m *appstate) listWaitingRooms() error {
-	wr, err := m.pc.GetWaitingRooms()
+	wr, err := m.pc.RefGetWaitingRooms()
 	if err != nil {
 		m.log.Errorf("Failed to get waiting rooms: %v", err)
 		return err
@@ -426,7 +484,7 @@ func (m *appstate) createRoom() error {
 		m.notification = "Set bet atoms first ([X] -> [E] or prefill bet) before creating a room"
 		return nil
 	}
-	wr, err := m.pc.CreateWaitingRoom(m.pc.ID, int64(m.settle.betAtoms), m.settle.activeEscrowID)
+	wr, err := m.pc.RefCreateWaitingRoom(m.pc.ID, int64(m.settle.betAtoms), m.settle.activeEscrowID)
 	if err != nil {
 		m.log.Errorf("Error creating room: %v", err)
 		return err
@@ -437,7 +495,7 @@ func (m *appstate) createRoom() error {
 }
 
 func (m *appstate) joinRoom(roomID string) error {
-	res, err := m.pc.JoinWaitingRoom(roomID, m.settle.activeEscrowID)
+	res, err := m.pc.RefJoinWaitingRoom(roomID, m.settle.activeEscrowID)
 	if err != nil {
 		m.log.Errorf("Failed to join room %s: %v", roomID, err)
 		return err
@@ -449,7 +507,7 @@ func (m *appstate) joinRoom(roomID string) error {
 }
 
 func (m *appstate) makeClientReady() error {
-	err := m.pc.SignalReady()
+	err := m.pc.RefStartGameStream()
 	if err != nil {
 		m.log.Errorf("Failed to signal ready state: %v", err)
 		return err
@@ -458,7 +516,7 @@ func (m *appstate) makeClientReady() error {
 }
 
 func (m *appstate) makeClientUnready() error {
-	err := m.pc.SignalUnready()
+	err := m.pc.RefUnreadyGameStream()
 	if err != nil {
 		m.log.Errorf("Failed to signal unready state: %v", err)
 		return err
@@ -488,7 +546,7 @@ func (m *appstate) handleGameInput(msg tea.KeyMsg) tea.Cmd {
 					m.Lock()
 					if m.upKeyPressed {
 						m.upKeyPressed = false
-						err := m.pc.SendInput("ArrowUpStop")
+						err := m.pc.RefSendInput("ArrowUpStop")
 						if err != nil {
 							m.log.Errorf("Error auto-releasing up key: %v", err)
 						}
@@ -498,7 +556,7 @@ func (m *appstate) handleGameInput(msg tea.KeyMsg) tea.Cmd {
 
 				// If down was pressed, release it
 				if m.downKeyPressed {
-					m.pc.SendInput("ArrowDownStop")
+					m.pc.RefSendInput("ArrowDownStop")
 					m.downKeyPressed = false
 					if m.downKeyTimer != nil {
 						m.downKeyTimer.Stop()
@@ -523,7 +581,7 @@ func (m *appstate) handleGameInput(msg tea.KeyMsg) tea.Cmd {
 					m.Lock()
 					if m.downKeyPressed {
 						m.downKeyPressed = false
-						err := m.pc.SendInput("ArrowDownStop")
+						err := m.pc.RefSendInput("ArrowDownStop")
 						if err != nil {
 							m.log.Errorf("Error auto-releasing down key: %v", err)
 						}
@@ -533,7 +591,7 @@ func (m *appstate) handleGameInput(msg tea.KeyMsg) tea.Cmd {
 
 				// If up was pressed, release it
 				if m.upKeyPressed {
-					m.pc.SendInput("ArrowUpStop")
+					m.pc.RefSendInput("ArrowUpStop")
 					m.upKeyPressed = false
 					if m.upKeyTimer != nil {
 						m.upKeyTimer.Stop()
@@ -545,18 +603,18 @@ func (m *appstate) handleGameInput(msg tea.KeyMsg) tea.Cmd {
 			// When exiting game mode, stop all movement
 			m.Lock()
 			if m.upKeyPressed {
-				m.pc.SendInput("ArrowUpStop")
+				m.pc.RefSendInput("ArrowUpStop")
 				m.upKeyPressed = false
 			}
 			if m.downKeyPressed {
-				m.pc.SendInput("ArrowDownStop")
+				m.pc.RefSendInput("ArrowDownStop")
 				m.downKeyPressed = false
 			}
 			m.Unlock()
 		}
 
 		if input != "" {
-			err := m.pc.SendInput(input)
+			err := m.pc.RefSendInput(input)
 			if err != nil {
 				m.log.Errorf("Error sending game input: %v", err)
 				return err
@@ -571,7 +629,7 @@ func (m *appstate) leaveRoom() error {
 		return fmt.Errorf("not in a waiting room")
 	}
 
-	err := m.pc.LeaveWaitingRoom(m.currentWR.Id)
+	err := m.pc.RefLeaveWaitingRoom(m.currentWR.Id)
 	if err != nil {
 		m.log.Errorf("Failed to leave room %s: %v", m.currentWR.Id, err)
 		return err
@@ -592,7 +650,7 @@ func (m *appstate) signalReadyToPlay() error {
 		return fmt.Errorf("game ID not available")
 	}
 
-	err := m.pc.SignalReadyToPlay(m.currentGameId)
+	err := m.pc.RefSignalReadyToPlay(m.currentGameId)
 	if err != nil {
 		return fmt.Errorf("failed to signal ready to play: %v", err)
 	}

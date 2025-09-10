@@ -1,14 +1,21 @@
 package client
 
 import (
+	"bytes"
 	"encoding/hex"
 	"fmt"
+	"sort"
 	"strconv"
 	"strings"
 
 	"github.com/decred/dcrd/chaincfg/chainhash"
+	"github.com/decred/dcrd/chaincfg/v3"
 	"github.com/decred/dcrd/dcrec/secp256k1/v4"
+	"github.com/decred/dcrd/dcrutil/v4"
+	"github.com/decred/dcrd/txscript/v4"
+	"github.com/decred/dcrd/txscript/v4/stdaddr"
 	"github.com/decred/dcrd/wire"
+	"github.com/vctt94/pong-bisonrelay/pongrpc/grpc/pong"
 )
 
 // https://github.com/decred/dcrd/blob/master/dcrec/secp256k1/schnorr/README.md?plain=1#L249
@@ -77,4 +84,190 @@ func addPoints(R, S *secp256k1.PublicKey) (*secp256k1.PublicKey, error) {
 	ay.Set(&sum.Y)
 
 	return secp256k1.NewPublicKey(&ax, &ay), nil
+}
+
+// FinalizeWinner attaches winner-path sigs for the given draft and presigs and returns the tx hex.
+func FinalizeWinner(gammaHex, draftHex string, inputsForDraft []*pong.NeedPreSigs_PerInput, presigsForDraft map[string]*pong.PreSig) (string, error) {
+	if presigsForDraft == nil || len(presigsForDraft) == 0 || inputsForDraft == nil || len(inputsForDraft) == 0 {
+		return "", fmt.Errorf("no presigs stored for this draft")
+	}
+
+	raw, err := hex.DecodeString(strings.TrimSpace(draftHex))
+	if err != nil {
+		return "", fmt.Errorf("decode draft hex: %w", err)
+	}
+	var tx wire.MsgTx
+	if err := tx.Deserialize(bytes.NewReader(raw)); err != nil {
+		return "", fmt.Errorf("deserialize draft: %w", err)
+	}
+
+	idxByID := make(map[string]int, len(tx.TxIn))
+	have := make([]string, 0, len(tx.TxIn))
+	for i, ti := range tx.TxIn {
+		k := strings.ToLower(fmt.Sprintf("%s:%d", ti.PreviousOutPoint.Hash.String(), ti.PreviousOutPoint.Index))
+		idxByID[k] = i
+		have = append(have, k)
+	}
+	sort.Strings(have)
+
+	redeemByID := make(map[string]string, len(inputsForDraft))
+	for _, in := range inputsForDraft {
+		redeemByID[strings.ToLower(in.InputId)] = in.RedeemScriptHex
+	}
+
+	gb, err := hex.DecodeString(strings.TrimSpace(gammaHex))
+	if err != nil || len(gb) != 32 {
+		return "", fmt.Errorf("bad gamma")
+	}
+	var gamma secp256k1.ModNScalar
+	if overflow := gamma.SetByteSlice(gb); overflow {
+		return "", fmt.Errorf("gamma overflow")
+	}
+
+	for id := range idxByID {
+		if _, ok := presigsForDraft[id]; !ok {
+			return "", fmt.Errorf("missing presig for input %s; cannot finalize", id)
+		}
+	}
+
+	for id, ps := range presigsForDraft {
+		key := strings.ToLower(strings.TrimSpace(id))
+		idx, ok := idxByID[key]
+		if !ok {
+			return "", fmt.Errorf("input %s not found in draft. draft has: %v", id, have)
+		}
+		redHex, ok := redeemByID[key]
+		if !ok {
+			return "", fmt.Errorf("no redeem script stored for input %s", id)
+		}
+		redeem, err := hex.DecodeString(redHex)
+		if err != nil {
+			return "", fmt.Errorf("decode redeem for %s: %w", id, err)
+		}
+		if len(ps.RLineCompressed) != 33 || len(ps.SLine32) != 32 {
+			return "", fmt.Errorf("bad presig sizes for %s", id)
+		}
+		if ps.RLineCompressed[0] != 0x02 {
+			return "", fmt.Errorf("R' must have even Y (0x02) for %s, got 0x%02x", id, ps.RLineCompressed[0])
+		}
+		var sPrime secp256k1.ModNScalar
+		if overflow := sPrime.SetByteSlice(ps.SLine32); overflow {
+			return "", fmt.Errorf("s' overflow for %s", id)
+		}
+		sPrime.Add(&gamma)
+		sBytes := sPrime.Bytes()
+		rX := ps.RLineCompressed[1:33]
+		sig65 := make([]byte, 0, 65)
+		sig65 = append(sig65, rX...)
+		sig65 = append(sig65, sBytes[:]...)
+		sig65 = append(sig65, byte(txscript.SigHashAll))
+		sb := txscript.NewScriptBuilder()
+		sb.AddData(sig65)
+		sb.AddOp(txscript.OP_1)
+		sb.AddData(redeem)
+		sigScript, err := sb.Script()
+		if err != nil {
+			return "", fmt.Errorf("build scriptSig for %s: %w", id, err)
+		}
+		tx.TxIn[idx].SignatureScript = sigScript
+
+		sh := dcrutil.Hash160(redeem)
+		pkScript, err := txscript.NewScriptBuilder().AddOp(txscript.OP_HASH160).AddData(sh).AddOp(txscript.OP_EQUAL).Script()
+		if err != nil {
+			return "", fmt.Errorf("build pkScript for %s: %w", id, err)
+		}
+		vm, err := txscript.NewEngine(pkScript, &tx, idx, 0, 0, nil)
+		if err != nil {
+			return "", fmt.Errorf("engine init for %s: %w", id, err)
+		}
+		if err := vm.Execute(); err != nil {
+			return "", fmt.Errorf("local VM verify failed on %s: %w", id, err)
+		}
+	}
+	var out bytes.Buffer
+	_ = tx.Serialize(&out)
+	return hex.EncodeToString(out.Bytes()), nil
+}
+
+// PayoutPubkeyFromConfHex parses a 33B/65B pubkey hex or a Decred P2PK ("pubkeyaddr")
+// for any known net and returns a 33-byte compressed secp256k1 pubkey.
+//
+// Examples it will accept:
+//   - "034bbf63cf03ecd1...f2e3"              (33B hex)
+//   - "04...."                               (65B hex -> compressed)
+//   - "TkQ3wZu4yVeS1cfxkXJjmYvHd2FEMfSaE5yW1jhrkKFkiwYVX7bGK"  (testnet P2PK)
+//
+// It will *not* accept a P2PKH like "TsoY9N6..." (can’t derive pubkey from hash).
+func PayoutPubkeyFromConfHex(addrOrHex string) ([]byte, error) {
+	s := strings.TrimSpace(addrOrHex)
+	if s == "" {
+		return nil, fmt.Errorf("empty -address")
+	}
+
+	// 1) Try hex.
+	if b, err := hex.DecodeString(s); err == nil {
+		switch len(b) {
+		case 33:
+			return b, nil
+		case 65:
+			pk, err := secp256k1.ParsePubKey(b)
+			if err != nil {
+				return nil, fmt.Errorf("invalid 65-byte pubkey: %w", err)
+			}
+			return pk.SerializeCompressed(), nil
+		default:
+			return nil, fmt.Errorf("pubkey hex must be 33 or 65 bytes, got %d", len(b))
+		}
+	}
+
+	// 2) Try as Decred address (prefer testnet first).
+	paramsList := []*chaincfg.Params{
+		chaincfg.TestNet3Params(),
+		chaincfg.MainNetParams(),
+		chaincfg.SimNetParams(),
+		chaincfg.RegNetParams(),
+	}
+	var lastErr error
+	for _, p := range paramsList {
+		addr, err := stdaddr.DecodeAddress(s, p)
+		if err != nil {
+			lastErr = err
+			continue
+		}
+
+		// Most pubkey address types in stdaddr expose SerializedPubKey().
+		type hasSerializedPubKey interface{ SerializedPubKey() []byte }
+		if pkAddr, ok := addr.(hasSerializedPubKey); ok {
+			b := pkAddr.SerializedPubKey()
+			switch len(b) {
+			case 33:
+				return b, nil
+			case 65:
+				pk, err := secp256k1.ParsePubKey(b)
+				if err != nil {
+					return nil, fmt.Errorf("invalid pubkey inside address: %w", err)
+				}
+				return pk.SerializeCompressed(), nil
+			default:
+				return nil, fmt.Errorf("pubkey in address has unexpected length %d", len(b))
+			}
+		}
+
+		// If we got here, it decoded as some *other* address type (e.g., P2PKH).
+		return nil, fmt.Errorf("address is not P2PK (pubkey). Pass a pubkey address (the 'pubkeyaddr' value) or a 33-byte pubkey hex")
+	}
+	return nil, fmt.Errorf("decode failed as hex or address: %v", lastErr)
+}
+
+// GenerateNewSettlementSessionKey always creates a new session key and overwrites the cached one.
+func (pc *PongClient) GenerateNewSettlementSessionKey() (string, string, error) {
+	pc.Lock()
+	defer pc.Unlock()
+	p, err := secp256k1.GeneratePrivateKey()
+	if err != nil {
+		return "", "", err
+	}
+	pc.settlePrivHex = hex.EncodeToString(p.Serialize())
+	pc.settlePubHex = hex.EncodeToString(p.PubKey().SerializeCompressed())
+	return pc.settlePrivHex, pc.settlePubHex, nil
 }

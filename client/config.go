@@ -3,9 +3,22 @@ package client
 import (
 	"fmt"
 
+	"github.com/companyzero/bisonrelay/clientrpc/types"
+	"github.com/decred/slog"
 	brconfig "github.com/vctt94/bisonbotkit/config"
 	"github.com/vctt94/bisonbotkit/utils"
 )
+
+type PongClientCfg struct {
+	AppCfg        *AppConfig  // Consolidated app config (single source of truth)
+	Log           slog.Logger // Application's logger
+	ChatClient    types.ChatServiceClient
+	PaymentClient types.PaymentsServiceClient
+
+	// Notifications tracks handlers for client events. If nil, the client
+	// will initialize a new notification manager.
+	Notifications *NotificationManager
+}
 
 // ConfigOverrides carries optional CLI/runtime overrides for config values.
 type ConfigOverrides struct {
