@@ -33,6 +33,7 @@ func (v Vec2) Scale(s float64) Vec2 {
 }
 
 type Player struct {
+	sync.RWMutex
 	ID *zkidentity.ShortID
 
 	Nick           string
@@ -47,6 +48,18 @@ type Player struct {
 	FrameCh chan []byte
 
 	WR *WaitingRoom
+}
+
+func (p *Player) Marshal() *pong.Player {
+	p.RLock()
+	defer p.RUnlock()
+	return &pong.Player{
+		Uid:    p.ID.String(),
+		Nick:   p.Nick,
+		BetAmt: p.BetAmt,
+		Number: p.PlayerNumber,
+		Score:  int32(p.Score),
+	}
 }
 
 func (p *Player) ResetPlayer() {
@@ -99,6 +112,21 @@ type WaitingRoom struct {
 	ReservedTips []*types.ReceivedTip
 }
 
+func (wr *WaitingRoom) Marshal() *pong.WaitingRoom {
+	wr.RLock()
+	defer wr.RUnlock()
+	players := make([]*pong.Player, len(wr.Players))
+	for i, player := range wr.Players {
+		players[i] = player.Marshal()
+	}
+	return &pong.WaitingRoom{
+		Id:      wr.ID,
+		HostId:  wr.HostID.String(),
+		Players: players,
+		BetAmt:  wr.BetAmount,
+	}
+}
+
 type GameManager struct {
 	sync.RWMutex
 
@@ -109,9 +137,6 @@ type GameManager struct {
 	PlayerGameMap  map[zkidentity.ShortID]*GameInstance
 
 	Log slog.Logger
-
-	// Callback for waiting room removal notifications
-	OnWaitingRoomRemoved func(*pong.WaitingRoom)
 }
 
 // CanvasEngine is a ping-pong engine for browsers with Canvas support

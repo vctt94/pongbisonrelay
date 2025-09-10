@@ -49,7 +49,6 @@ const ClientMsg$json = {
   '2': [
     {'1': 'match_id', '3': 1, '4': 1, '5': 9, '10': 'matchId'},
     {'1': 'hello', '3': 10, '4': 1, '5': 11, '6': '.pong.Hello', '9': 0, '10': 'hello'},
-    {'1': 'presigs', '3': 11, '4': 1, '5': 11, '6': '.pong.PreSigBatch', '9': 0, '10': 'presigs'},
     {'1': 'ack', '3': 12, '4': 1, '5': 11, '6': '.pong.Ack', '9': 0, '10': 'ack'},
     {'1': 'verify_ok', '3': 13, '4': 1, '5': 11, '6': '.pong.VerifyOk', '9': 0, '10': 'verifyOk'},
   ],
@@ -61,9 +60,8 @@ const ClientMsg$json = {
 /// Descriptor for `ClientMsg`. Decode as a `google.protobuf.DescriptorProto`.
 final $typed_data.Uint8List clientMsgDescriptor = $convert.base64Decode(
     'CglDbGllbnRNc2cSGQoIbWF0Y2hfaWQYASABKAlSB21hdGNoSWQSIwoFaGVsbG8YCiABKAsyCy'
-    '5wb25nLkhlbGxvSABSBWhlbGxvEi0KB3ByZXNpZ3MYCyABKAsyES5wb25nLlByZVNpZ0JhdGNo'
-    'SABSB3ByZXNpZ3MSHQoDYWNrGAwgASgLMgkucG9uZy5BY2tIAFIDYWNrEi0KCXZlcmlmeV9vax'
-    'gNIAEoCzIOLnBvbmcuVmVyaWZ5T2tIAFIIdmVyaWZ5T2tCBgoEa2luZA==');
+    '5wb25nLkhlbGxvSABSBWhlbGxvEh0KA2FjaxgMIAEoCzIJLnBvbmcuQWNrSABSA2FjaxItCgl2'
+    'ZXJpZnlfb2sYDSABKAsyDi5wb25nLlZlcmlmeU9rSABSCHZlcmlmeU9rQgYKBGtpbmQ=');
 
 @$core.Deprecated('Use serverMsgDescriptor instead')
 const ServerMsg$json = {
@@ -71,7 +69,6 @@ const ServerMsg$json = {
   '2': [
     {'1': 'match_id', '3': 1, '4': 1, '5': 9, '10': 'matchId'},
     {'1': 'req', '3': 11, '4': 1, '5': 11, '6': '.pong.NeedPreSigs', '9': 0, '10': 'req'},
-    {'1': 'reveal', '3': 12, '4': 1, '5': 11, '6': '.pong.RevealGamma', '9': 0, '10': 'reveal'},
     {'1': 'info', '3': 13, '4': 1, '5': 11, '6': '.pong.Info', '9': 0, '10': 'info'},
     {'1': 'ok', '3': 14, '4': 1, '5': 11, '6': '.pong.ServerOk', '9': 0, '10': 'ok'},
   ],
@@ -83,9 +80,8 @@ const ServerMsg$json = {
 /// Descriptor for `ServerMsg`. Decode as a `google.protobuf.DescriptorProto`.
 final $typed_data.Uint8List serverMsgDescriptor = $convert.base64Decode(
     'CglTZXJ2ZXJNc2cSGQoIbWF0Y2hfaWQYASABKAlSB21hdGNoSWQSJQoDcmVxGAsgASgLMhEucG'
-    '9uZy5OZWVkUHJlU2lnc0gAUgNyZXESKwoGcmV2ZWFsGAwgASgLMhEucG9uZy5SZXZlYWxHYW1t'
-    'YUgAUgZyZXZlYWwSIAoEaW5mbxgNIAEoCzIKLnBvbmcuSW5mb0gAUgRpbmZvEiAKAm9rGA4gAS'
-    'gLMg4ucG9uZy5TZXJ2ZXJPa0gAUgJva0IGCgRraW5k');
+    '9uZy5OZWVkUHJlU2lnc0gAUgNyZXESIAoEaW5mbxgNIAEoCzIKLnBvbmcuSW5mb0gAUgRpbmZv'
+    'EiAKAm9rGA4gASgLMg4ucG9uZy5TZXJ2ZXJPa0gAUgJva0IGCgRraW5k');
 
 @$core.Deprecated('Use helloDescriptor instead')
 const Hello$json = {
@@ -150,52 +146,15 @@ const PreSig$json = {
   '1': 'PreSig',
   '2': [
     {'1': 'input_id', '3': 1, '4': 1, '5': 9, '10': 'inputId'},
-    {'1': 'Rprime_compressed', '3': 2, '4': 1, '5': 12, '10': 'RprimeCompressed'},
-    {'1': 'sprime32', '3': 3, '4': 1, '5': 12, '10': 'sprime32'},
+    {'1': 'RLine_compressed', '3': 2, '4': 1, '5': 12, '10': 'RLineCompressed'},
+    {'1': 'sLine32', '3': 3, '4': 1, '5': 12, '10': 'sLine32'},
   ],
 };
 
 /// Descriptor for `PreSig`. Decode as a `google.protobuf.DescriptorProto`.
 final $typed_data.Uint8List preSigDescriptor = $convert.base64Decode(
-    'CgZQcmVTaWcSGQoIaW5wdXRfaWQYASABKAlSB2lucHV0SWQSKwoRUnByaW1lX2NvbXByZXNzZW'
-    'QYAiABKAxSEFJwcmltZUNvbXByZXNzZWQSGgoIc3ByaW1lMzIYAyABKAxSCHNwcmltZTMy');
-
-@$core.Deprecated('Use preSigBatchDescriptor instead')
-const PreSigBatch$json = {
-  '1': 'PreSigBatch',
-  '2': [
-    {'1': 'presigs', '3': 2, '4': 3, '5': 11, '6': '.pong.PreSigBatch.Sig', '10': 'presigs'},
-  ],
-  '3': [PreSigBatch_Sig$json],
-};
-
-@$core.Deprecated('Use preSigBatchDescriptor instead')
-const PreSigBatch_Sig$json = {
-  '1': 'Sig',
-  '2': [
-    {'1': 'input_id', '3': 1, '4': 1, '5': 9, '10': 'inputId'},
-    {'1': 'rprime32', '3': 2, '4': 1, '5': 12, '10': 'rprime32'},
-    {'1': 'sprime32', '3': 3, '4': 1, '5': 12, '10': 'sprime32'},
-  ],
-};
-
-/// Descriptor for `PreSigBatch`. Decode as a `google.protobuf.DescriptorProto`.
-final $typed_data.Uint8List preSigBatchDescriptor = $convert.base64Decode(
-    'CgtQcmVTaWdCYXRjaBIvCgdwcmVzaWdzGAIgAygLMhUucG9uZy5QcmVTaWdCYXRjaC5TaWdSB3'
-    'ByZXNpZ3MaWAoDU2lnEhkKCGlucHV0X2lkGAEgASgJUgdpbnB1dElkEhoKCHJwcmltZTMyGAIg'
-    'ASgMUghycHJpbWUzMhIaCghzcHJpbWUzMhgDIAEoDFIIc3ByaW1lMzI=');
-
-@$core.Deprecated('Use revealGammaDescriptor instead')
-const RevealGamma$json = {
-  '1': 'RevealGamma',
-  '2': [
-    {'1': 'gamma32', '3': 1, '4': 1, '5': 12, '10': 'gamma32'},
-  ],
-};
-
-/// Descriptor for `RevealGamma`. Decode as a `google.protobuf.DescriptorProto`.
-final $typed_data.Uint8List revealGammaDescriptor = $convert.base64Decode(
-    'CgtSZXZlYWxHYW1tYRIYCgdnYW1tYTMyGAEgASgMUgdnYW1tYTMy');
+    'CgZQcmVTaWcSGQoIaW5wdXRfaWQYASABKAlSB2lucHV0SWQSKQoQUkxpbmVfY29tcHJlc3NlZB'
+    'gCIAEoDFIPUkxpbmVDb21wcmVzc2VkEhgKB3NMaW5lMzIYAyABKAxSB3NMaW5lMzI=');
 
 @$core.Deprecated('Use ackDescriptor instead')
 const Ack$json = {
@@ -253,16 +212,16 @@ const FinalizeInput$json = {
   '2': [
     {'1': 'input_id', '3': 1, '4': 1, '5': 9, '10': 'inputId'},
     {'1': 'redeem_script_hex', '3': 2, '4': 1, '5': 9, '10': 'redeemScriptHex'},
-    {'1': 'Rprime_compressed', '3': 3, '4': 1, '5': 12, '10': 'RprimeCompressed'},
-    {'1': 'sprime32', '3': 4, '4': 1, '5': 12, '10': 'sprime32'},
+    {'1': 'RLine_compressed', '3': 3, '4': 1, '5': 12, '10': 'RLineCompressed'},
+    {'1': 'sLine32', '3': 4, '4': 1, '5': 12, '10': 'sLine32'},
   ],
 };
 
 /// Descriptor for `FinalizeInput`. Decode as a `google.protobuf.DescriptorProto`.
 final $typed_data.Uint8List finalizeInputDescriptor = $convert.base64Decode(
     'Cg1GaW5hbGl6ZUlucHV0EhkKCGlucHV0X2lkGAEgASgJUgdpbnB1dElkEioKEXJlZGVlbV9zY3'
-    'JpcHRfaGV4GAIgASgJUg9yZWRlZW1TY3JpcHRIZXgSKwoRUnByaW1lX2NvbXByZXNzZWQYAyAB'
-    'KAxSEFJwcmltZUNvbXByZXNzZWQSGgoIc3ByaW1lMzIYBCABKAxSCHNwcmltZTMy');
+    'JpcHRfaGV4GAIgASgJUg9yZWRlZW1TY3JpcHRIZXgSKQoQUkxpbmVfY29tcHJlc3NlZBgDIAEo'
+    'DFIPUkxpbmVDb21wcmVzc2VkEhgKB3NMaW5lMzIYBCABKAxSB3NMaW5lMzI=');
 
 @$core.Deprecated('Use getFinalizeBundleResponseDescriptor instead')
 const GetFinalizeBundleResponse$json = {
@@ -315,76 +274,6 @@ final $typed_data.Uint8List openEscrowResponseDescriptor = $convert.base64Decode
     'Bvc2l0X2FkZHJlc3MYAiABKAlSDmRlcG9zaXRBZGRyZXNzEiIKDXBrX3NjcmlwdF9oZXgYAyAB'
     'KAlSC3BrU2NyaXB0SGV4');
 
-@$core.Deprecated('Use waitEscrowFundingRequestDescriptor instead')
-const WaitEscrowFundingRequest$json = {
-  '1': 'WaitEscrowFundingRequest',
-  '2': [
-    {'1': 'escrow_id', '3': 1, '4': 1, '5': 9, '10': 'escrowId'},
-  ],
-};
-
-/// Descriptor for `WaitEscrowFundingRequest`. Decode as a `google.protobuf.DescriptorProto`.
-final $typed_data.Uint8List waitEscrowFundingRequestDescriptor = $convert.base64Decode(
-    'ChhXYWl0RXNjcm93RnVuZGluZ1JlcXVlc3QSGwoJZXNjcm93X2lkGAEgASgJUghlc2Nyb3dJZA'
-    '==');
-
-@$core.Deprecated('Use waitEscrowFundingUpdateDescriptor instead')
-const WaitEscrowFundingUpdate$json = {
-  '1': 'WaitEscrowFundingUpdate',
-  '2': [
-    {'1': 'funded', '3': 1, '4': 1, '5': 8, '10': 'funded'},
-    {'1': 'confirmed', '3': 2, '4': 1, '5': 8, '10': 'confirmed'},
-    {'1': 'utxo_id', '3': 3, '4': 1, '5': 9, '10': 'utxoId'},
-    {'1': 'value_atoms', '3': 4, '4': 1, '5': 4, '10': 'valueAtoms'},
-  ],
-};
-
-/// Descriptor for `WaitEscrowFundingUpdate`. Decode as a `google.protobuf.DescriptorProto`.
-final $typed_data.Uint8List waitEscrowFundingUpdateDescriptor = $convert.base64Decode(
-    'ChdXYWl0RXNjcm93RnVuZGluZ1VwZGF0ZRIWCgZmdW5kZWQYASABKAhSBmZ1bmRlZBIcCgljb2'
-    '5maXJtZWQYAiABKAhSCWNvbmZpcm1lZBIXCgd1dHhvX2lkGAMgASgJUgZ1dHhvSWQSHwoLdmFs'
-    'dWVfYXRvbXMYBCABKARSCnZhbHVlQXRvbXM=');
-
-@$core.Deprecated('Use createMatchRequestDescriptor instead')
-const CreateMatchRequest$json = {
-  '1': 'CreateMatchRequest',
-  '2': [
-    {'1': 'a_c', '3': 1, '4': 1, '5': 9, '10': 'aC'},
-    {'1': 'b_c', '3': 2, '4': 1, '5': 9, '10': 'bC'},
-    {'1': 'csv', '3': 3, '4': 1, '5': 13, '10': 'csv'},
-  ],
-};
-
-/// Descriptor for `CreateMatchRequest`. Decode as a `google.protobuf.DescriptorProto`.
-final $typed_data.Uint8List createMatchRequestDescriptor = $convert.base64Decode(
-    'ChJDcmVhdGVNYXRjaFJlcXVlc3QSDwoDYV9jGAEgASgJUgJhQxIPCgNiX2MYAiABKAlSAmJDEh'
-    'AKA2NzdhgDIAEoDVIDY3N2');
-
-@$core.Deprecated('Use createMatchResponseDescriptor instead')
-const CreateMatchResponse$json = {
-  '1': 'CreateMatchResponse',
-  '2': [
-    {'1': 'match_id', '3': 1, '4': 1, '5': 9, '10': 'matchId'},
-    {'1': 's_c', '3': 2, '4': 1, '5': 9, '10': 'sC'},
-    {'1': 'a_a', '3': 3, '4': 1, '5': 9, '10': 'aA'},
-    {'1': 'a_b', '3': 4, '4': 1, '5': 9, '10': 'aB'},
-    {'1': 'a_s', '3': 5, '4': 1, '5': 9, '10': 'aS'},
-    {'1': 'x_a', '3': 6, '4': 1, '5': 9, '10': 'xA'},
-    {'1': 'x_b', '3': 7, '4': 1, '5': 9, '10': 'xB'},
-    {'1': 'csv', '3': 8, '4': 1, '5': 13, '10': 'csv'},
-    {'1': 'escrow_template_a', '3': 9, '4': 1, '5': 9, '10': 'escrowTemplateA'},
-    {'1': 'escrow_template_b', '3': 10, '4': 1, '5': 9, '10': 'escrowTemplateB'},
-  ],
-};
-
-/// Descriptor for `CreateMatchResponse`. Decode as a `google.protobuf.DescriptorProto`.
-final $typed_data.Uint8List createMatchResponseDescriptor = $convert.base64Decode(
-    'ChNDcmVhdGVNYXRjaFJlc3BvbnNlEhkKCG1hdGNoX2lkGAEgASgJUgdtYXRjaElkEg8KA3NfYx'
-    'gCIAEoCVICc0MSDwoDYV9hGAMgASgJUgJhQRIPCgNhX2IYBCABKAlSAmFCEg8KA2FfcxgFIAEo'
-    'CVICYVMSDwoDeF9hGAYgASgJUgJ4QRIPCgN4X2IYByABKAlSAnhCEhAKA2NzdhgIIAEoDVIDY3'
-    'N2EioKEWVzY3Jvd190ZW1wbGF0ZV9hGAkgASgJUg9lc2Nyb3dUZW1wbGF0ZUESKgoRZXNjcm93'
-    'X3RlbXBsYXRlX2IYCiABKAlSD2VzY3Jvd1RlbXBsYXRlQg==');
-
 @$core.Deprecated('Use escrowUTXODescriptor instead')
 const EscrowUTXO$json = {
   '1': 'EscrowUTXO',
@@ -404,35 +293,6 @@ final $typed_data.Uint8List escrowUTXODescriptor = $convert.base64Decode(
     'V2YWx1ZRgDIAEoBFIFdmFsdWUSKgoRcmVkZWVtX3NjcmlwdF9oZXgYBCABKAlSD3JlZGVlbVNj'
     'cmlwdEhleBIiCg1wa19zY3JpcHRfaGV4GAUgASgJUgtwa1NjcmlwdEhleBIUCgVvd25lchgGIA'
     'EoCVIFb3duZXI=');
-
-@$core.Deprecated('Use waitFundingRequestDescriptor instead')
-const WaitFundingRequest$json = {
-  '1': 'WaitFundingRequest',
-  '2': [
-    {'1': 'escrow_id', '3': 1, '4': 1, '5': 9, '10': 'escrowId'},
-  ],
-};
-
-/// Descriptor for `WaitFundingRequest`. Decode as a `google.protobuf.DescriptorProto`.
-final $typed_data.Uint8List waitFundingRequestDescriptor = $convert.base64Decode(
-    'ChJXYWl0RnVuZGluZ1JlcXVlc3QSGwoJZXNjcm93X2lkGAEgASgJUghlc2Nyb3dJZA==');
-
-@$core.Deprecated('Use waitFundingResponseDescriptor instead')
-const WaitFundingResponse$json = {
-  '1': 'WaitFundingResponse',
-  '2': [
-    {'1': 'confs', '3': 1, '4': 1, '5': 13, '10': 'confs'},
-    {'1': 'value', '3': 2, '4': 1, '5': 4, '10': 'value'},
-    {'1': 'utxo', '3': 3, '4': 1, '5': 11, '6': '.pong.EscrowUTXO', '10': 'utxo'},
-    {'1': 'opponent_utxo', '3': 4, '4': 1, '5': 11, '6': '.pong.EscrowUTXO', '10': 'opponentUtxo'},
-  ],
-};
-
-/// Descriptor for `WaitFundingResponse`. Decode as a `google.protobuf.DescriptorProto`.
-final $typed_data.Uint8List waitFundingResponseDescriptor = $convert.base64Decode(
-    'ChNXYWl0RnVuZGluZ1Jlc3BvbnNlEhQKBWNvbmZzGAEgASgNUgVjb25mcxIUCgV2YWx1ZRgCIA'
-    'EoBFIFdmFsdWUSJAoEdXR4bxgDIAEoCzIQLnBvbmcuRXNjcm93VVRYT1IEdXR4bxI1Cg1vcHBv'
-    'bmVudF91dHhvGAQgASgLMhAucG9uZy5Fc2Nyb3dVVFhPUgxvcHBvbmVudFV0eG8=');
 
 @$core.Deprecated('Use matchAllocatedNtfnDescriptor instead')
 const MatchAllocatedNtfn$json = {
@@ -618,24 +478,27 @@ final $typed_data.Uint8List waitingRoomDescriptor = $convert.base64Decode(
 @$core.Deprecated('Use waitingRoomRequestDescriptor instead')
 const WaitingRoomRequest$json = {
   '1': 'WaitingRoomRequest',
+  '2': [
+    {'1': 'room_id', '3': 1, '4': 1, '5': 9, '10': 'roomId'},
+  ],
 };
 
 /// Descriptor for `WaitingRoomRequest`. Decode as a `google.protobuf.DescriptorProto`.
 final $typed_data.Uint8List waitingRoomRequestDescriptor = $convert.base64Decode(
-    'ChJXYWl0aW5nUm9vbVJlcXVlc3Q=');
+    'ChJXYWl0aW5nUm9vbVJlcXVlc3QSFwoHcm9vbV9pZBgBIAEoCVIGcm9vbUlk');
 
 @$core.Deprecated('Use waitingRoomResponseDescriptor instead')
 const WaitingRoomResponse$json = {
   '1': 'WaitingRoomResponse',
   '2': [
-    {'1': 'players', '3': 1, '4': 3, '5': 11, '6': '.pong.Player', '10': 'players'},
+    {'1': 'wr', '3': 1, '4': 1, '5': 11, '6': '.pong.WaitingRoom', '10': 'wr'},
   ],
 };
 
 /// Descriptor for `WaitingRoomResponse`. Decode as a `google.protobuf.DescriptorProto`.
 final $typed_data.Uint8List waitingRoomResponseDescriptor = $convert.base64Decode(
-    'ChNXYWl0aW5nUm9vbVJlc3BvbnNlEiYKB3BsYXllcnMYASADKAsyDC5wb25nLlBsYXllclIHcG'
-    'xheWVycw==');
+    'ChNXYWl0aW5nUm9vbVJlc3BvbnNlEiEKAndyGAEgASgLMhEucG9uZy5XYWl0aW5nUm9vbVICd3'
+    'I=');
 
 @$core.Deprecated('Use playerDescriptor instead')
 const Player$json = {

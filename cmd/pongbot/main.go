@@ -161,7 +161,7 @@ func realMain() error {
 		return fmt.Errorf("failed to listen on gRPC port: %v", err)
 	}
 
-	bot, err := bisonbotkit.NewBot(cfg.BotConfig, logBackend)
+	bot, err := bisonbotkit.NewBot(cfg.BotConfig)
 	if err != nil {
 		return fmt.Errorf("failed to create JSON-RPC client: %w", err)
 	}
@@ -185,11 +185,9 @@ func realMain() error {
 	copy(zkShortID[:], clientID)
 
 	srv, err := server.NewServer(&zkShortID, server.ServerConfig{
-		Bot:             bot,
 		ServerDir:       cfg.DataDir,
 		IsF2P:           cfg.IsF2P,
 		MinBetAmt:       cfg.MinBetAmt,
-		HTTPPort:        cfg.HttpPort,
 		LogBackend:      logBackend,
 		DcrdHostPort:    dcrdHost,
 		DcrdRPCCertPath: dcrdCert,
@@ -229,6 +227,8 @@ func realMain() error {
 
 	pong.RegisterPongGameServer(grpcServer, srv)
 	pong.RegisterPongRefereeServer(grpcServer, srv)
+	// Register waiting room service (required by clients calling GetWaitingRooms, etc.)
+	pong.RegisterPongWaitingRoomServer(grpcServer, srv)
 
 	g.Go(func() error {
 		<-gctx.Done()

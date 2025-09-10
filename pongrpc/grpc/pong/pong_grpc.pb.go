@@ -28,12 +28,6 @@ type PongGameClient interface {
 	StartNtfnStream(ctx context.Context, in *StartNtfnStreamRequest, opts ...grpc.CallOption) (PongGame_StartNtfnStreamClient, error)
 	UnreadyGameStream(ctx context.Context, in *UnreadyGameStreamRequest, opts ...grpc.CallOption) (*UnreadyGameStreamResponse, error)
 	SignalReadyToPlay(ctx context.Context, in *SignalReadyToPlayRequest, opts ...grpc.CallOption) (*SignalReadyToPlayResponse, error)
-	// waiting room
-	GetWaitingRoom(ctx context.Context, in *WaitingRoomRequest, opts ...grpc.CallOption) (*WaitingRoomResponse, error)
-	GetWaitingRooms(ctx context.Context, in *WaitingRoomsRequest, opts ...grpc.CallOption) (*WaitingRoomsResponse, error)
-	CreateWaitingRoom(ctx context.Context, in *CreateWaitingRoomRequest, opts ...grpc.CallOption) (*CreateWaitingRoomResponse, error)
-	JoinWaitingRoom(ctx context.Context, in *JoinWaitingRoomRequest, opts ...grpc.CallOption) (*JoinWaitingRoomResponse, error)
-	LeaveWaitingRoom(ctx context.Context, in *LeaveWaitingRoomRequest, opts ...grpc.CallOption) (*LeaveWaitingRoomResponse, error)
 }
 
 type pongGameClient struct {
@@ -135,51 +129,6 @@ func (c *pongGameClient) SignalReadyToPlay(ctx context.Context, in *SignalReadyT
 	return out, nil
 }
 
-func (c *pongGameClient) GetWaitingRoom(ctx context.Context, in *WaitingRoomRequest, opts ...grpc.CallOption) (*WaitingRoomResponse, error) {
-	out := new(WaitingRoomResponse)
-	err := c.cc.Invoke(ctx, "/pong.PongGame/GetWaitingRoom", in, out, opts...)
-	if err != nil {
-		return nil, err
-	}
-	return out, nil
-}
-
-func (c *pongGameClient) GetWaitingRooms(ctx context.Context, in *WaitingRoomsRequest, opts ...grpc.CallOption) (*WaitingRoomsResponse, error) {
-	out := new(WaitingRoomsResponse)
-	err := c.cc.Invoke(ctx, "/pong.PongGame/GetWaitingRooms", in, out, opts...)
-	if err != nil {
-		return nil, err
-	}
-	return out, nil
-}
-
-func (c *pongGameClient) CreateWaitingRoom(ctx context.Context, in *CreateWaitingRoomRequest, opts ...grpc.CallOption) (*CreateWaitingRoomResponse, error) {
-	out := new(CreateWaitingRoomResponse)
-	err := c.cc.Invoke(ctx, "/pong.PongGame/CreateWaitingRoom", in, out, opts...)
-	if err != nil {
-		return nil, err
-	}
-	return out, nil
-}
-
-func (c *pongGameClient) JoinWaitingRoom(ctx context.Context, in *JoinWaitingRoomRequest, opts ...grpc.CallOption) (*JoinWaitingRoomResponse, error) {
-	out := new(JoinWaitingRoomResponse)
-	err := c.cc.Invoke(ctx, "/pong.PongGame/JoinWaitingRoom", in, out, opts...)
-	if err != nil {
-		return nil, err
-	}
-	return out, nil
-}
-
-func (c *pongGameClient) LeaveWaitingRoom(ctx context.Context, in *LeaveWaitingRoomRequest, opts ...grpc.CallOption) (*LeaveWaitingRoomResponse, error) {
-	out := new(LeaveWaitingRoomResponse)
-	err := c.cc.Invoke(ctx, "/pong.PongGame/LeaveWaitingRoom", in, out, opts...)
-	if err != nil {
-		return nil, err
-	}
-	return out, nil
-}
-
 // PongGameServer is the server API for PongGame service.
 // All implementations must embed UnimplementedPongGameServer
 // for forward compatibility
@@ -190,12 +139,6 @@ type PongGameServer interface {
 	StartNtfnStream(*StartNtfnStreamRequest, PongGame_StartNtfnStreamServer) error
 	UnreadyGameStream(context.Context, *UnreadyGameStreamRequest) (*UnreadyGameStreamResponse, error)
 	SignalReadyToPlay(context.Context, *SignalReadyToPlayRequest) (*SignalReadyToPlayResponse, error)
-	// waiting room
-	GetWaitingRoom(context.Context, *WaitingRoomRequest) (*WaitingRoomResponse, error)
-	GetWaitingRooms(context.Context, *WaitingRoomsRequest) (*WaitingRoomsResponse, error)
-	CreateWaitingRoom(context.Context, *CreateWaitingRoomRequest) (*CreateWaitingRoomResponse, error)
-	JoinWaitingRoom(context.Context, *JoinWaitingRoomRequest) (*JoinWaitingRoomResponse, error)
-	LeaveWaitingRoom(context.Context, *LeaveWaitingRoomRequest) (*LeaveWaitingRoomResponse, error)
 	mustEmbedUnimplementedPongGameServer()
 }
 
@@ -217,21 +160,6 @@ func (UnimplementedPongGameServer) UnreadyGameStream(context.Context, *UnreadyGa
 }
 func (UnimplementedPongGameServer) SignalReadyToPlay(context.Context, *SignalReadyToPlayRequest) (*SignalReadyToPlayResponse, error) {
 	return nil, status.Errorf(codes.Unimplemented, "method SignalReadyToPlay not implemented")
-}
-func (UnimplementedPongGameServer) GetWaitingRoom(context.Context, *WaitingRoomRequest) (*WaitingRoomResponse, error) {
-	return nil, status.Errorf(codes.Unimplemented, "method GetWaitingRoom not implemented")
-}
-func (UnimplementedPongGameServer) GetWaitingRooms(context.Context, *WaitingRoomsRequest) (*WaitingRoomsResponse, error) {
-	return nil, status.Errorf(codes.Unimplemented, "method GetWaitingRooms not implemented")
-}
-func (UnimplementedPongGameServer) CreateWaitingRoom(context.Context, *CreateWaitingRoomRequest) (*CreateWaitingRoomResponse, error) {
-	return nil, status.Errorf(codes.Unimplemented, "method CreateWaitingRoom not implemented")
-}
-func (UnimplementedPongGameServer) JoinWaitingRoom(context.Context, *JoinWaitingRoomRequest) (*JoinWaitingRoomResponse, error) {
-	return nil, status.Errorf(codes.Unimplemented, "method JoinWaitingRoom not implemented")
-}
-func (UnimplementedPongGameServer) LeaveWaitingRoom(context.Context, *LeaveWaitingRoomRequest) (*LeaveWaitingRoomResponse, error) {
-	return nil, status.Errorf(codes.Unimplemented, "method LeaveWaitingRoom not implemented")
 }
 func (UnimplementedPongGameServer) mustEmbedUnimplementedPongGameServer() {}
 
@@ -342,96 +270,6 @@ func _PongGame_SignalReadyToPlay_Handler(srv interface{}, ctx context.Context, d
 	return interceptor(ctx, in, info, handler)
 }
 
-func _PongGame_GetWaitingRoom_Handler(srv interface{}, ctx context.Context, dec func(interface{}) error, interceptor grpc.UnaryServerInterceptor) (interface{}, error) {
-	in := new(WaitingRoomRequest)
-	if err := dec(in); err != nil {
-		return nil, err
-	}
-	if interceptor == nil {
-		return srv.(PongGameServer).GetWaitingRoom(ctx, in)
-	}
-	info := &grpc.UnaryServerInfo{
-		Server:     srv,
-		FullMethod: "/pong.PongGame/GetWaitingRoom",
-	}
-	handler := func(ctx context.Context, req interface{}) (interface{}, error) {
-		return srv.(PongGameServer).GetWaitingRoom(ctx, req.(*WaitingRoomRequest))
-	}
-	return interceptor(ctx, in, info, handler)
-}
-
-func _PongGame_GetWaitingRooms_Handler(srv interface{}, ctx context.Context, dec func(interface{}) error, interceptor grpc.UnaryServerInterceptor) (interface{}, error) {
-	in := new(WaitingRoomsRequest)
-	if err := dec(in); err != nil {
-		return nil, err
-	}
-	if interceptor == nil {
-		return srv.(PongGameServer).GetWaitingRooms(ctx, in)
-	}
-	info := &grpc.UnaryServerInfo{
-		Server:     srv,
-		FullMethod: "/pong.PongGame/GetWaitingRooms",
-	}
-	handler := func(ctx context.Context, req interface{}) (interface{}, error) {
-		return srv.(PongGameServer).GetWaitingRooms(ctx, req.(*WaitingRoomsRequest))
-	}
-	return interceptor(ctx, in, info, handler)
-}
-
-func _PongGame_CreateWaitingRoom_Handler(srv interface{}, ctx context.Context, dec func(interface{}) error, interceptor grpc.UnaryServerInterceptor) (interface{}, error) {
-	in := new(CreateWaitingRoomRequest)
-	if err := dec(in); err != nil {
-		return nil, err
-	}
-	if interceptor == nil {
-		return srv.(PongGameServer).CreateWaitingRoom(ctx, in)
-	}
-	info := &grpc.UnaryServerInfo{
-		Server:     srv,
-		FullMethod: "/pong.PongGame/CreateWaitingRoom",
-	}
-	handler := func(ctx context.Context, req interface{}) (interface{}, error) {
-		return srv.(PongGameServer).CreateWaitingRoom(ctx, req.(*CreateWaitingRoomRequest))
-	}
-	return interceptor(ctx, in, info, handler)
-}
-
-func _PongGame_JoinWaitingRoom_Handler(srv interface{}, ctx context.Context, dec func(interface{}) error, interceptor grpc.UnaryServerInterceptor) (interface{}, error) {
-	in := new(JoinWaitingRoomRequest)
-	if err := dec(in); err != nil {
-		return nil, err
-	}
-	if interceptor == nil {
-		return srv.(PongGameServer).JoinWaitingRoom(ctx, in)
-	}
-	info := &grpc.UnaryServerInfo{
-		Server:     srv,
-		FullMethod: "/pong.PongGame/JoinWaitingRoom",
-	}
-	handler := func(ctx context.Context, req interface{}) (interface{}, error) {
-		return srv.(PongGameServer).JoinWaitingRoom(ctx, req.(*JoinWaitingRoomRequest))
-	}
-	return interceptor(ctx, in, info, handler)
-}
-
-func _PongGame_LeaveWaitingRoom_Handler(srv interface{}, ctx context.Context, dec func(interface{}) error, interceptor grpc.UnaryServerInterceptor) (interface{}, error) {
-	in := new(LeaveWaitingRoomRequest)
-	if err := dec(in); err != nil {
-		return nil, err
-	}
-	if interceptor == nil {
-		return srv.(PongGameServer).LeaveWaitingRoom(ctx, in)
-	}
-	info := &grpc.UnaryServerInfo{
-		Server:     srv,
-		FullMethod: "/pong.PongGame/LeaveWaitingRoom",
-	}
-	handler := func(ctx context.Context, req interface{}) (interface{}, error) {
-		return srv.(PongGameServer).LeaveWaitingRoom(ctx, req.(*LeaveWaitingRoomRequest))
-	}
-	return interceptor(ctx, in, info, handler)
-}
-
 // PongGame_ServiceDesc is the grpc.ServiceDesc for PongGame service.
 // It's only intended for direct use with grpc.RegisterService,
 // and not to be introspected or modified (even as a copy)
@@ -451,26 +289,6 @@ var PongGame_ServiceDesc = grpc.ServiceDesc{
 			MethodName: "SignalReadyToPlay",
 			Handler:    _PongGame_SignalReadyToPlay_Handler,
 		},
-		{
-			MethodName: "GetWaitingRoom",
-			Handler:    _PongGame_GetWaitingRoom_Handler,
-		},
-		{
-			MethodName: "GetWaitingRooms",
-			Handler:    _PongGame_GetWaitingRooms_Handler,
-		},
-		{
-			MethodName: "CreateWaitingRoom",
-			Handler:    _PongGame_CreateWaitingRoom_Handler,
-		},
-		{
-			MethodName: "JoinWaitingRoom",
-			Handler:    _PongGame_JoinWaitingRoom_Handler,
-		},
-		{
-			MethodName: "LeaveWaitingRoom",
-			Handler:    _PongGame_LeaveWaitingRoom_Handler,
-		},
 	},
 	Streams: []grpc.StreamDesc{
 		{
@@ -487,18 +305,245 @@ var PongGame_ServiceDesc = grpc.ServiceDesc{
 	Metadata: "pong.proto",
 }
 
+// PongWaitingRoomClient is the client API for PongWaitingRoom service.
+//
+// For semantics around ctx use and closing/ending streaming RPCs, please refer to https://pkg.go.dev/google.golang.org/grpc/?tab=doc#ClientConn.NewStream.
+type PongWaitingRoomClient interface {
+	// waiting room
+	GetWaitingRoom(ctx context.Context, in *WaitingRoomRequest, opts ...grpc.CallOption) (*WaitingRoomResponse, error)
+	GetWaitingRooms(ctx context.Context, in *WaitingRoomsRequest, opts ...grpc.CallOption) (*WaitingRoomsResponse, error)
+	CreateWaitingRoom(ctx context.Context, in *CreateWaitingRoomRequest, opts ...grpc.CallOption) (*CreateWaitingRoomResponse, error)
+	JoinWaitingRoom(ctx context.Context, in *JoinWaitingRoomRequest, opts ...grpc.CallOption) (*JoinWaitingRoomResponse, error)
+	LeaveWaitingRoom(ctx context.Context, in *LeaveWaitingRoomRequest, opts ...grpc.CallOption) (*LeaveWaitingRoomResponse, error)
+}
+
+type pongWaitingRoomClient struct {
+	cc grpc.ClientConnInterface
+}
+
+func NewPongWaitingRoomClient(cc grpc.ClientConnInterface) PongWaitingRoomClient {
+	return &pongWaitingRoomClient{cc}
+}
+
+func (c *pongWaitingRoomClient) GetWaitingRoom(ctx context.Context, in *WaitingRoomRequest, opts ...grpc.CallOption) (*WaitingRoomResponse, error) {
+	out := new(WaitingRoomResponse)
+	err := c.cc.Invoke(ctx, "/pong.PongWaitingRoom/GetWaitingRoom", in, out, opts...)
+	if err != nil {
+		return nil, err
+	}
+	return out, nil
+}
+
+func (c *pongWaitingRoomClient) GetWaitingRooms(ctx context.Context, in *WaitingRoomsRequest, opts ...grpc.CallOption) (*WaitingRoomsResponse, error) {
+	out := new(WaitingRoomsResponse)
+	err := c.cc.Invoke(ctx, "/pong.PongWaitingRoom/GetWaitingRooms", in, out, opts...)
+	if err != nil {
+		return nil, err
+	}
+	return out, nil
+}
+
+func (c *pongWaitingRoomClient) CreateWaitingRoom(ctx context.Context, in *CreateWaitingRoomRequest, opts ...grpc.CallOption) (*CreateWaitingRoomResponse, error) {
+	out := new(CreateWaitingRoomResponse)
+	err := c.cc.Invoke(ctx, "/pong.PongWaitingRoom/CreateWaitingRoom", in, out, opts...)
+	if err != nil {
+		return nil, err
+	}
+	return out, nil
+}
+
+func (c *pongWaitingRoomClient) JoinWaitingRoom(ctx context.Context, in *JoinWaitingRoomRequest, opts ...grpc.CallOption) (*JoinWaitingRoomResponse, error) {
+	out := new(JoinWaitingRoomResponse)
+	err := c.cc.Invoke(ctx, "/pong.PongWaitingRoom/JoinWaitingRoom", in, out, opts...)
+	if err != nil {
+		return nil, err
+	}
+	return out, nil
+}
+
+func (c *pongWaitingRoomClient) LeaveWaitingRoom(ctx context.Context, in *LeaveWaitingRoomRequest, opts ...grpc.CallOption) (*LeaveWaitingRoomResponse, error) {
+	out := new(LeaveWaitingRoomResponse)
+	err := c.cc.Invoke(ctx, "/pong.PongWaitingRoom/LeaveWaitingRoom", in, out, opts...)
+	if err != nil {
+		return nil, err
+	}
+	return out, nil
+}
+
+// PongWaitingRoomServer is the server API for PongWaitingRoom service.
+// All implementations must embed UnimplementedPongWaitingRoomServer
+// for forward compatibility
+type PongWaitingRoomServer interface {
+	// waiting room
+	GetWaitingRoom(context.Context, *WaitingRoomRequest) (*WaitingRoomResponse, error)
+	GetWaitingRooms(context.Context, *WaitingRoomsRequest) (*WaitingRoomsResponse, error)
+	CreateWaitingRoom(context.Context, *CreateWaitingRoomRequest) (*CreateWaitingRoomResponse, error)
+	JoinWaitingRoom(context.Context, *JoinWaitingRoomRequest) (*JoinWaitingRoomResponse, error)
+	LeaveWaitingRoom(context.Context, *LeaveWaitingRoomRequest) (*LeaveWaitingRoomResponse, error)
+	mustEmbedUnimplementedPongWaitingRoomServer()
+}
+
+// UnimplementedPongWaitingRoomServer must be embedded to have forward compatible implementations.
+type UnimplementedPongWaitingRoomServer struct {
+}
+
+func (UnimplementedPongWaitingRoomServer) GetWaitingRoom(context.Context, *WaitingRoomRequest) (*WaitingRoomResponse, error) {
+	return nil, status.Errorf(codes.Unimplemented, "method GetWaitingRoom not implemented")
+}
+func (UnimplementedPongWaitingRoomServer) GetWaitingRooms(context.Context, *WaitingRoomsRequest) (*WaitingRoomsResponse, error) {
+	return nil, status.Errorf(codes.Unimplemented, "method GetWaitingRooms not implemented")
+}
+func (UnimplementedPongWaitingRoomServer) CreateWaitingRoom(context.Context, *CreateWaitingRoomRequest) (*CreateWaitingRoomResponse, error) {
+	return nil, status.Errorf(codes.Unimplemented, "method CreateWaitingRoom not implemented")
+}
+func (UnimplementedPongWaitingRoomServer) JoinWaitingRoom(context.Context, *JoinWaitingRoomRequest) (*JoinWaitingRoomResponse, error) {
+	return nil, status.Errorf(codes.Unimplemented, "method JoinWaitingRoom not implemented")
+}
+func (UnimplementedPongWaitingRoomServer) LeaveWaitingRoom(context.Context, *LeaveWaitingRoomRequest) (*LeaveWaitingRoomResponse, error) {
+	return nil, status.Errorf(codes.Unimplemented, "method LeaveWaitingRoom not implemented")
+}
+func (UnimplementedPongWaitingRoomServer) mustEmbedUnimplementedPongWaitingRoomServer() {}
+
+// UnsafePongWaitingRoomServer may be embedded to opt out of forward compatibility for this service.
+// Use of this interface is not recommended, as added methods to PongWaitingRoomServer will
+// result in compilation errors.
+type UnsafePongWaitingRoomServer interface {
+	mustEmbedUnimplementedPongWaitingRoomServer()
+}
+
+func RegisterPongWaitingRoomServer(s grpc.ServiceRegistrar, srv PongWaitingRoomServer) {
+	s.RegisterService(&PongWaitingRoom_ServiceDesc, srv)
+}
+
+func _PongWaitingRoom_GetWaitingRoom_Handler(srv interface{}, ctx context.Context, dec func(interface{}) error, interceptor grpc.UnaryServerInterceptor) (interface{}, error) {
+	in := new(WaitingRoomRequest)
+	if err := dec(in); err != nil {
+		return nil, err
+	}
+	if interceptor == nil {
+		return srv.(PongWaitingRoomServer).GetWaitingRoom(ctx, in)
+	}
+	info := &grpc.UnaryServerInfo{
+		Server:     srv,
+		FullMethod: "/pong.PongWaitingRoom/GetWaitingRoom",
+	}
+	handler := func(ctx context.Context, req interface{}) (interface{}, error) {
+		return srv.(PongWaitingRoomServer).GetWaitingRoom(ctx, req.(*WaitingRoomRequest))
+	}
+	return interceptor(ctx, in, info, handler)
+}
+
+func _PongWaitingRoom_GetWaitingRooms_Handler(srv interface{}, ctx context.Context, dec func(interface{}) error, interceptor grpc.UnaryServerInterceptor) (interface{}, error) {
+	in := new(WaitingRoomsRequest)
+	if err := dec(in); err != nil {
+		return nil, err
+	}
+	if interceptor == nil {
+		return srv.(PongWaitingRoomServer).GetWaitingRooms(ctx, in)
+	}
+	info := &grpc.UnaryServerInfo{
+		Server:     srv,
+		FullMethod: "/pong.PongWaitingRoom/GetWaitingRooms",
+	}
+	handler := func(ctx context.Context, req interface{}) (interface{}, error) {
+		return srv.(PongWaitingRoomServer).GetWaitingRooms(ctx, req.(*WaitingRoomsRequest))
+	}
+	return interceptor(ctx, in, info, handler)
+}
+
+func _PongWaitingRoom_CreateWaitingRoom_Handler(srv interface{}, ctx context.Context, dec func(interface{}) error, interceptor grpc.UnaryServerInterceptor) (interface{}, error) {
+	in := new(CreateWaitingRoomRequest)
+	if err := dec(in); err != nil {
+		return nil, err
+	}
+	if interceptor == nil {
+		return srv.(PongWaitingRoomServer).CreateWaitingRoom(ctx, in)
+	}
+	info := &grpc.UnaryServerInfo{
+		Server:     srv,
+		FullMethod: "/pong.PongWaitingRoom/CreateWaitingRoom",
+	}
+	handler := func(ctx context.Context, req interface{}) (interface{}, error) {
+		return srv.(PongWaitingRoomServer).CreateWaitingRoom(ctx, req.(*CreateWaitingRoomRequest))
+	}
+	return interceptor(ctx, in, info, handler)
+}
+
+func _PongWaitingRoom_JoinWaitingRoom_Handler(srv interface{}, ctx context.Context, dec func(interface{}) error, interceptor grpc.UnaryServerInterceptor) (interface{}, error) {
+	in := new(JoinWaitingRoomRequest)
+	if err := dec(in); err != nil {
+		return nil, err
+	}
+	if interceptor == nil {
+		return srv.(PongWaitingRoomServer).JoinWaitingRoom(ctx, in)
+	}
+	info := &grpc.UnaryServerInfo{
+		Server:     srv,
+		FullMethod: "/pong.PongWaitingRoom/JoinWaitingRoom",
+	}
+	handler := func(ctx context.Context, req interface{}) (interface{}, error) {
+		return srv.(PongWaitingRoomServer).JoinWaitingRoom(ctx, req.(*JoinWaitingRoomRequest))
+	}
+	return interceptor(ctx, in, info, handler)
+}
+
+func _PongWaitingRoom_LeaveWaitingRoom_Handler(srv interface{}, ctx context.Context, dec func(interface{}) error, interceptor grpc.UnaryServerInterceptor) (interface{}, error) {
+	in := new(LeaveWaitingRoomRequest)
+	if err := dec(in); err != nil {
+		return nil, err
+	}
+	if interceptor == nil {
+		return srv.(PongWaitingRoomServer).LeaveWaitingRoom(ctx, in)
+	}
+	info := &grpc.UnaryServerInfo{
+		Server:     srv,
+		FullMethod: "/pong.PongWaitingRoom/LeaveWaitingRoom",
+	}
+	handler := func(ctx context.Context, req interface{}) (interface{}, error) {
+		return srv.(PongWaitingRoomServer).LeaveWaitingRoom(ctx, req.(*LeaveWaitingRoomRequest))
+	}
+	return interceptor(ctx, in, info, handler)
+}
+
+// PongWaitingRoom_ServiceDesc is the grpc.ServiceDesc for PongWaitingRoom service.
+// It's only intended for direct use with grpc.RegisterService,
+// and not to be introspected or modified (even as a copy)
+var PongWaitingRoom_ServiceDesc = grpc.ServiceDesc{
+	ServiceName: "pong.PongWaitingRoom",
+	HandlerType: (*PongWaitingRoomServer)(nil),
+	Methods: []grpc.MethodDesc{
+		{
+			MethodName: "GetWaitingRoom",
+			Handler:    _PongWaitingRoom_GetWaitingRoom_Handler,
+		},
+		{
+			MethodName: "GetWaitingRooms",
+			Handler:    _PongWaitingRoom_GetWaitingRooms_Handler,
+		},
+		{
+			MethodName: "CreateWaitingRoom",
+			Handler:    _PongWaitingRoom_CreateWaitingRoom_Handler,
+		},
+		{
+			MethodName: "JoinWaitingRoom",
+			Handler:    _PongWaitingRoom_JoinWaitingRoom_Handler,
+		},
+		{
+			MethodName: "LeaveWaitingRoom",
+			Handler:    _PongWaitingRoom_LeaveWaitingRoom_Handler,
+		},
+	},
+	Streams:  []grpc.StreamDesc{},
+	Metadata: "pong.proto",
+}
+
 // PongRefereeClient is the client API for PongReferee service.
 //
 // For semantics around ctx use and closing/ending streaming RPCs, please refer to https://pkg.go.dev/google.golang.org/grpc/?tab=doc#ClientConn.NewStream.
 type PongRefereeClient interface {
 	// Escrow-first funding
-	RefOpenEscrow(ctx context.Context, in *OpenEscrowRequest, opts ...grpc.CallOption) (*OpenEscrowResponse, error)
-	RefWaitEscrowFunding(ctx context.Context, in *WaitEscrowFundingRequest, opts ...grpc.CallOption) (PongReferee_RefWaitEscrowFundingClient, error)
-	CreateMatch(ctx context.Context, in *CreateMatchRequest, opts ...grpc.CallOption) (*CreateMatchResponse, error)
-	// New endpoints for server-managed deposits and settlement
-	// v0-min POC minimal API
-	WaitFunding(ctx context.Context, in *WaitFundingRequest, opts ...grpc.CallOption) (PongReferee_WaitFundingClient, error)
-	// Phase 1 streaming settlement
+	OpenEscrow(ctx context.Context, in *OpenEscrowRequest, opts ...grpc.CallOption) (*OpenEscrowResponse, error)
+	// SettlementStream streams the settlement process
 	SettlementStream(ctx context.Context, opts ...grpc.CallOption) (PongReferee_SettlementStreamClient, error)
 	// Winner fetches gamma and both presigs to finalize the exact winning draft
 	GetFinalizeBundle(ctx context.Context, in *GetFinalizeBundleRequest, opts ...grpc.CallOption) (*GetFinalizeBundleResponse, error)
@@ -512,90 +557,17 @@ func NewPongRefereeClient(cc grpc.ClientConnInterface) PongRefereeClient {
 	return &pongRefereeClient{cc}
 }
 
-func (c *pongRefereeClient) RefOpenEscrow(ctx context.Context, in *OpenEscrowRequest, opts ...grpc.CallOption) (*OpenEscrowResponse, error) {
+func (c *pongRefereeClient) OpenEscrow(ctx context.Context, in *OpenEscrowRequest, opts ...grpc.CallOption) (*OpenEscrowResponse, error) {
 	out := new(OpenEscrowResponse)
-	err := c.cc.Invoke(ctx, "/pong.PongReferee/RefOpenEscrow", in, out, opts...)
+	err := c.cc.Invoke(ctx, "/pong.PongReferee/OpenEscrow", in, out, opts...)
 	if err != nil {
 		return nil, err
 	}
 	return out, nil
-}
-
-func (c *pongRefereeClient) RefWaitEscrowFunding(ctx context.Context, in *WaitEscrowFundingRequest, opts ...grpc.CallOption) (PongReferee_RefWaitEscrowFundingClient, error) {
-	stream, err := c.cc.NewStream(ctx, &PongReferee_ServiceDesc.Streams[0], "/pong.PongReferee/RefWaitEscrowFunding", opts...)
-	if err != nil {
-		return nil, err
-	}
-	x := &pongRefereeRefWaitEscrowFundingClient{stream}
-	if err := x.ClientStream.SendMsg(in); err != nil {
-		return nil, err
-	}
-	if err := x.ClientStream.CloseSend(); err != nil {
-		return nil, err
-	}
-	return x, nil
-}
-
-type PongReferee_RefWaitEscrowFundingClient interface {
-	Recv() (*WaitEscrowFundingUpdate, error)
-	grpc.ClientStream
-}
-
-type pongRefereeRefWaitEscrowFundingClient struct {
-	grpc.ClientStream
-}
-
-func (x *pongRefereeRefWaitEscrowFundingClient) Recv() (*WaitEscrowFundingUpdate, error) {
-	m := new(WaitEscrowFundingUpdate)
-	if err := x.ClientStream.RecvMsg(m); err != nil {
-		return nil, err
-	}
-	return m, nil
-}
-
-func (c *pongRefereeClient) CreateMatch(ctx context.Context, in *CreateMatchRequest, opts ...grpc.CallOption) (*CreateMatchResponse, error) {
-	out := new(CreateMatchResponse)
-	err := c.cc.Invoke(ctx, "/pong.PongReferee/CreateMatch", in, out, opts...)
-	if err != nil {
-		return nil, err
-	}
-	return out, nil
-}
-
-func (c *pongRefereeClient) WaitFunding(ctx context.Context, in *WaitFundingRequest, opts ...grpc.CallOption) (PongReferee_WaitFundingClient, error) {
-	stream, err := c.cc.NewStream(ctx, &PongReferee_ServiceDesc.Streams[1], "/pong.PongReferee/WaitFunding", opts...)
-	if err != nil {
-		return nil, err
-	}
-	x := &pongRefereeWaitFundingClient{stream}
-	if err := x.ClientStream.SendMsg(in); err != nil {
-		return nil, err
-	}
-	if err := x.ClientStream.CloseSend(); err != nil {
-		return nil, err
-	}
-	return x, nil
-}
-
-type PongReferee_WaitFundingClient interface {
-	Recv() (*WaitFundingResponse, error)
-	grpc.ClientStream
-}
-
-type pongRefereeWaitFundingClient struct {
-	grpc.ClientStream
-}
-
-func (x *pongRefereeWaitFundingClient) Recv() (*WaitFundingResponse, error) {
-	m := new(WaitFundingResponse)
-	if err := x.ClientStream.RecvMsg(m); err != nil {
-		return nil, err
-	}
-	return m, nil
 }
 
 func (c *pongRefereeClient) SettlementStream(ctx context.Context, opts ...grpc.CallOption) (PongReferee_SettlementStreamClient, error) {
-	stream, err := c.cc.NewStream(ctx, &PongReferee_ServiceDesc.Streams[2], "/pong.PongReferee/SettlementStream", opts...)
+	stream, err := c.cc.NewStream(ctx, &PongReferee_ServiceDesc.Streams[0], "/pong.PongReferee/SettlementStream", opts...)
 	if err != nil {
 		return nil, err
 	}
@@ -639,13 +611,8 @@ func (c *pongRefereeClient) GetFinalizeBundle(ctx context.Context, in *GetFinali
 // for forward compatibility
 type PongRefereeServer interface {
 	// Escrow-first funding
-	RefOpenEscrow(context.Context, *OpenEscrowRequest) (*OpenEscrowResponse, error)
-	RefWaitEscrowFunding(*WaitEscrowFundingRequest, PongReferee_RefWaitEscrowFundingServer) error
-	CreateMatch(context.Context, *CreateMatchRequest) (*CreateMatchResponse, error)
-	// New endpoints for server-managed deposits and settlement
-	// v0-min POC minimal API
-	WaitFunding(*WaitFundingRequest, PongReferee_WaitFundingServer) error
-	// Phase 1 streaming settlement
+	OpenEscrow(context.Context, *OpenEscrowRequest) (*OpenEscrowResponse, error)
+	// SettlementStream streams the settlement process
 	SettlementStream(PongReferee_SettlementStreamServer) error
 	// Winner fetches gamma and both presigs to finalize the exact winning draft
 	GetFinalizeBundle(context.Context, *GetFinalizeBundleRequest) (*GetFinalizeBundleResponse, error)
@@ -656,17 +623,8 @@ type PongRefereeServer interface {
 type UnimplementedPongRefereeServer struct {
 }
 
-func (UnimplementedPongRefereeServer) RefOpenEscrow(context.Context, *OpenEscrowRequest) (*OpenEscrowResponse, error) {
-	return nil, status.Errorf(codes.Unimplemented, "method RefOpenEscrow not implemented")
-}
-func (UnimplementedPongRefereeServer) RefWaitEscrowFunding(*WaitEscrowFundingRequest, PongReferee_RefWaitEscrowFundingServer) error {
-	return status.Errorf(codes.Unimplemented, "method RefWaitEscrowFunding not implemented")
-}
-func (UnimplementedPongRefereeServer) CreateMatch(context.Context, *CreateMatchRequest) (*CreateMatchResponse, error) {
-	return nil, status.Errorf(codes.Unimplemented, "method CreateMatch not implemented")
-}
-func (UnimplementedPongRefereeServer) WaitFunding(*WaitFundingRequest, PongReferee_WaitFundingServer) error {
-	return status.Errorf(codes.Unimplemented, "method WaitFunding not implemented")
+func (UnimplementedPongRefereeServer) OpenEscrow(context.Context, *OpenEscrowRequest) (*OpenEscrowResponse, error) {
+	return nil, status.Errorf(codes.Unimplemented, "method OpenEscrow not implemented")
 }
 func (UnimplementedPongRefereeServer) SettlementStream(PongReferee_SettlementStreamServer) error {
 	return status.Errorf(codes.Unimplemented, "method SettlementStream not implemented")
@@ -687,82 +645,22 @@ func RegisterPongRefereeServer(s grpc.ServiceRegistrar, srv PongRefereeServer) {
 	s.RegisterService(&PongReferee_ServiceDesc, srv)
 }
 
-func _PongReferee_RefOpenEscrow_Handler(srv interface{}, ctx context.Context, dec func(interface{}) error, interceptor grpc.UnaryServerInterceptor) (interface{}, error) {
+func _PongReferee_OpenEscrow_Handler(srv interface{}, ctx context.Context, dec func(interface{}) error, interceptor grpc.UnaryServerInterceptor) (interface{}, error) {
 	in := new(OpenEscrowRequest)
 	if err := dec(in); err != nil {
 		return nil, err
 	}
 	if interceptor == nil {
-		return srv.(PongRefereeServer).RefOpenEscrow(ctx, in)
+		return srv.(PongRefereeServer).OpenEscrow(ctx, in)
 	}
 	info := &grpc.UnaryServerInfo{
 		Server:     srv,
-		FullMethod: "/pong.PongReferee/RefOpenEscrow",
+		FullMethod: "/pong.PongReferee/OpenEscrow",
 	}
 	handler := func(ctx context.Context, req interface{}) (interface{}, error) {
-		return srv.(PongRefereeServer).RefOpenEscrow(ctx, req.(*OpenEscrowRequest))
+		return srv.(PongRefereeServer).OpenEscrow(ctx, req.(*OpenEscrowRequest))
 	}
 	return interceptor(ctx, in, info, handler)
-}
-
-func _PongReferee_RefWaitEscrowFunding_Handler(srv interface{}, stream grpc.ServerStream) error {
-	m := new(WaitEscrowFundingRequest)
-	if err := stream.RecvMsg(m); err != nil {
-		return err
-	}
-	return srv.(PongRefereeServer).RefWaitEscrowFunding(m, &pongRefereeRefWaitEscrowFundingServer{stream})
-}
-
-type PongReferee_RefWaitEscrowFundingServer interface {
-	Send(*WaitEscrowFundingUpdate) error
-	grpc.ServerStream
-}
-
-type pongRefereeRefWaitEscrowFundingServer struct {
-	grpc.ServerStream
-}
-
-func (x *pongRefereeRefWaitEscrowFundingServer) Send(m *WaitEscrowFundingUpdate) error {
-	return x.ServerStream.SendMsg(m)
-}
-
-func _PongReferee_CreateMatch_Handler(srv interface{}, ctx context.Context, dec func(interface{}) error, interceptor grpc.UnaryServerInterceptor) (interface{}, error) {
-	in := new(CreateMatchRequest)
-	if err := dec(in); err != nil {
-		return nil, err
-	}
-	if interceptor == nil {
-		return srv.(PongRefereeServer).CreateMatch(ctx, in)
-	}
-	info := &grpc.UnaryServerInfo{
-		Server:     srv,
-		FullMethod: "/pong.PongReferee/CreateMatch",
-	}
-	handler := func(ctx context.Context, req interface{}) (interface{}, error) {
-		return srv.(PongRefereeServer).CreateMatch(ctx, req.(*CreateMatchRequest))
-	}
-	return interceptor(ctx, in, info, handler)
-}
-
-func _PongReferee_WaitFunding_Handler(srv interface{}, stream grpc.ServerStream) error {
-	m := new(WaitFundingRequest)
-	if err := stream.RecvMsg(m); err != nil {
-		return err
-	}
-	return srv.(PongRefereeServer).WaitFunding(m, &pongRefereeWaitFundingServer{stream})
-}
-
-type PongReferee_WaitFundingServer interface {
-	Send(*WaitFundingResponse) error
-	grpc.ServerStream
-}
-
-type pongRefereeWaitFundingServer struct {
-	grpc.ServerStream
-}
-
-func (x *pongRefereeWaitFundingServer) Send(m *WaitFundingResponse) error {
-	return x.ServerStream.SendMsg(m)
 }
 
 func _PongReferee_SettlementStream_Handler(srv interface{}, stream grpc.ServerStream) error {
@@ -817,12 +715,8 @@ var PongReferee_ServiceDesc = grpc.ServiceDesc{
 	HandlerType: (*PongRefereeServer)(nil),
 	Methods: []grpc.MethodDesc{
 		{
-			MethodName: "RefOpenEscrow",
-			Handler:    _PongReferee_RefOpenEscrow_Handler,
-		},
-		{
-			MethodName: "CreateMatch",
-			Handler:    _PongReferee_CreateMatch_Handler,
+			MethodName: "OpenEscrow",
+			Handler:    _PongReferee_OpenEscrow_Handler,
 		},
 		{
 			MethodName: "GetFinalizeBundle",
@@ -830,16 +724,6 @@ var PongReferee_ServiceDesc = grpc.ServiceDesc{
 		},
 	},
 	Streams: []grpc.StreamDesc{
-		{
-			StreamName:    "RefWaitEscrowFunding",
-			Handler:       _PongReferee_RefWaitEscrowFunding_Handler,
-			ServerStreams: true,
-		},
-		{
-			StreamName:    "WaitFunding",
-			Handler:       _PongReferee_WaitFunding_Handler,
-			ServerStreams: true,
-		},
 		{
 			StreamName:    "SettlementStream",
 			Handler:       _PongReferee_SettlementStream_Handler,
