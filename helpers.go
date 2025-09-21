@@ -16,7 +16,7 @@ import (
 	"github.com/decred/dcrd/txscript/v4"
 	"github.com/decred/dcrd/txscript/v4/stdaddr"
 	"github.com/decred/dcrd/wire"
-	"github.com/vctt94/pong-bisonrelay/pongrpc/grpc/pong"
+	"github.com/vctt94/pongbisonrelay/pongrpc/grpc/pong"
 )
 
 func BuildPerDepositorRedeemScript(comp33 []byte, csvBlocks uint32) ([]byte, error) {

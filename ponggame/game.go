@@ -9,7 +9,7 @@ import (
 	"github.com/decred/slog"
 	"github.com/ndabAP/ping-pong/engine"
 	"github.com/vctt94/bisonbotkit/utils"
-	"github.com/vctt94/pong-bisonrelay/pongrpc/grpc/pong"
+	"github.com/vctt94/pongbisonrelay/pongrpc/grpc/pong"
 	"google.golang.org/protobuf/proto"
 )
 

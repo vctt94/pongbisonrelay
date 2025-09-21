@@ -8,7 +8,7 @@ import (
 	"strings"
 	"time"
 
-	"github.com/vctt94/pong-bisonrelay/pongrpc/grpc/pong"
+	"github.com/vctt94/pongbisonrelay/pongrpc/grpc/pong"
 )
 
 // SignalReadyToPlay signals that the player is ready to start playing

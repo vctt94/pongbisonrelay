@@ -10,9 +10,9 @@ import (
 
 	"github.com/charmbracelet/bubbles/viewport"
 	tea "github.com/charmbracelet/bubbletea"
-	pongbisonrelay "github.com/vctt94/pong-bisonrelay"
-	"github.com/vctt94/pong-bisonrelay/client"
-	"github.com/vctt94/pong-bisonrelay/pongrpc/grpc/pong"
+	pongbisonrelay "github.com/vctt94/pongbisonrelay"
+	"github.com/vctt94/pongbisonrelay/client"
+	"github.com/vctt94/pongbisonrelay/pongrpc/grpc/pong"
 	"google.golang.org/protobuf/proto"
 )
 

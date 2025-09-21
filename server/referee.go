@@ -18,9 +18,9 @@ import (
 	"github.com/decred/dcrd/txscript/v4"
 	"github.com/decred/dcrd/txscript/v4/stdaddr"
 	"github.com/decred/dcrd/wire"
-	pongbisonrelay "github.com/vctt94/pong-bisonrelay"
-	"github.com/vctt94/pong-bisonrelay/ponggame"
-	"github.com/vctt94/pong-bisonrelay/pongrpc/grpc/pong"
+	pongbisonrelay "github.com/vctt94/pongbisonrelay"
+	"github.com/vctt94/pongbisonrelay/ponggame"
+	"github.com/vctt94/pongbisonrelay/pongrpc/grpc/pong"
 	"google.golang.org/grpc/codes"
 	"google.golang.org/grpc/status"
 )

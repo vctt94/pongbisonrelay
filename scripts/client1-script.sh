@@ -13,7 +13,7 @@ BRSERVER_PORT=12345                    # relays TCP port
 BR_RPC_PORT=7777                       # client’s WS RPC port
 
 # pong client
-PONGCLIENT_DIR=$HOME/projects/BR/pong-bisonrelay/cmd/pongclient
+PONGCLIENT_DIR=$HOME/projects/BR/pongbisonrelay/cmd/pongclient
 PONG_DATADIR=$HOME/.pongbot
 
 ###############################################################################

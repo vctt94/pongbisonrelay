@@ -9,7 +9,7 @@ import (
 
 	"github.com/companyzero/bisonrelay/clientrpc/types"
 	"github.com/companyzero/bisonrelay/zkidentity"
-	"github.com/vctt94/pong-bisonrelay/server/serverdb"
+	"github.com/vctt94/pongbisonrelay/server/serverdb"
 )
 
 // testPongServerDBInterface tests the ServerDB interface for tips management.

@@ -11,7 +11,7 @@ import (
 	"runtime/cgo"
 	"unsafe"
 
-	"github.com/vctt94/pong-bisonrelay/pongui/golib"
+	"github.com/vctt94/pongbisonrelay/pongui/golib"
 )
 
 func errorCString(err error) *C.char {

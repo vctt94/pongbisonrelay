@@ -11,9 +11,9 @@ import (
 	"sync"
 	"time"
 
-	pongbisonrelay "github.com/vctt94/pong-bisonrelay"
-	"github.com/vctt94/pong-bisonrelay/client"
-	"github.com/vctt94/pong-bisonrelay/pongrpc/grpc/pong"
+	pongbisonrelay "github.com/vctt94/pongbisonrelay"
+	"github.com/vctt94/pongbisonrelay/client"
+	"github.com/vctt94/pongbisonrelay/pongrpc/grpc/pong"
 	"golang.org/x/sync/errgroup"
 
 	"github.com/charmbracelet/bubbles/viewport"

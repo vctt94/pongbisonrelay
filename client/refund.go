@@ -14,7 +14,7 @@ import (
 	"github.com/decred/dcrd/txscript/v4"
 	"github.com/decred/dcrd/txscript/v4/stdaddr"
 	"github.com/decred/dcrd/wire"
-	pongbisonrelay "github.com/vctt94/pong-bisonrelay"
+	pongbisonrelay "github.com/vctt94/pongbisonrelay"
 )
 
 const (

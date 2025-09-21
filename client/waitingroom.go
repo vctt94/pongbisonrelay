@@ -4,7 +4,7 @@ import (
 	"context"
 	"fmt"
 
-	"github.com/vctt94/pong-bisonrelay/pongrpc/grpc/pong"
+	"github.com/vctt94/pongbisonrelay/pongrpc/grpc/pong"
 )
 
 func (pc *PongClient) RefGetWaitingRoom(roomID string) (*pong.WaitingRoom, error) {

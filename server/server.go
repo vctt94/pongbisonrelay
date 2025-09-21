@@ -16,10 +16,10 @@ import (
 	"github.com/decred/dcrd/rpcclient/v8"
 	"github.com/decred/slog"
 	"github.com/vctt94/bisonbotkit/logging"
-	pongbisonrelay "github.com/vctt94/pong-bisonrelay"
-	"github.com/vctt94/pong-bisonrelay/ponggame"
-	"github.com/vctt94/pong-bisonrelay/pongrpc/grpc/pong"
-	"github.com/vctt94/pong-bisonrelay/server/serverdb"
+	pongbisonrelay "github.com/vctt94/pongbisonrelay"
+	"github.com/vctt94/pongbisonrelay/ponggame"
+	"github.com/vctt94/pongbisonrelay/pongrpc/grpc/pong"
+	"github.com/vctt94/pongbisonrelay/server/serverdb"
 )
 
 const (

@@ -5,8 +5,8 @@ import (
 	"fmt"
 
 	"github.com/companyzero/bisonrelay/zkidentity"
-	"github.com/vctt94/pong-bisonrelay/ponggame"
-	"github.com/vctt94/pong-bisonrelay/pongrpc/grpc/pong"
+	"github.com/vctt94/pongbisonrelay/ponggame"
+	"github.com/vctt94/pongbisonrelay/pongrpc/grpc/pong"
 )
 
 func (s *Server) GetWaitingRoom(ctx context.Context, req *pong.WaitingRoomRequest) (*pong.WaitingRoomResponse, error) {
@@ -124,7 +124,6 @@ func (s *Server) CreateWaitingRoom(ctx context.Context, req *pong.CreateWaitingR
 	case s.waitingRoomCreated <- struct{}{}:
 	default:
 	}
-
 
 	pongWR := wr.Marshal()
 

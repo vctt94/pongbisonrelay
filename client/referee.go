@@ -11,8 +11,8 @@ import (
 	"github.com/decred/dcrd/dcrec/secp256k1/v4"
 	"github.com/decred/dcrd/txscript/v4"
 	"github.com/decred/dcrd/wire"
-	pongbisonrelay "github.com/vctt94/pong-bisonrelay"
-	"github.com/vctt94/pong-bisonrelay/pongrpc/grpc/pong"
+	pongbisonrelay "github.com/vctt94/pongbisonrelay"
+	"github.com/vctt94/pongbisonrelay/pongrpc/grpc/pong"
 )
 
 // computePreSig derives adaptor pre-signature for (x, m, T).

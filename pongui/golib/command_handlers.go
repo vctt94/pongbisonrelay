@@ -22,7 +22,7 @@ import (
 	"github.com/vctt94/bisonbotkit/botclient"
 	"github.com/vctt94/bisonbotkit/config"
 	"github.com/vctt94/bisonbotkit/logging"
-	"github.com/vctt94/pong-bisonrelay/client"
+	"github.com/vctt94/pongbisonrelay/client"
 	"golang.org/x/sync/errgroup"
 )
 

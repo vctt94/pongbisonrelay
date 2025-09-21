@@ -5,7 +5,7 @@ import (
 
 	"github.com/companyzero/bisonrelay/zkidentity"
 	"github.com/stretchr/testify/assert"
-	"github.com/vctt94/pong-bisonrelay/pongrpc/grpc/pong"
+	"github.com/vctt94/pongbisonrelay/pongrpc/grpc/pong"
 )
 
 func TestPlayer_Marshal(t *testing.T) {

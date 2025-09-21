@@ -6,8 +6,8 @@ import (
 
 	"github.com/companyzero/bisonrelay/zkidentity"
 
-	"github.com/vctt94/pong-bisonrelay/ponggame"
-	"github.com/vctt94/pong-bisonrelay/pongrpc/grpc/pong"
+	"github.com/vctt94/pongbisonrelay/ponggame"
+	"github.com/vctt94/pongbisonrelay/pongrpc/grpc/pong"
 )
 
 // --- game handlers ---

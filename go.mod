@@ -1,4 +1,4 @@
-module github.com/vctt94/pong-bisonrelay
+module github.com/vctt94/pongbisonrelay
 
 go 1.24.0
 
