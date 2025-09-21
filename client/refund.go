@@ -14,6 +14,7 @@ import (
 	"github.com/decred/dcrd/txscript/v4"
 	"github.com/decred/dcrd/txscript/v4/stdaddr"
 	"github.com/decred/dcrd/wire"
+	pongbisonrelay "github.com/vctt94/pong-bisonrelay"
 )
 
 const (
@@ -41,7 +42,7 @@ func signSchnorrV0(privHex, mHex string) ([]byte, error) {
 		return nil, fmt.Errorf("invalid private key scalar")
 	}
 
-	extra := blake256.Sum256(schnorrV0ExtraTag[:])
+	extra := blake256.Sum256(pongbisonrelay.SchnorrV0ExtraTag[:])
 	var version []byte
 	for iter := uint32(0); ; iter++ {
 		k := secp256k1.NonceRFC6979(xb, mb, extra[:], version, iter)

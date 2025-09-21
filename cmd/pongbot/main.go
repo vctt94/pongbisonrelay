@@ -123,28 +123,18 @@ func realMain() error {
 		cfg.Debug = *flagDebug
 	}
 
-	// dcrd flags override config when provided
-	dcrdHost := cfg.DcrdHost
-	dcrdCert := cfg.DcrdCert
-	dcrdUser := cfg.DcrdUser
-	if dcrdUser == "" {
-		dcrdUser = cfg.RPCUser
-	}
-	dcrdPass := cfg.DcrdPass
-	if dcrdPass == "" {
-		dcrdPass = cfg.RPCPass
-	}
+	// dcrd flags override config when provided (keep prior behavior)
 	if *flagDcrdHost != "" {
-		dcrdHost = *flagDcrdHost
+		cfg.DcrdHost = *flagDcrdHost
 	}
 	if *flagDcrdCert != "" {
-		dcrdCert = utils.CleanAndExpandPath(*flagDcrdCert)
+		cfg.DcrdCert = utils.CleanAndExpandPath(*flagDcrdCert)
 	}
 	if *flagDcrdUser != "" {
-		dcrdUser = *flagDcrdUser
+		cfg.DcrdUser = *flagDcrdUser
 	}
 	if *flagDcrdPass != "" {
-		dcrdPass = *flagDcrdPass
+		cfg.DcrdPass = *flagDcrdPass
 	}
 
 	ctx, cancel := context.WithCancel(context.Background())
@@ -189,10 +179,11 @@ func realMain() error {
 		IsF2P:           cfg.IsF2P,
 		MinBetAmt:       cfg.MinBetAmt,
 		LogBackend:      logBackend,
-		DcrdHostPort:    dcrdHost,
-		DcrdRPCCertPath: dcrdCert,
-		DcrdRPCUser:     dcrdUser,
-		DcrdRPCPass:     dcrdPass,
+		DcrdHostPort:    cfg.DcrdHost,
+		DcrdRPCCertPath: cfg.DcrdCert,
+		DcrdRPCUser:     cfg.DcrdUser,
+		DcrdRPCPass:     cfg.DcrdPass,
+		AdaptorSecret:   cfg.AdaptorSecret,
 	})
 	if err != nil {
 		return fmt.Errorf("failed to create server: %w", err)

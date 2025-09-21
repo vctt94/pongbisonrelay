@@ -16,6 +16,7 @@ import (
 	"github.com/decred/dcrd/rpcclient/v8"
 	"github.com/decred/slog"
 	"github.com/vctt94/bisonbotkit/logging"
+	pongbisonrelay "github.com/vctt94/pong-bisonrelay"
 	"github.com/vctt94/pong-bisonrelay/ponggame"
 	"github.com/vctt94/pong-bisonrelay/pongrpc/grpc/pong"
 	"github.com/vctt94/pong-bisonrelay/server/serverdb"
@@ -40,6 +41,11 @@ type ServerConfig struct {
 	DcrdRPCCertPath string // path to rpc.cert
 	DcrdRPCUser     string
 	DcrdRPCPass     string
+
+	// Adaptor secret seed (hex, 32 bytes recommended). Used to deterministically
+	// derive per-branch adaptor secrets bound to match/input/sighash.
+	// For POC, if empty, a built-in default will be used.
+	AdaptorSecret string
 }
 
 // PreSignCtx stores all artifacts needed to finalize using the exact same
@@ -59,7 +65,7 @@ type PreSignCtx struct {
 	DraftHex        string // exact serialized tx used at presign
 	MHex            string // 32-byte sighash for (DraftHex, RedeemScriptHex, idx, SIGHASH_ALL)
 	RLineCompressed []byte // 33 bytes, even-Y (0x02)
-	SPrime32        []byte // 32 bytes
+	SLine32         []byte // 32 bytes
 	TCompressed     []byte // 33 bytes (if used in adaptor domain)
 	WinnerUID       string // tie to player/session (owner uid)
 	Branch          int32  // 0 = A-wins, 1 = B-wins (payout branch)
@@ -78,8 +84,6 @@ type escrowSession struct {
 	csvBlocks       uint32
 	redeemScriptHex string
 	pkScriptHex     string
-	depositAddress  string
-	createdAt       time.Time
 
 	// ----------------- runtime state (protected by mu) -------------
 	mu        sync.RWMutex
@@ -126,6 +130,9 @@ type Server struct {
 	roomEscrows map[string]map[string]string // roomID -> owner_uid -> escrow_id
 	// v0-min defaults
 	pocFeeAtoms uint64
+
+	// Secret seed for adaptor gamma derivation.
+	adaptorSecret string
 }
 
 func NewServer(id *zkidentity.ShortID, cfg ServerConfig) (*Server, error) {
@@ -164,6 +171,7 @@ func NewServer(id *zkidentity.ShortID, cfg ServerConfig) (*Server, error) {
 			Log:            logGM,
 			PlayerGameMap:  make(map[zkidentity.ShortID]*ponggame.GameInstance),
 		},
+		adaptorSecret: cfg.AdaptorSecret,
 	}
 	if cfg.DcrdHostPort == "" || cfg.DcrdRPCUser == "" || cfg.DcrdRPCPass == "" || cfg.DcrdRPCCertPath == "" {
 		return nil, fmt.Errorf("incomplete dcrd config: host=%q user=%q pass_set=%t cert=%q", cfg.DcrdHostPort, cfg.DcrdRPCUser, cfg.DcrdRPCPass != "", cfg.DcrdRPCCertPath)
@@ -223,6 +231,81 @@ func (s *Server) handleDisconnect(clientID zkidentity.ShortID) {
 	s.gameManager.HandleGameDisconnection(clientID, s.log)
 }
 
+// escrowForRoomPlayer returns the escrow session bound to (wrID, ownerUID)
+// via the roomEscrows mapping. It does not attempt to pick a "newest" escrow.
+func (s *Server) escrowForRoomPlayer(wrID, ownerUID string) *escrowSession {
+	s.RLock()
+	defer s.RUnlock()
+	m := s.roomEscrows[wrID]
+	if m == nil {
+		return nil
+	}
+	escrowID := m[ownerUID]
+	if escrowID == "" {
+		return nil
+	}
+	return s.escrows[escrowID]
+}
+
+// ensureBoundFunding either binds the canonical funding input if not yet bound
+// (requiring exactly one UTXO), or verifies the previously-bound input still
+// exists and that no extra deposits were made.
+func (s *Server) ensureBoundFunding(es *escrowSession) error {
+	es.mu.Lock()
+	defer es.mu.Unlock()
+
+	// Must have a watcher snapshot that says "funded".
+	if !es.latest.OK || es.latest.UTXOCount == 0 {
+		return fmt.Errorf("escrow not yet funded")
+	}
+
+	// Normalize current UTXO list.
+	var current []*pong.EscrowUTXO
+	for _, u := range es.lastUTXOs {
+		if u != nil && u.Txid != "" {
+			current = append(current, u)
+		}
+	}
+	// If we haven't cached details yet, we can't bind.
+	if len(current) == 0 {
+		return fmt.Errorf("escrow UTXO details not available yet; wait for index")
+	}
+
+	if es.boundInputID == "" {
+		// Not yet bound: require exactly one deposit to avoid ambiguity.
+		if len(current) != 1 || es.latest.UTXOCount != 1 {
+			return fmt.Errorf("multiple deposits detected (%d); escrow requires exactly one funding UTXO", len(current))
+		}
+		u := current[0]
+		boundID := fmt.Sprintf("%s:%d", u.Txid, u.Vout)
+		es.boundInputID = boundID
+		es.boundInput = u
+		s.notify(es.player, fmt.Sprintf("Escrow bound to %s. You can proceed.", boundID))
+		return nil
+	}
+
+	// Already bound: verify the exact input is still present.
+	var found *pong.EscrowUTXO
+	for _, u := range current {
+		if fmt.Sprintf("%s:%d", u.Txid, u.Vout) == es.boundInputID {
+			found = u
+			break
+		}
+	}
+	if found == nil {
+		// The canonical input disappeared (reorg/spent?) -> invalidate.
+		return fmt.Errorf("bound funding UTXO %s not present", es.boundInputID)
+	}
+	es.boundInput = found
+
+	// Enforce no extra deposits beyond the bound one.
+	if len(current) != 1 || es.latest.UTXOCount != 1 {
+		return fmt.Errorf("unexpected additional deposits (%d); only the bound %s is allowed", len(current), es.boundInputID)
+	}
+
+	return nil
+}
+
 func (s *Server) sendGameUpdates(ctx context.Context, player *ponggame.Player, game *ponggame.GameInstance) {
 	for {
 		select {
@@ -249,28 +332,25 @@ func (s *Server) sendGameUpdates(ctx context.Context, player *ponggame.Player, g
 
 // notify sends a simple text notification if the stream is live.
 // (Optional: de-dupe by caching the last message per player to avoid spam.)
-func (s *Server) notify(p *ponggame.Player, msg string) {
-	if p != nil && p.NotifierStream != nil {
-		if p.ID != nil {
-			s.log.Debugf("notify: to=%s msg=%q", p.ID.String(), msg)
-		} else {
-			s.log.Debugf("notify: to=<nil-id> msg=%q", msg)
-		}
-		if err := p.NotifierStream.Send(&pong.NtfnStreamResponse{
-			NotificationType: pong.NotificationType_MESSAGE,
-			Message:          msg,
-		}); err != nil {
-			var idStr string
-			if p.ID != nil {
-				idStr = p.ID.String()
-			} else {
-				idStr = "<nil-id>"
-			}
-			s.log.Warnf("notify: failed to deliver to %s: %v", idStr, err)
-		}
-	} else {
-		s.log.Debugf("notify: dropped (player or stream nil) msg=%q", msg)
+func (s *Server) notify(p *ponggame.Player, msg string) error {
+	if p == nil {
+		return fmt.Errorf("player nil")
 	}
+	if p.ID == nil {
+		return fmt.Errorf("player id nil")
+	}
+	if p.NotifierStream == nil {
+		return fmt.Errorf("player stream nil")
+	}
+	err := p.NotifierStream.Send(&pong.NtfnStreamResponse{
+		NotificationType: pong.NotificationType_MESSAGE,
+		Message:          msg,
+	})
+	if err != nil {
+		s.log.Warnf("notify: failed to deliver to %s: %v", p.ID.String(), err)
+		return err
+	}
+	return nil
 }
 
 func (s *Server) Run(ctx context.Context) error {
@@ -498,7 +578,7 @@ func (s *Server) handleGameEnd(ctx context.Context, game *ponggame.GameInstance,
 		// Derive gamma using the same branch-bound domain separation used during presign.
 		const pocServerPrivHex = "11ee22dd33cc44bb55aa66ff77ee88dd99cc00bbaa11223344556677889900aa"
 		branchTag := fmt.Sprintf("branch-%d", chosen.Branch)
-		gammaHex, _ := deriveAdaptorGamma("", branchTag, chosen.Branch, branchTag, pocServerPrivHex)
+		gammaHex, _ := pongbisonrelay.DeriveAdaptorGamma("", branchTag, chosen.Branch, branchTag, pocServerPrivHex)
 		if gb, err := hex.DecodeString(gammaHex); err == nil && len(gb) == 32 {
 			if w := s.gameManager.PlayerSessions.GetPlayer(*winner); w != nil && w.NotifierStream != nil {
 				_ = w.NotifierStream.Send(&pong.NtfnStreamResponse{

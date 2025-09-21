@@ -7,7 +7,6 @@ import (
 	"fmt"
 	"sort"
 	"strings"
-	"time"
 
 	crand "crypto/rand"
 
@@ -19,6 +18,7 @@ import (
 	"github.com/decred/dcrd/txscript/v4"
 	"github.com/decred/dcrd/txscript/v4/stdaddr"
 	"github.com/decred/dcrd/wire"
+	pongbisonrelay "github.com/vctt94/pong-bisonrelay"
 	"github.com/vctt94/pong-bisonrelay/ponggame"
 	"github.com/vctt94/pong-bisonrelay/pongrpc/grpc/pong"
 	"google.golang.org/grpc/codes"
@@ -142,7 +142,7 @@ func (s *Server) OpenEscrow(ctx context.Context, req *pong.OpenEscrowRequest) (*
 	}
 
 	// Build depositor-only redeem script (no opponent key).
-	redeem, err := buildPerDepositorRedeemScript(comp, req.CsvBlocks)
+	redeem, err := pongbisonrelay.BuildPerDepositorRedeemScript(comp, req.CsvBlocks)
 	if err != nil {
 		return nil, status.Errorf(codes.Internal, "build redeem: %v", err)
 	}
@@ -168,7 +168,6 @@ func (s *Server) OpenEscrow(ctx context.Context, req *pong.OpenEscrowRequest) (*
 	}
 	eid := "e" + hex.EncodeToString(rnd[:])
 
-	now := time.Now()
 	es := &escrowSession{
 		escrowID:        eid,
 		ownerUID:        req.OwnerUid,
@@ -178,8 +177,6 @@ func (s *Server) OpenEscrow(ctx context.Context, req *pong.OpenEscrowRequest) (*
 		csvBlocks:       req.CsvBlocks,
 		redeemScriptHex: hex.EncodeToString(redeem),
 		pkScriptHex:     pkScriptHex,
-		depositAddress:  addr,
-		createdAt:       now,
 		player:          player,
 	}
 	s.escrows[eid] = es
@@ -365,46 +362,21 @@ func (s *Server) settlementStreamForRoom(
 	return s.settlementStreamTwoInputs(stream, X, myEscrow, oppEscrow, myIn.UTXO, oppIn.UTXO, host.String())
 }
 
-// buildP2PKAltScript builds a payout script that pays to a single compressed
-// pubkey using OP_CHECKSIGALT with the Schnorr-secp256k1 signature type (2).
-// Script: <Ac> 2 OP_CHECKSIGALT
-func buildP2PKAltScript(comp33 []byte) ([]byte, error) {
+// buildP2PKScript builds a standard ECDSA P2PK payout script that pays to a
+// single compressed pubkey using OP_CHECKSIG.
+// Script: <Ac> OP_CHECKSIG
+func buildP2PKScript(comp33 []byte) ([]byte, error) {
 	if len(comp33) != 33 {
 		return nil, fmt.Errorf("need 33-byte compressed pubkey")
 	}
 	b := txscript.NewScriptBuilder()
 	b.AddData(comp33).
-		AddInt64(2).
-		AddOp(txscript.OP_CHECKSIGALT)
+		AddOp(txscript.OP_CHECKSIG)
 	return b.Script()
 }
 
-// addPoints returns R+S as a *secp256k1.PublicKey using Jacobian add and affine conversion.
-func addPoints(R, S *secp256k1.PublicKey) (*secp256k1.PublicKey, error) {
-	var rj, sj, sum secp256k1.JacobianPoint
-	R.AsJacobian(&rj)
-	S.AsJacobian(&sj)
-
-	// sum = rj + sj (Jacobian)
-	secp256k1.AddNonConst(&rj, &sj, &sum)
-
-	// Infinity if Z == 0 in Jacobian coords.
-	if sum.Z.IsZero() {
-		return nil, fmt.Errorf("R' is point at infinity")
-	}
-
-	// Convert in place to affine, then build a PublicKey.
-	sum.ToAffine()
-
-	var ax, ay secp256k1.FieldVal
-	ax.Set(&sum.X)
-	ay.Set(&sum.Y)
-
-	return secp256k1.NewPublicKey(&ax, &ay), nil
-}
-
 // buildTwoInputDrafts builds two drafts spending one UTXO from each escrow and
-// paying the sum minus fee to winner's P2PK-alt address. Inputs are deterministically
+// paying the sum minus fee to winner's P2PK address. Inputs are deterministically
 // ordered by (txid asc, vout asc). Branch 0 pays to a, branch 1 pays to b.
 func (s *Server) buildTwoInputDrafts(a *escrowSession, au *pong.EscrowUTXO, b *escrowSession, bu *pong.EscrowUTXO) (*twoBranchDrafts, error) {
 	// Deterministic order
@@ -444,11 +416,11 @@ func (s *Server) buildTwoInputDrafts(a *escrowSession, au *pong.EscrowUTXO, b *e
 		if len(payKey) != 33 {
 			payKey = payTo.compPubkey
 		}
-		pkAlt, err := buildP2PKAltScript(payKey)
+		pkScript, err := buildP2PKScript(payKey)
 		if err != nil {
 			return "", nil, err
 		}
-		tx.AddTxOut(&wire.TxOut{Value: payout, PkScript: pkAlt})
+		tx.AddTxOut(&wire.TxOut{Value: payout, PkScript: pkScript})
 
 		// Derive a single adaptor point T per branch and reuse across inputs so a single
 		// gamma reveal finalizes all inputs of the winning branch.
@@ -456,8 +428,13 @@ func (s *Server) buildTwoInputDrafts(a *escrowSession, au *pong.EscrowUTXO, b *e
 		if payTo == b {
 			branch = 1
 		}
-		const pocServerPrivHex = "11ee22dd33cc44bb55aa66ff77ee88dd99cc00bbaa11223344556677889900aa"
-		_, TCompHexBranch := deriveAdaptorGamma("", fmt.Sprintf("branch-%d", branch), branch, fmt.Sprintf("branch-%d", branch), pocServerPrivHex)
+		// Derive branch-wide adaptor point using server's configured secret.
+		serverSecret := s.adaptorSecret
+		if strings.TrimSpace(serverSecret) == "" {
+			return "", nil, status.Error(codes.FailedPrecondition, "server adaptor secret not configured")
+		}
+		// Bind to a stable tag for the branch.
+		_, TCompHexBranch := pongbisonrelay.DeriveAdaptorGamma("", fmt.Sprintf("branch-%d", branch), branch, fmt.Sprintf("branch-%d", branch), serverSecret)
 		TcompBranch, _ := hex.DecodeString(TCompHexBranch)
 
 		inputs := make([]*pong.NeedPreSigs_PerInput, 0, len(ins))
@@ -527,7 +504,7 @@ func (s *Server) verifyAndStorePresig(X *secp256k1.PublicKey, ps *pong.PreSig, i
 	secp256k1.ScalarMultNonConst(&e, &Xj, &out)
 	out.ToAffine()
 	Ex := secp256k1.NewPublicKey(&out.X, &out.Y)
-	lhs1, err := addPoints(spk, Ex)
+	lhs1, err := pongbisonrelay.AddPoints(spk, Ex)
 	if err != nil {
 		return status.Error(codes.InvalidArgument, "lhs infinity")
 	}
@@ -562,7 +539,7 @@ func (s *Server) verifyAndStorePresig(X *secp256k1.PublicKey, ps *pong.PreSig, i
 		DraftHex:        draftHex,
 		MHex:            in.MHex,
 		RLineCompressed: append([]byte(nil), ps.RLineCompressed...),
-		SPrime32:        append([]byte(nil), ps.SLine32...),
+		SLine32:         append([]byte(nil), ps.SLine32...),
 		TCompressed:     append([]byte(nil), in.TCompressed...),
 		WinnerUID:       winner.ownerUID,
 		Branch:          branch,
@@ -831,11 +808,13 @@ func (s *Server) GetFinalizeBundle(ctx context.Context, req *pong.GetFinalizeBun
 	}
 	sort.Slice(list, func(i, j int) bool { return list[i].id < list[j].id })
 
-	// Derive gamma for that branch (same domain sep. as presign)
-	// XXX move to confs
-	const pocServerPrivHex = "11ee22dd33cc44bb55aa66ff77ee88dd99cc00bbaa11223344556677889900aa"
+	// Derive gamma for that branch using configured server secret.
+	serverSecret := s.adaptorSecret
+	if strings.TrimSpace(serverSecret) == "" {
+		return nil, status.Error(codes.FailedPrecondition, "server adaptor secret not configured")
+	}
 	branchTag := fmt.Sprintf("branch-%d", branch)
-	gammaHex, _ := deriveAdaptorGamma("", branchTag, branch, branchTag, pocServerPrivHex)
+	gammaHex, _ := pongbisonrelay.DeriveAdaptorGamma("", branchTag, branch, branchTag, serverSecret)
 	gb, err := hex.DecodeString(gammaHex)
 	if err != nil || len(gb) != 32 {
 		return nil, status.Error(codes.Internal, "failed to derive gamma")
@@ -847,7 +826,7 @@ func (s *Server) GetFinalizeBundle(ctx context.Context, req *pong.GetFinalizeBun
 			InputId:         p.id,
 			RedeemScriptHex: p.ctx.RedeemScriptHex,
 			RLineCompressed: append([]byte(nil), p.ctx.RLineCompressed...),
-			SLine32:         append([]byte(nil), p.ctx.SPrime32...),
+			SLine32:         append([]byte(nil), p.ctx.SLine32...),
 		})
 	}
 	return resp, nil

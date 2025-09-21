@@ -11,6 +11,7 @@ import (
 	"github.com/decred/dcrd/dcrec/secp256k1/v4"
 	"github.com/decred/dcrd/txscript/v4"
 	"github.com/decred/dcrd/wire"
+	pongbisonrelay "github.com/vctt94/pong-bisonrelay"
 	"github.com/vctt94/pong-bisonrelay/pongrpc/grpc/pong"
 )
 
@@ -54,7 +55,7 @@ func computePreSig(xPrivHex, mHex, TCompHex string) (rXHex string, sPrimeHex str
 
 	// RFC6979 domain separation: bind nonce to T (and version if used).
 	// extra = BLAKE256(tag32 || T_compressed [|| branch/inputID...])
-	extra := blake256.Sum256(append(schnorrV0ExtraTag[:], Tb...))
+	extra := blake256.Sum256(append(pongbisonrelay.SchnorrV0ExtraTag[:], Tb...))
 	var version []byte // optional 16B tag; nil = unused
 
 	// Deterministic retry loop: enforce all constraints.
@@ -69,7 +70,7 @@ func computePreSig(xPrivHex, mHex, TCompHex string) (rXHex string, sPrimeHex str
 		R := secp256k1.PrivKeyFromBytes(kbArr[:]).PubKey()
 
 		// R' = R + T ; skip if infinity.
-		Rp, err := addPoints(R, Tpub)
+		Rp, err := pongbisonrelay.AddPoints(R, Tpub)
 		if err != nil { // infinity
 			continue
 		}
@@ -171,7 +172,7 @@ func BuildVerifyOk(xPrivHex string, req *pong.NeedPreSigs) (*pong.VerifyOk, erro
 			return nil, fmt.Errorf("bad redeem: %w", err)
 		}
 		// Map InputId → tx input index.
-		idx, err := findInputIndex(&tx, in.InputId)
+		idx, err := pongbisonrelay.FindInputIndex(&tx, in.InputId)
 		if err != nil {
 			return nil, err
 		}

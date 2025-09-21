@@ -10,6 +10,7 @@ import (
 
 	"github.com/charmbracelet/bubbles/viewport"
 	tea "github.com/charmbracelet/bubbletea"
+	pongbisonrelay "github.com/vctt94/pong-bisonrelay"
 	"github.com/vctt94/pong-bisonrelay/client"
 	"github.com/vctt94/pong-bisonrelay/pongrpc/grpc/pong"
 	"google.golang.org/protobuf/proto"
@@ -138,7 +139,7 @@ func (m *appstate) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 						}
 						m.settle.draftInputs[bundle.DraftTxHex] = inputs
 						hexGamma := hex.EncodeToString(bundle.Gamma32)
-						hexTx, err := client.FinalizeWinner(hexGamma, bundle.DraftTxHex, inputs, presigs)
+						hexTx, err := pongbisonrelay.FinalizeWinner(hexGamma, bundle.DraftTxHex, inputs, presigs)
 						if err != nil {
 							m.notification = "error finalizing winner: " + err.Error()
 							m.msgCh <- client.UpdatedMsg{}
@@ -370,7 +371,7 @@ func (m *appstate) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 				m.genPrivHex = priv
 				m.genPubHex = pub
 				m.settle.aCompHex = pub
-				m.notification = "Generated A_c; private key kept in-memory (copy from logs if you need persistence)"
+				m.notification = "Generated A_c; session key saved to disk (POC)."
 				return m, nil
 			}
 

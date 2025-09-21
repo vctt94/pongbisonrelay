@@ -11,6 +11,7 @@ import (
 	"sync"
 	"time"
 
+	pongbisonrelay "github.com/vctt94/pong-bisonrelay"
 	"github.com/vctt94/pong-bisonrelay/client"
 	"github.com/vctt94/pong-bisonrelay/pongrpc/grpc/pong"
 	"golang.org/x/sync/errgroup"
@@ -123,7 +124,7 @@ func (m *appstate) payoutPubkeyFromConfHex() ([]byte, error) {
 	if addressFlag == nil || *addressFlag == "" {
 		return nil, fmt.Errorf("missing -address flag")
 	}
-	return client.PayoutPubkeyFromConfHex(*addressFlag)
+	return pongbisonrelay.PayoutPubkeyFromConfHex(*addressFlag)
 }
 
 func (m *appstate) startSettlement() {
@@ -231,7 +232,7 @@ func realMain() error {
 	if strings.TrimSpace(addrValue) == "" {
 		return fmt.Errorf("missing payout address: pass -address flag or set address= in %s", filepath.Join(appCfg.DataDir, "pongclient.conf"))
 	}
-	if _, err := client.PayoutPubkeyFromConfHex(addrValue); err != nil {
+	if _, err := pongbisonrelay.PayoutPubkeyFromConfHex(addrValue); err != nil {
 		return fmt.Errorf("invalid payout address: %v", err)
 	}
 	*addressFlag = addrValue
@@ -369,12 +370,12 @@ func realMain() error {
 	log.Infof("Connected to server at %s with ID %s", appCfg.ServerAddr, clientID)
 
 	// Quick gRPC sanity check
-	if _, err := pc.GetWaitingRooms(); err != nil {
+	if _, err := pc.RefGetWaitingRooms(); err != nil {
 		return fmt.Errorf("gRPC server connection failed: %v", err)
 	}
 
 	// Start notifier
-	g.Go(func() error { return pc.StartNotifier(ctx) })
+	g.Go(func() error { return pc.RefStartNtfnStream(ctx) })
 
 	defer as.cancel()
 
