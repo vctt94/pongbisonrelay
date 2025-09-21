@@ -42,9 +42,9 @@ func (s *Server) resolveFundedEscrow(ownerUID, escrowID string) (*escrowSession,
 	}
 
 	// Exact escrow lookup & ownership check.
-	s.RLock()
+	s.escrowsMu.RLock()
 	es := s.escrows[escrowID]
-	s.RUnlock()
+	s.escrowsMu.RUnlock()
 	if es == nil {
 		return nil, fmt.Errorf("escrow not found: %s", escrowID)
 	}
@@ -101,7 +101,7 @@ func (s *Server) CreateWaitingRoom(ctx context.Context, req *pong.CreateWaitingR
 	hostPlayer.WR = wr
 
 	// Bind host escrow to room.
-	s.Lock()
+	s.roomEscrowsMu.Lock()
 	if s.roomEscrows == nil {
 		s.roomEscrows = make(map[string]map[string]string)
 	}
@@ -109,13 +109,10 @@ func (s *Server) CreateWaitingRoom(ctx context.Context, req *pong.CreateWaitingR
 		s.roomEscrows[wr.ID] = make(map[string]string)
 	}
 	s.roomEscrows[wr.ID][hostID.String()] = es.escrowID
-	s.Unlock()
+	s.roomEscrowsMu.Unlock()
 
 	// Add to list of rooms.
-	s.gameManager.Lock()
-	s.gameManager.WaitingRooms = append(s.gameManager.WaitingRooms, wr)
-	totalRooms := len(s.gameManager.WaitingRooms)
-	s.gameManager.Unlock()
+	totalRooms := s.gameManager.AppendWaitingRoom(wr)
 
 	s.log.Debugf("waiting room created. Total rooms: %d", totalRooms)
 
@@ -128,16 +125,19 @@ func (s *Server) CreateWaitingRoom(ctx context.Context, req *pong.CreateWaitingR
 	pongWR := wr.Marshal()
 
 	// Notify all users.
-	s.RLock()
-	users := s.users
-	s.RUnlock()
+	s.usersMu.RLock()
+	usersSnap := make([]*ponggame.Player, 0, len(s.users))
+	for _, u := range s.users {
+		usersSnap = append(usersSnap, u)
+	}
+	s.usersMu.RUnlock()
 
-	for _, user := range users {
+	for _, user := range usersSnap {
 		if user.NotifierStream == nil {
 			s.log.Errorf("user %s without NotifierStream", user.ID)
 			continue
 		}
-		_ = user.NotifierStream.Send(&pong.NtfnStreamResponse{
+		_ = s.notify(user, &pong.NtfnStreamResponse{
 			Wr:               pongWR,
 			NotificationType: pong.NotificationType_ON_WR_CREATED,
 		})
@@ -157,16 +157,13 @@ func (s *Server) JoinWaitingRoom(ctx context.Context, req *pong.JoinWaitingRoomR
 	}
 
 	// Disallow joining multiple rooms.
-	s.gameManager.Lock()
-	for _, existingWR := range s.gameManager.WaitingRooms {
+	for _, existingWR := range s.gameManager.WaitingRoomsSnapshot() {
 		for _, p := range existingWR.Players {
 			if p.ID.String() == req.ClientId && p.WR != nil {
-				s.gameManager.Unlock()
 				return nil, fmt.Errorf("player %s is already in another waiting room", req.ClientId)
 			}
 		}
 	}
-	s.gameManager.Unlock()
 
 	// Require funded escrow (0-conf OK).
 	es, err := s.resolveFundedEscrow(uid.String(), req.EscrowId)
@@ -184,7 +181,7 @@ func (s *Server) JoinWaitingRoom(ctx context.Context, req *pong.JoinWaitingRoomR
 	wr.AddPlayer(player)
 	player.WR = wr
 
-	s.Lock()
+	s.roomEscrowsMu.Lock()
 	if s.roomEscrows == nil {
 		s.roomEscrows = make(map[string]map[string]string)
 	}
@@ -193,7 +190,7 @@ func (s *Server) JoinWaitingRoom(ctx context.Context, req *pong.JoinWaitingRoomR
 	}
 	s.roomEscrows[wr.ID][player.ID.String()] = es.escrowID
 	// Notify room.
-	s.Unlock()
+	s.roomEscrowsMu.Unlock()
 
 	pwr := wr.Marshal()
 	for _, p := range wr.Players {
@@ -201,7 +198,7 @@ func (s *Server) JoinWaitingRoom(ctx context.Context, req *pong.JoinWaitingRoomR
 			s.log.Errorf("player %s has nil NotifierStream", p.ID.String())
 			continue
 		}
-		_ = p.NotifierStream.Send(&pong.NtfnStreamResponse{
+		_ = s.notify(p, &pong.NtfnStreamResponse{
 			NotificationType: pong.NotificationType_PLAYER_JOINED_WR,
 			Message:          fmt.Sprintf("New player joined Waiting Room: %s", player.Nick),
 			PlayerId:         p.ID.String(),
@@ -261,7 +258,7 @@ func (s *Server) LeaveWaitingRoom(ctx context.Context, req *pong.LeaveWaitingRoo
 		pwrMarshaled := wr.Marshal()
 		for _, p := range wr.Players {
 			// Send notification to remaining players
-			p.NotifierStream.Send(&pong.NtfnStreamResponse{
+			_ = s.notify(p, &pong.NtfnStreamResponse{
 				NotificationType: pong.NotificationType_PLAYER_LEFT_WR,
 				RoomId:           wr.ID,
 				Wr:               pwrMarshaled,

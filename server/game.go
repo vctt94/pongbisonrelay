@@ -35,27 +35,26 @@ func (s *Server) StartNtfnStream(req *pong.StartNtfnStreamRequest, stream pong.P
 
 	// Bind any existing escrow sessions for this owner to this player so
 	// watcher notifications reach the active notifier stream.
-	s.Lock()
+	s.escrowsMu.RLock()
 	for _, es := range s.escrows {
 		if es != nil && es.ownerUID == clientID.String() {
 			// Replace player binding
+			es.mu.Lock()
 			es.player = player
-			// If we already have a latest funding snapshot, nudge the player once so UI updates.
-			es.mu.RLock()
 			u := es.latest
-			es.mu.RUnlock()
+			es.mu.Unlock()
 			if u.OK && u.UTXOCount > 0 {
 				if u.Confs == 0 && len(u.UTXOs) > 0 {
 					s.log.Debugf("rebinding escrow: owner=%s pk=%s has mempool funding; nudging", es.ownerUID, u.PkScriptHex)
-					s.notify(player, "Deposit seen in mempool. Waiting confirmations.")
+					s.notify(player, &pong.NtfnStreamResponse{NotificationType: pong.NotificationType_MESSAGE, Message: "Deposit seen in mempool. Waiting confirmations."})
 				} else {
 					s.log.Debugf("rebinding escrow: owner=%s pk=%s has %d confs; nudging", es.ownerUID, u.PkScriptHex, u.Confs)
-					s.notify(player, "Deposit confirmed. You can presign now ([P]).")
+					s.notify(player, &pong.NtfnStreamResponse{NotificationType: pong.NotificationType_MESSAGE, Message: "Deposit confirmed. You can presign now ([P])."})
 				}
 			}
 		}
 	}
-	s.Unlock()
+	s.escrowsMu.RUnlock()
 
 	// Escrow-first: remove legacy tips-based bet sync
 	// Wait for disconnection
@@ -91,15 +90,17 @@ func (s *Server) StartGameStream(req *pong.StartGameStreamRequest, stream pong.P
 		return fmt.Errorf("not in a waiting room")
 	}
 	var escrowID string
-	s.RLock()
+	s.roomEscrowsMu.RLock()
 	if m, ok := s.roomEscrows[player.WR.ID]; ok {
 		escrowID = m[player.ID.String()]
 	}
 	var es *escrowSession
 	if escrowID != "" {
+		s.escrowsMu.RLock()
 		es = s.escrows[escrowID]
+		s.escrowsMu.RUnlock()
 	}
-	s.RUnlock()
+	s.roomEscrowsMu.RUnlock()
 	if es == nil {
 		return fmt.Errorf("no escrow bound to waiting room for player")
 	}
@@ -111,7 +112,7 @@ func (s *Server) StartGameStream(req *pong.StartGameStreamRequest, stream pong.P
 		// Marshal the waiting room state to include in notifications
 		pwr := player.WR.Marshal()
 		for _, p := range player.WR.Players {
-			p.NotifierStream.Send(&pong.NtfnStreamResponse{
+			_ = s.notify(p, &pong.NtfnStreamResponse{
 				NotificationType: pong.NotificationType_ON_PLAYER_READY,
 				Message:          fmt.Sprintf("Player %s is ready", player.Nick),
 				PlayerId:         player.ID.String(),
@@ -159,7 +160,7 @@ func (s *Server) UnreadyGameStream(ctx context.Context, req *pong.UnreadyGameStr
 		pwr := player.WR.Marshal()
 
 		for _, p := range player.WR.Players {
-			p.NotifierStream.Send(&pong.NtfnStreamResponse{
+			_ = s.notify(p, &pong.NtfnStreamResponse{
 				NotificationType: pong.NotificationType_ON_PLAYER_READY,
 				Message:          fmt.Sprintf("Player %s is not ready", player.Nick),
 				PlayerId:         player.ID.String(),
@@ -211,7 +212,7 @@ func (s *Server) SignalReadyToPlay(ctx context.Context, req *pong.SignalReadyToP
 			if p.NotifierStream == nil {
 				continue
 			}
-			_ = p.NotifierStream.Send(&pong.NtfnStreamResponse{
+			_ = s.notify(p, &pong.NtfnStreamResponse{
 				NotificationType: pong.NotificationType_ON_PLAYER_READY,
 				Message:          "all players ready to start the game",
 				PlayerId:         player.ID.String(),

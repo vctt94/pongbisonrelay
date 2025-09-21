@@ -320,7 +320,7 @@ func (m *appstate) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 				}
 				// Default bet amount for POC simplicity
 				if m.settle.betAtoms == 0 {
-					m.settle.betAtoms = client.DefaultBetAtoms
+					m.settle.betAtoms = pongbisonrelay.DefaultBetAtoms
 				}
 				if m.settle.csvBlocks == 0 {
 					m.settle.csvBlocks = 64

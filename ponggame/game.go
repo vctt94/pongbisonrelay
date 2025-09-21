@@ -128,24 +128,29 @@ func (gm *GameManager) HandlePlayerInput(clientID zkidentity.ShortID, req *pong.
 }
 
 func (g *GameManager) GetWaitingRoomFromPlayer(playerID zkidentity.ShortID) *WaitingRoom {
-	g.RLock()
-	defer g.RUnlock()
+	g.waitingRoomsMu.RLock()
+	rooms := append([]*WaitingRoom(nil), g.WaitingRooms...)
+	g.waitingRoomsMu.RUnlock()
 
-	for _, room := range g.WaitingRooms {
+	for _, room := range rooms {
+		room.RLock()
 		for _, p := range room.Players {
 			if *p.ID == playerID {
+				room.RUnlock()
 				return room
 			}
 		}
+		room.RUnlock()
 	}
 	return nil
 }
 
 func (g *GameManager) GetWaitingRoom(roomID string) *WaitingRoom {
-	g.RLock()
-	defer g.RUnlock()
+	g.waitingRoomsMu.RLock()
+	rooms := append([]*WaitingRoom(nil), g.WaitingRooms...)
+	g.waitingRoomsMu.RUnlock()
 
-	for _, room := range g.WaitingRooms {
+	for _, room := range rooms {
 		if room.ID == roomID {
 			return room
 		}
@@ -154,8 +159,8 @@ func (g *GameManager) GetWaitingRoom(roomID string) *WaitingRoom {
 }
 
 func (gm *GameManager) RemoveWaitingRoom(roomID string) {
-	gm.Lock()
-	defer gm.Unlock()
+	gm.waitingRoomsMu.Lock()
+	defer gm.waitingRoomsMu.Unlock()
 
 	for i, room := range gm.WaitingRooms {
 		if room.ID == roomID {
@@ -169,21 +174,22 @@ func (gm *GameManager) RemoveWaitingRoom(roomID string) {
 }
 
 func (gm *GameManager) GetPlayerGame(clientID zkidentity.ShortID) *GameInstance {
-	gm.RLock()
-	defer gm.RUnlock()
-	return gm.PlayerGameMap[clientID]
+	gm.playerGameMapMu.RLock()
+	gi := gm.PlayerGameMap[clientID]
+	gm.playerGameMapMu.RUnlock()
+	return gi
 }
 
 func (s *GameManager) StartGame(ctx context.Context, players []*Player) (*GameInstance, error) {
-	s.Lock()
-	defer s.Unlock()
 	gameID, err := utils.GenerateRandomString(16)
 	if err != nil {
 		return nil, err
 	}
 
 	newGameInstance := s.startNewGame(ctx, players, gameID)
+	s.gamesMu.Lock()
 	s.Games[gameID] = newGameInstance
+	s.gamesMu.Unlock()
 
 	return newGameInstance, nil
 }
@@ -241,7 +247,9 @@ func (gm *GameManager) startNewGame(ctx context.Context, players []*Player, id s
 
 	// Map players to this game for easy lookup
 	for _, player := range players {
+		gm.playerGameMapMu.Lock()
 		gm.PlayerGameMap[*player.ID] = newGame
+		gm.playerGameMapMu.Unlock()
 		if player.GameStream != nil {
 			// Send initial dimensions
 			engineState := newGame.engine.State()
@@ -371,8 +379,14 @@ func (g *GameInstance) startCountdown() {
 		case <-g.ctx.Done():
 			return
 		case <-countdownTicker.C:
-			g.Lock()
+			// Snapshot state
+			g.RLock()
+			countdownVal := g.CountdownValue
+			gameID := g.Id
+			playersSnap := append([]*Player(nil), g.Players...)
+			g.RUnlock()
 
+			// Fetch engine state independently (CanvasEngine has its own locking).
 			engineState := g.engine.State()
 			gameUpdate := &pong.GameUpdate{
 				GameWidth:     g.engine.Game.Width,
@@ -397,46 +411,46 @@ func (g *GameInstance) startCountdown() {
 				Tps:           engineState.TPS,
 			}
 
-			// Send countdown notification to all players
-			for _, player := range g.Players {
+			// Send countdown updates and current state without holding g's lock.
+			for _, player := range playersSnap {
 				if player.NotifierStream != nil {
 					player.NotifierStream.Send(&pong.NtfnStreamResponse{
 						NotificationType: pong.NotificationType_COUNTDOWN_UPDATE,
-						Message:          fmt.Sprintf("Game starting in %d...", g.CountdownValue),
-						GameId:           g.Id,
+						Message:          fmt.Sprintf("Game starting in %d...", countdownVal),
+						GameId:           gameID,
 					})
 				}
-
-				// Send current game state to all players during countdown
 				if player.GameStream != nil {
 					sendInitialGameState(player, gameUpdate)
 				}
 			}
 
+			// Apply countdown state change under lock.
+			g.Lock()
 			g.CountdownValue--
-
-			// Check if countdown has finished
-			if g.CountdownValue < 0 {
+			finished := g.CountdownValue < 0
+			var startPlayers []*Player
+			if finished {
 				g.GameReady = true
 				g.CountdownStarted = false
+				startPlayers = append([]*Player(nil), g.Players...)
+			}
+			g.Unlock()
 
-				// Notify players that the game is starting
-				for _, player := range g.Players {
-					if player.NotifierStream != nil {
-						player.NotifierStream.Send(&pong.NtfnStreamResponse{
+			if finished {
+				// Notify players game is starting now (no g lock held).
+				for _, p := range startPlayers {
+					if p.NotifierStream != nil {
+						p.NotifierStream.Send(&pong.NtfnStreamResponse{
 							NotificationType: pong.NotificationType_GAME_START,
 							Message:          "Game is starting now!",
 							Started:          true,
-							GameId:           g.Id,
+							GameId:           gameID,
 						})
 					}
 				}
-
-				g.Unlock()
-				return // Exit the countdown goroutine
+				return
 			}
-
-			g.Unlock()
 		}
 	}
 }
@@ -534,6 +548,25 @@ func (g *GameInstance) distributeFrames() {
 				return
 			}
 
+			// Coalesce backlog: keep only the latest frame if multiple are queued.
+			for drain := 0; drain < 8; drain++ {
+				select {
+				case newer, ok2 := <-g.Framesch:
+					if !ok2 {
+						for _, player := range g.Players {
+							if player.FrameCh != nil {
+								close(player.FrameCh)
+							}
+						}
+						return
+					}
+					frame = newer
+				default:
+					// No more queued frames; proceed with latest.
+					break
+				}
+			}
+
 			// Distribute frame to each player with non-blocking send and frame dropping
 			for _, player := range g.Players {
 				if player.FrameCh != nil {
@@ -555,7 +588,6 @@ func (g *GameInstance) distributeFrames() {
 							// Frame sent successfully after dropping old one
 						default:
 							// Still full, just drop this frame
-							g.log.Debugf("Dropping frame for player %s (buffer full)", player.ID)
 						}
 					}
 				}

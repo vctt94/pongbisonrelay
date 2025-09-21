@@ -17,10 +17,6 @@ import (
 	pongbisonrelay "github.com/vctt94/pongbisonrelay"
 )
 
-const (
-	DefaultBetAtoms = 100000000
-)
-
 // signSchnorrV0 deterministically signs the provided 32-byte message digest using
 // EC-Schnorr-DCRv0 with RFC6979 and enforcing an even-Y nonce point. Returns
 // the 65-byte signature: r_x (32B) || s (32B) || 0x01 (SigHashAll).

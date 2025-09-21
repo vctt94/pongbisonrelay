@@ -19,6 +19,10 @@ import (
 	"github.com/vctt94/pongbisonrelay/pongrpc/grpc/pong"
 )
 
+const (
+	DefaultBetAtoms = 100000000
+)
+
 func BuildPerDepositorRedeemScript(comp33 []byte, csvBlocks uint32) ([]byte, error) {
 	if len(comp33) != 33 {
 		return nil, fmt.Errorf("need 33-byte compressed pubkey")

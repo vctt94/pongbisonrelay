@@ -102,14 +102,15 @@ type Server struct {
 	pong.UnimplementedPongGameServer
 	pong.UnimplementedPongWaitingRoomServer
 	pong.UnimplementedPongRefereeServer
-	sync.RWMutex
 
 	log                slog.Logger
 	isF2P              bool
 	minBetAmt          float64
 	waitingRoomCreated chan struct{}
 
-	users       map[zkidentity.ShortID]*ponggame.Player
+	usersMu sync.RWMutex
+	users   map[zkidentity.ShortID]*ponggame.Player
+
 	gameManager *ponggame.GameManager
 
 	httpServer        *http.Server
@@ -126,8 +127,11 @@ type Server struct {
 	watcher *chainWatcher
 
 	// Escrow-first funding state
-	escrows     map[string]*escrowSession
-	roomEscrows map[string]map[string]string // roomID -> owner_uid -> escrow_id
+	escrowsMu sync.RWMutex
+	escrows   map[string]*escrowSession
+
+	roomEscrowsMu sync.RWMutex
+	roomEscrows   map[string]map[string]string // roomID -> owner_uid -> escrow_id
 	// v0-min defaults
 	pocFeeAtoms uint64
 
@@ -216,9 +220,9 @@ func (s *Server) handleDisconnect(clientID zkidentity.ShortID) {
 		}
 	}
 
-	s.Lock()
+	s.usersMu.Lock()
 	delete(s.users, clientID)
-	s.Unlock()
+	s.usersMu.Unlock()
 
 	// Only process tips if player exists in sessions AND is not in an active game
 	playerSession := s.gameManager.PlayerSessions.GetPlayer(clientID)
@@ -234,8 +238,8 @@ func (s *Server) handleDisconnect(clientID zkidentity.ShortID) {
 // escrowForRoomPlayer returns the escrow session bound to (wrID, ownerUID)
 // via the roomEscrows mapping. It does not attempt to pick a "newest" escrow.
 func (s *Server) escrowForRoomPlayer(wrID, ownerUID string) *escrowSession {
-	s.RLock()
-	defer s.RUnlock()
+	s.roomEscrowsMu.RLock()
+	defer s.roomEscrowsMu.RUnlock()
 	m := s.roomEscrows[wrID]
 	if m == nil {
 		return nil
@@ -280,7 +284,7 @@ func (s *Server) ensureBoundFunding(es *escrowSession) error {
 		boundID := fmt.Sprintf("%s:%d", u.Txid, u.Vout)
 		es.boundInputID = boundID
 		es.boundInput = u
-		s.notify(es.player, fmt.Sprintf("Escrow bound to %s. You can proceed.", boundID))
+		s.notify(es.player, &pong.NtfnStreamResponse{NotificationType: pong.NotificationType_MESSAGE, Message: fmt.Sprintf("Escrow bound to %s. You can proceed.", boundID)})
 		return nil
 	}
 
@@ -332,7 +336,7 @@ func (s *Server) sendGameUpdates(ctx context.Context, player *ponggame.Player, g
 
 // notify sends a simple text notification if the stream is live.
 // (Optional: de-dupe by caching the last message per player to avoid spam.)
-func (s *Server) notify(p *ponggame.Player, msg string) error {
+func (s *Server) notify(p *ponggame.Player, resp *pong.NtfnStreamResponse) error {
 	if p == nil {
 		return fmt.Errorf("player nil")
 	}
@@ -342,11 +346,10 @@ func (s *Server) notify(p *ponggame.Player, msg string) error {
 	if p.NotifierStream == nil {
 		return fmt.Errorf("player stream nil")
 	}
-	err := p.NotifierStream.Send(&pong.NtfnStreamResponse{
-		NotificationType: pong.NotificationType_MESSAGE,
-		Message:          msg,
-	})
-	if err != nil {
+	if resp == nil {
+		return fmt.Errorf("nil response")
+	}
+	if err := p.NotifierStream.Send(resp); err != nil {
 		s.log.Warnf("notify: failed to deliver to %s: %v", p.ID.String(), err)
 		return err
 	}
@@ -370,14 +373,12 @@ func (s *Server) Run(ctx context.Context) error {
 		case <-s.waitingRoomCreated:
 			s.log.Debugf("New waiting room created")
 
-			s.gameManager.Lock()
-			for _, wr := range s.gameManager.WaitingRooms {
+			for _, wr := range s.gameManager.WaitingRoomsSnapshot() {
 				if wr.Ctx.Err() == nil { // Only manage rooms with active contexts
 					s.log.Debugf("Managing waiting room: %s", wr.ID)
 					go s.manageWaitingRoom(wr.Ctx, wr)
 				}
 			}
-			s.gameManager.Unlock()
 		}
 	}
 }
@@ -398,13 +399,11 @@ func (s *Server) Shutdown(ctx context.Context) error {
 
 	// Forcefully terminate all active games
 	s.log.Info("Terminating all active games...")
-	s.gameManager.Lock()
-	for id, game := range s.gameManager.Games {
+	for id, game := range s.gameManager.GamesSnapshot() {
 		s.log.Debugf("Forcefully terminating game: %s", id)
 		// Close the frame channel to signal goroutines to exit
 		game.Cleanup()
 	}
-	s.gameManager.Unlock()
 
 	// Cancel all active streams before cleaning up resources
 	s.log.Info("Canceling all active streams...")
@@ -426,13 +425,7 @@ func (s *Server) Shutdown(ctx context.Context) error {
 
 	// Clean up game resources before closing database
 	s.log.Info("Shutting down waiting rooms and games...")
-
-	s.gameManager.Lock()
-	for _, wr := range s.gameManager.WaitingRooms {
-		wr.Cancel() // Cancel each waiting room context
-	}
-	s.gameManager.WaitingRooms = nil // Clear all waiting rooms
-	s.gameManager.Unlock()
+	s.gameManager.CancelAllWaitingRooms()
 
 	// Close database LAST after all operations are done
 	s.log.Info("Closing database...")
@@ -457,7 +450,7 @@ func (s *Server) handleGameLifecycle(ctx context.Context, players []*ponggame.Pl
 			player.ResetPlayer()
 		}
 		// remove game from gameManager after it ended
-		delete(s.gameManager.Games, game.Id)
+		s.gameManager.DeleteGame(game.Id)
 		s.log.Debugf("Game %s cleaned up", game.Id)
 	}()
 
@@ -469,7 +462,7 @@ func (s *Server) handleGameLifecycle(ctx context.Context, players []*ponggame.Pl
 		go func(player *ponggame.Player) {
 			defer wg.Done()
 			if player.NotifierStream != nil {
-				err := player.NotifierStream.Send(&pong.NtfnStreamResponse{
+				err := s.notify(player, &pong.NtfnStreamResponse{
 					NotificationType: pong.NotificationType_GAME_START,
 					Message:          "Game started with ID: " + game.Id,
 					Started:          true,
@@ -506,13 +499,13 @@ func (s *Server) handleGameEnd(ctx context.Context, game *ponggame.GameInstance,
 		} else if winner != nil {
 			message = "Sorry, you lost."
 		}
-		player.NotifierStream.Send(&pong.NtfnStreamResponse{
+		_ = s.notify(player, &pong.NtfnStreamResponse{
 			NotificationType: pong.NotificationType_GAME_END,
 			Message:          message,
 			GameId:           game.Id,
 		})
 		// delete player from gameManager PlayerGameMap
-		delete(s.gameManager.PlayerGameMap, *player.ID)
+		s.gameManager.RemovePlayerGame(*player.ID)
 	}
 
 	// POC: deliver gamma to winner via NtfnStream for finalization
@@ -541,16 +534,18 @@ func (s *Server) handleGameEnd(ctx context.Context, game *ponggame.GameInstance,
 				break
 			}
 		}
-		s.RLock()
+		s.roomEscrowsMu.RLock()
 		var es *escrowSession
 		if wrID != "" && s.roomEscrows != nil {
 			if m := s.roomEscrows[wrID]; m != nil {
 				if eid := m[winnerID]; eid != "" {
+					s.escrowsMu.RLock()
 					es = s.escrows[eid]
+					s.escrowsMu.RUnlock()
 				}
 			}
 		}
-		s.RUnlock()
+		s.roomEscrowsMu.RUnlock()
 		if es == nil {
 			s.log.Errorf("finalize: no room-bound escrow session found for winner %s in wr %s", winnerID, wrID)
 			return
@@ -581,7 +576,7 @@ func (s *Server) handleGameEnd(ctx context.Context, game *ponggame.GameInstance,
 		gammaHex, _ := pongbisonrelay.DeriveAdaptorGamma("", branchTag, chosen.Branch, branchTag, pocServerPrivHex)
 		if gb, err := hex.DecodeString(gammaHex); err == nil && len(gb) == 32 {
 			if w := s.gameManager.PlayerSessions.GetPlayer(*winner); w != nil && w.NotifierStream != nil {
-				_ = w.NotifierStream.Send(&pong.NtfnStreamResponse{
+				_ = s.notify(w, &pong.NtfnStreamResponse{
 					NotificationType: pong.NotificationType_MESSAGE,
 					Message:          fmt.Sprintf("Gamma received; finalizing… (%x)\nResult draft tx hex: %s", gb, chosen.DraftHex),
 				})
@@ -615,14 +610,14 @@ func (s *Server) manageWaitingRoom(ctx context.Context, wr *ponggame.WaitingRoom
 				es := s.escrowForRoomPlayer(wr.ID, p.ID.String())
 				if es == nil {
 					allBound = false
-					s.notify(p, "No escrow bound to this room for you. Bind a funded escrow first.")
+					s.notify(p, &pong.NtfnStreamResponse{NotificationType: pong.NotificationType_MESSAGE, Message: "No escrow bound to this room for you. Bind a funded escrow first."})
 					continue
 				}
 
 				// Enforce identity: must have a single, canonical bound input.
 				if err := s.ensureBoundFunding(es); err != nil {
 					allBound = false
-					s.notify(p, fmt.Sprintf("Waiting for exact funding input: %v", err))
+					s.notify(p, &pong.NtfnStreamResponse{NotificationType: pong.NotificationType_MESSAGE, Message: fmt.Sprintf("Waiting for exact funding input: %v", err)})
 					continue
 				}
 			}
@@ -674,10 +669,10 @@ func (s *Server) manageWaitingRoom(ctx context.Context, wr *ponggame.WaitingRoom
 
 			if !isComplete(esA, esB) || !isComplete(esB, esA) {
 				if !isComplete(esA, esB) {
-					s.notify(players[0], "Waiting: complete presign ([P]) for both inputs.")
+					s.notify(players[0], &pong.NtfnStreamResponse{NotificationType: pong.NotificationType_MESSAGE, Message: "Waiting: complete presign ([P]) for both inputs."})
 				}
 				if !isComplete(esB, esA) {
-					s.notify(players[1], "Waiting: complete presign ([P]) for both inputs.")
+					s.notify(players[1], &pong.NtfnStreamResponse{NotificationType: pong.NotificationType_MESSAGE, Message: "Waiting: complete presign ([P]) for both inputs."})
 				}
 				continue
 			}

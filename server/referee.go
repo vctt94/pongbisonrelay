@@ -76,15 +76,15 @@ func (s *Server) trackEscrow(ctx context.Context, es *escrowSession, ch <-chan D
 				if prev.UTXOCount == 0 && u.UTXOCount > 0 {
 					if u.Confs == 0 {
 						s.log.Debugf("trackEscrow: mempool seen for owner=%s pk=%s utxos=%d", es.ownerUID, u.PkScriptHex, u.UTXOCount)
-						s.notify(es.player, "Deposit seen in mempool. Waiting confirmations.")
+						s.notify(es.player, &pong.NtfnStreamResponse{NotificationType: pong.NotificationType_MESSAGE, Message: "Deposit seen in mempool. Waiting confirmations."})
 					} else {
 						s.log.Debugf("trackEscrow: confirmed on first sight for owner=%s pk=%s confs=%d", es.ownerUID, u.PkScriptHex, u.Confs)
-						s.notify(es.player, "Deposit confirmed.")
+						s.notify(es.player, &pong.NtfnStreamResponse{NotificationType: pong.NotificationType_MESSAGE, Message: "Deposit confirmed."})
 					}
 				} else if prev.Confs < 1 && u.Confs >= 1 && u.UTXOCount > 0 {
 					s.log.Debugf("trackEscrow: transitioned to confirmed for owner=%s pk=%s confs=%d", es.ownerUID, u.PkScriptHex, u.Confs)
 					// Transition to confirmed after already seeing funding.
-					s.notify(es.player, "Deposit confirmed.")
+					s.notify(es.player, &pong.NtfnStreamResponse{NotificationType: pong.NotificationType_MESSAGE, Message: "Deposit confirmed."})
 				}
 			}
 		}
@@ -134,12 +134,7 @@ func (s *Server) OpenEscrow(ctx context.Context, req *pong.OpenEscrowRequest) (*
 	}
 	payoutPubkey := pp.SerializeCompressed()
 
-	s.Lock()
-	defer s.Unlock()
-
-	if s.escrows == nil {
-		s.escrows = make(map[string]*escrowSession)
-	}
+	// Prepare escrow without holding server-wide locks; only lock when touching maps.
 
 	// Build depositor-only redeem script (no opponent key).
 	redeem, err := pongbisonrelay.BuildPerDepositorRedeemScript(comp, req.CsvBlocks)
@@ -179,7 +174,12 @@ func (s *Server) OpenEscrow(ctx context.Context, req *pong.OpenEscrowRequest) (*
 		pkScriptHex:     pkScriptHex,
 		player:          player,
 	}
+	s.escrowsMu.Lock()
+	if s.escrows == nil {
+		s.escrows = make(map[string]*escrowSession)
+	}
 	s.escrows[eid] = es
+	s.escrowsMu.Unlock()
 
 	// Subscribe right here; trackEscrow updates es.latest and es.lastUTXOs.
 	if s.watcher != nil {
@@ -247,10 +247,13 @@ func (s *Server) SettlementStream(stream pong.PongReferee_SettlementStreamServer
 	// Determine caller by matching HELLO comp pubkey to an escrow bound in this room.
 	xBytes := X.SerializeCompressed()
 	var callerUID string
-	s.RLock()
+	s.roomEscrowsMu.RLock()
 	if m := s.roomEscrows[wrID]; m != nil {
 		for uid, eid := range m {
-			if es := s.escrows[eid]; es != nil && len(es.compPubkey) == 33 {
+			s.escrowsMu.RLock()
+			es := s.escrows[eid]
+			s.escrowsMu.RUnlock()
+			if es != nil && len(es.compPubkey) == 33 {
 				if bytes.Equal(es.compPubkey, xBytes) {
 					callerUID = uid
 					break
@@ -258,7 +261,7 @@ func (s *Server) SettlementStream(stream pong.PongReferee_SettlementStreamServer
 			}
 		}
 	}
-	s.RUnlock()
+	s.roomEscrowsMu.RUnlock()
 	if callerUID == "" {
 		return status.Error(codes.FailedPrecondition, "caller escrow not found in room")
 	}
@@ -529,7 +532,7 @@ func (s *Server) verifyAndStorePresig(X *secp256k1.PublicKey, ps *pong.PreSig, i
 		return status.Error(codes.InvalidArgument, "adaptor relation failed")
 	}
 	// Store context under the client's escrow session for later finalization
-	s.Lock()
+	winner.mu.Lock()
 	if winner.preSign == nil {
 		winner.preSign = make(map[string]*PreSignCtx)
 	}
@@ -544,7 +547,7 @@ func (s *Server) verifyAndStorePresig(X *secp256k1.PublicKey, ps *pong.PreSig, i
 		WinnerUID:       winner.ownerUID,
 		Branch:          branch,
 	}
-	s.Unlock()
+	winner.mu.Unlock()
 	return nil
 }
 
@@ -762,14 +765,16 @@ func (s *Server) GetFinalizeBundle(ctx context.Context, req *pong.GetFinalizeBun
 		return nil, status.Error(codes.InvalidArgument, "bad match_id")
 	}
 
-	s.RLock()
+	s.roomEscrowsMu.RLock()
 	var es *escrowSession
 	if m := s.roomEscrows[wrID]; m != nil {
 		if eid := m[req.WinnerUid]; eid != "" {
+			s.escrowsMu.RLock()
 			es = s.escrows[eid]
+			s.escrowsMu.RUnlock()
 		}
 	}
-	s.RUnlock()
+	s.roomEscrowsMu.RUnlock()
 	if es == nil {
 		return nil, status.Errorf(codes.NotFound, "no escrow bound for winner in room %s", wrID)
 	}

@@ -139,7 +139,7 @@ func (m *appstate) startSettlement() {
 
 	// Defaults
 	if m.settle.betAtoms == 0 {
-		m.settle.betAtoms = client.DefaultBetAtoms
+		m.settle.betAtoms = pongbisonrelay.DefaultBetAtoms
 	}
 	if m.settle.csvBlocks == 0 {
 		m.settle.csvBlocks = 64

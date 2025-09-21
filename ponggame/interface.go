@@ -128,15 +128,73 @@ func (wr *WaitingRoom) Marshal() *pong.WaitingRoom {
 }
 
 type GameManager struct {
-	sync.RWMutex
+	ID *zkidentity.ShortID
 
-	ID             *zkidentity.ShortID
-	Games          map[string]*GameInstance
-	WaitingRooms   []*WaitingRoom
 	PlayerSessions *PlayerSessions
-	PlayerGameMap  map[zkidentity.ShortID]*GameInstance
+
+	Games   map[string]*GameInstance
+	gamesMu sync.RWMutex
+
+	waitingRoomsMu sync.RWMutex
+	WaitingRooms   []*WaitingRoom
+
+	playerGameMapMu sync.RWMutex
+	PlayerGameMap   map[zkidentity.ShortID]*GameInstance
 
 	Log slog.Logger
+}
+
+// WaitingRoomsSnapshot returns a shallow copy of the waiting rooms slice.
+func (g *GameManager) WaitingRoomsSnapshot() []*WaitingRoom {
+	g.waitingRoomsMu.RLock()
+	defer g.waitingRoomsMu.RUnlock()
+	return append([]*WaitingRoom(nil), g.WaitingRooms...)
+}
+
+// AppendWaitingRoom appends a waiting room and returns the total count.
+func (g *GameManager) AppendWaitingRoom(wr *WaitingRoom) int {
+	g.waitingRoomsMu.Lock()
+	g.WaitingRooms = append(g.WaitingRooms, wr)
+	total := len(g.WaitingRooms)
+	g.waitingRoomsMu.Unlock()
+	return total
+}
+
+// GamesSnapshot returns a shallow copy of the games map.
+func (g *GameManager) GamesSnapshot() map[string]*GameInstance {
+	g.gamesMu.RLock()
+	defer g.gamesMu.RUnlock()
+	out := make(map[string]*GameInstance, len(g.Games))
+	for k, v := range g.Games {
+		out[k] = v
+	}
+	return out
+}
+
+// DeleteGame removes a game by id.
+func (g *GameManager) DeleteGame(id string) {
+	g.gamesMu.Lock()
+	delete(g.Games, id)
+	g.gamesMu.Unlock()
+}
+
+// RemovePlayerGame removes the player->game mapping.
+func (g *GameManager) RemovePlayerGame(clientID zkidentity.ShortID) {
+	g.playerGameMapMu.Lock()
+	delete(g.PlayerGameMap, clientID)
+	g.playerGameMapMu.Unlock()
+}
+
+// CancelAllWaitingRooms cancels and clears all waiting rooms.
+func (g *GameManager) CancelAllWaitingRooms() {
+	g.waitingRoomsMu.Lock()
+	for _, wr := range g.WaitingRooms {
+		if wr != nil {
+			wr.Cancel()
+		}
+	}
+	g.WaitingRooms = nil
+	g.waitingRoomsMu.Unlock()
 }
 
 // CanvasEngine is a ping-pong engine for browsers with Canvas support
