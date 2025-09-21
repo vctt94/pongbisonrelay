@@ -83,14 +83,13 @@ type appstate struct {
 
 	// Settlement (Referee) state
 	settle struct {
-		matchID    string
-		aCompHex   string
-		bCompHex   string
-		escrowPath string
-		preSigPath string
-		lastJSON   string
-		betAtoms   uint64
-		csvBlocks  uint32
+		matchID       string
+		sessionPubHex string
+		escrowPath    string
+		preSigPath    string
+		lastJSON      string
+		betAtoms      uint64
+		csvBlocks     uint32
 
 		activeEscrowID string
 
@@ -121,8 +120,8 @@ func (m *appstate) payoutPubkeyFromConfHex() ([]byte, error) {
 }
 
 func (m *appstate) startSettlement() {
-	// Ensure session key (generate/load) and cache for UI display
-	privHex, pubHex, err := m.pc.EnsureSettlementSessionKey()
+	// Always start with a fresh session key to avoid address reuse.
+	privHex, pubHex, err := m.pc.GenerateNewSettlementSessionKey()
 	if err != nil {
 		m.notification = err.Error()
 		m.msgCh <- client.UpdatedMsg{}
@@ -130,7 +129,7 @@ func (m *appstate) startSettlement() {
 	}
 	m.genPrivHex = privHex
 	m.genPubHex = pubHex
-	m.settle.aCompHex = pubHex
+	m.settle.sessionPubHex = pubHex
 
 	// Already have an active escrow
 	if m.settle.activeEscrowID != "" {

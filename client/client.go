@@ -276,19 +276,6 @@ func (pc *PongClient) GenerateNewSettlementSessionKey() (string, string, error) 
 	return pc.settlePrivHex, pc.settlePubHex, nil
 }
 
-// EnsureSettlementSessionKey returns the current session keypair, attempting to
-// load from disk or generate a new one if none is cached.
-func (pc *PongClient) EnsureSettlementSessionKey() (string, string, error) {
-	priv, pub, ok, err := pc.currentOrLoadSettlementSessionKey()
-	if err != nil {
-		return "", "", err
-	}
-	if ok {
-		return priv, pub, nil
-	}
-	return pc.GenerateNewSettlementSessionKey()
-}
-
 // currentOrLoadSettlementSessionKey returns the cached session keypair if present,
 // otherwise attempts to load it from disk into memory and returns it. The boolean
 // indicates whether a key was found (either cached or loaded).

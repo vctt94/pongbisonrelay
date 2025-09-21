@@ -276,15 +276,25 @@ func (s *Server) ensureBoundFunding(es *escrowSession) error {
 	}
 
 	if es.boundInputID == "" {
-		// Not yet bound: require exactly one deposit to avoid ambiguity.
-		if len(current) != 1 || es.latest.UTXOCount != 1 {
-			return fmt.Errorf("multiple deposits detected (%d); escrow requires exactly one funding UTXO", len(current))
+		// Not yet bound: require an exact-value funding UTXO matching betAtoms.
+		var matches []*pong.EscrowUTXO
+		for _, u := range current {
+			if u.Value == es.betAtoms {
+				matches = append(matches, u)
+			}
 		}
-		u := current[0]
+		if len(matches) == 0 {
+			return fmt.Errorf("no funding UTXO with exact amount: want %d atoms", es.betAtoms)
+		}
+		// Fail if there are multiple deposits (of any value) — require exactly one UTXO total.
+		if len(current) != 1 || es.latest.UTXOCount != 1 || len(matches) != 1 {
+			return fmt.Errorf("unexpected deposits present (total=%d, exact-matches=%d); require a single exact %d atoms deposit", len(current), len(matches), es.betAtoms)
+		}
+		u := matches[0]
 		boundID := fmt.Sprintf("%s:%d", u.Txid, u.Vout)
 		es.boundInputID = boundID
 		es.boundInput = u
-		s.notify(es.player, &pong.NtfnStreamResponse{NotificationType: pong.NotificationType_MESSAGE, Message: fmt.Sprintf("Escrow bound to %s. You can proceed.", boundID)})
+		s.notify(es.player, &pong.NtfnStreamResponse{NotificationType: pong.NotificationType_MESSAGE, Message: fmt.Sprintf("Escrow bound to %s (exact %d atoms).", boundID, es.betAtoms)})
 		return nil
 	}
 
@@ -301,10 +311,12 @@ func (s *Server) ensureBoundFunding(es *escrowSession) error {
 		return fmt.Errorf("bound funding UTXO %s not present", es.boundInputID)
 	}
 	es.boundInput = found
-
-	// Enforce no extra deposits beyond the bound one.
+	// Enforce: only the bound input must exist and must match the exact amount.
 	if len(current) != 1 || es.latest.UTXOCount != 1 {
-		return fmt.Errorf("unexpected additional deposits (%d); only the bound %s is allowed", len(current), es.boundInputID)
+		return fmt.Errorf("unexpected additional deposits (%d); only the bound %s with %d atoms is allowed", len(current), es.boundInputID, es.betAtoms)
+	}
+	if es.boundInput != nil && es.boundInput.Value != es.betAtoms {
+		return fmt.Errorf("bound funding amount mismatch: have %d want %d", es.boundInput.Value, es.betAtoms)
 	}
 
 	return nil

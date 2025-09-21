@@ -242,9 +242,13 @@ func (pc *PongClient) OpenEscrowWithSession(ctx context.Context, payoutPubkey []
 //	S→C OK                // server accepted all (R', s')
 func (pc *PongClient) RefStartSettlementHandshake(ctx context.Context, matchID string) error {
 	// x := session private scalar used to derive all (R', s') in BuildVerifyOk.
-	priv, _, err := pc.EnsureSettlementSessionKey()
-	if err != nil {
-		return err
+	// We now require the session key to be generated before opening escrow.
+	pc.RLock()
+	priv := pc.settlePrivHex
+	pubHex := pc.settlePubHex
+	pc.RUnlock()
+	if len(priv) == 0 || len(pubHex) == 0 {
+		return fmt.Errorf("no settlement session key present; generate one before presigning")
 	}
 
 	// Open stream to referee.
@@ -255,7 +259,6 @@ func (pc *PongClient) RefStartSettlementHandshake(ctx context.Context, matchID s
 
 	// HELLO — publish session pubkey X (= xG) in compressed form (33B).
 	// Server will later verify s'G ?= R' - eX - T using this X.
-	pubHex := pc.settlePubHex
 	pubBytes, _ := hex.DecodeString(pubHex)
 	_ = stream.Send(&pong.ClientMsg{
 		MatchId: matchID,

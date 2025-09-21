@@ -314,8 +314,8 @@ func (m *appstate) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 
 		case "e":
 			if m.mode == settlementMode {
-				if m.settle.aCompHex == "" {
-					m.notification = "Generate A_c first with [K]"
+				if m.settle.sessionPubHex == "" {
+					m.notification = "Generate Key session first with [K]"
 					return m, nil
 				}
 				// Default bet amount for POC simplicity
@@ -332,7 +332,7 @@ func (m *appstate) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 					return m, nil
 				}
 				go func() {
-					pubBytes, _ := hex.DecodeString(m.settle.aCompHex)
+					pubBytes, _ := hex.DecodeString(m.settle.sessionPubHex)
 					res, err := m.pc.RefOpenEscrow(m.pc.ID, pubBytes, payoutBytes, m.settle.betAtoms, m.settle.csvBlocks)
 					if err != nil {
 						m.notification = err.Error()
@@ -363,6 +363,7 @@ func (m *appstate) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			}
 		case "k":
 			if m.mode == settlementMode {
+				// Regenerate a fresh session key on demand
 				priv, pub, err := m.pc.GenerateNewSettlementSessionKey()
 				if err != nil {
 					m.notification = "error generating A_c: " + err.Error()
@@ -370,8 +371,8 @@ func (m *appstate) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 				}
 				m.genPrivHex = priv
 				m.genPubHex = pub
-				m.settle.aCompHex = pub
-				m.notification = "Generated A_c; session key saved to disk (POC)."
+				m.settle.sessionPubHex = pub
+				m.notification = "Generated new A_c; session key saved to disk."
 				return m, nil
 			}
 
@@ -872,8 +873,7 @@ func (m *appstate) View() string {
 		b.WriteString("\n[Settlement Mode]\n")
 		b.WriteString("Auto: presign assigned branch. [p]=retry, [r]=reveal, [Esc]=back\n\n")
 		b.WriteString(fmt.Sprintf("MatchID: %s\n", m.settle.matchID))
-		b.WriteString(fmt.Sprintf("A_c: %s\n", m.settle.aCompHex))
-		b.WriteString(fmt.Sprintf("B_c: %s\n", m.settle.bCompHex))
+		b.WriteString(fmt.Sprintf("Session public key: %s\n", m.settle.sessionPubHex))
 		b.WriteString(fmt.Sprintf("Escrows JSON: %s  PreSig JSON: %s\n\n", m.settle.escrowPath, m.settle.preSigPath))
 		if m.settle.lastJSON != "" {
 			b.WriteString("Last result:\n")
