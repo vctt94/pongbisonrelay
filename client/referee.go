@@ -242,7 +242,7 @@ func (pc *PongClient) OpenEscrowWithSession(ctx context.Context, payoutPubkey []
 //	S→C OK                // server accepted all (R', s')
 func (pc *PongClient) RefStartSettlementHandshake(ctx context.Context, matchID string) error {
 	// x := session private scalar used to derive all (R', s') in BuildVerifyOk.
-	priv, _, err := pc.RequireSettlementSessionKey()
+	priv, _, err := pc.EnsureSettlementSessionKey()
 	if err != nil {
 		return err
 	}

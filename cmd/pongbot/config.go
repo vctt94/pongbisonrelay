@@ -18,7 +18,6 @@ type PongBotConfig struct {
 	MinBetAmt float64
 	GRPCHost  string
 	GRPCPort  string
-	HttpPort  string
 
 	// dcrd connectivity (optional)
 	DcrdHost string
@@ -49,7 +48,6 @@ func LoadPongBotConfig(dataDir, configFile string) (*PongBotConfig, error) {
 		MinBetAmt:     minBetAmt,
 		GRPCHost:      baseConfig.ExtraConfig["grpchost"],
 		GRPCPort:      baseConfig.ExtraConfig["grpcport"],
-		HttpPort:      baseConfig.ExtraConfig["httpport"],
 		DcrdHost:      baseConfig.ExtraConfig["dcrdhost"],
 		DcrdCert:      baseConfig.ExtraConfig["dcrdcert"],
 		DcrdUser:      baseConfig.ExtraConfig["dcrduser"],

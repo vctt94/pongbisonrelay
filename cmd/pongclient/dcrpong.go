@@ -2,7 +2,6 @@ package main
 
 import (
 	"context"
-	"encoding/hex"
 	"flag"
 	"fmt"
 	"os"
@@ -14,19 +13,13 @@ import (
 	pongbisonrelay "github.com/vctt94/pongbisonrelay"
 	"github.com/vctt94/pongbisonrelay/client"
 	"github.com/vctt94/pongbisonrelay/pongrpc/grpc/pong"
-	"golang.org/x/sync/errgroup"
 
 	"github.com/charmbracelet/bubbles/viewport"
 	tea "github.com/charmbracelet/bubbletea"
-	"github.com/companyzero/bisonrelay/clientrpc/types"
-	"github.com/companyzero/bisonrelay/zkidentity"
 	"github.com/decred/slog"
-	"github.com/vctt94/bisonbotkit/botclient"
 	"github.com/vctt94/bisonbotkit/logging"
 	"github.com/vctt94/bisonbotkit/utils"
 )
-
-type ID = zkidentity.ShortID
 
 // UI mode definitions moved to ui.go
 
@@ -128,8 +121,8 @@ func (m *appstate) payoutPubkeyFromConfHex() ([]byte, error) {
 }
 
 func (m *appstate) startSettlement() {
-	// Ensure session key A_c
-	privHex, pubHex, err := m.pc.RequireSettlementSessionKey()
+	// Ensure session key (generate/load) and cache for UI display
+	privHex, pubHex, err := m.pc.EnsureSettlementSessionKey()
 	if err != nil {
 		m.notification = err.Error()
 		m.msgCh <- client.UpdatedMsg{}
@@ -239,39 +232,15 @@ func realMain() error {
 
 	ctx, cancel := context.WithCancel(context.Background())
 	defer cancel()
-	g, gctx := errgroup.WithContext(ctx)
 
-	// Logging
-	useStdout := false
-	lb, err := logging.NewLogBackend(logging.LogConfig{
-		LogFile:        filepath.Join(appCfg.DataDir, "logs", "pongclient.log"),
-		DebugLevel:     appCfg.BR.Debug,
-		MaxLogFiles:    10,
-		MaxBufferLines: 1000,
-		UseStdout:      &useStdout,
-	})
+	lb, log, err := client.SetupLogging(appCfg, "pongclient")
 	if err != nil {
 		return err
 	}
 
-	log := lb.Logger("BotClient")
-
-	c, err := botclient.NewClient(appCfg.BR)
+	clientID, err := client.ResolveClientID(ctx, appCfg)
 	if err != nil {
-		return err
-	}
-	g.Go(func() error { return c.RPCClient.Run(gctx) })
-
-	// Identify ourselves
-	var zkShortID zkidentity.ShortID
-	req := &types.PublicIdentityReq{}
-	var publicIdentity types.PublicIdentity
-	if err := c.Chat.UserPublicIdentity(ctx, req, &publicIdentity); err != nil {
-		return fmt.Errorf("failed to get user public identity: %v", err)
-	}
-	clientID := hex.EncodeToString(publicIdentity.Identity[:])
-	if idBytes, decErr := hex.DecodeString(clientID); decErr == nil && len(idBytes) >= len(zkShortID) {
-		copy(zkShortID[:], idBytes[:len(zkShortID)])
+		return fmt.Errorf("resolve client id: %w", err)
 	}
 
 	as := &appstate{
@@ -356,7 +325,6 @@ func realMain() error {
 		go func() { as.msgCh <- client.UpdatedMsg{} }()
 	}))
 
-	// Create Pong client (use appCfg values pulled from config/flags)
 	pc, err := client.NewPongClient(clientID, &client.PongClientCfg{
 		AppCfg:        appCfg,
 		Notifications: ntfns,
@@ -369,14 +337,6 @@ func realMain() error {
 
 	log.Infof("Connected to server at %s with ID %s", appCfg.ServerAddr, clientID)
 
-	// Quick gRPC sanity check
-	if _, err := pc.RefGetWaitingRooms(); err != nil {
-		return fmt.Errorf("gRPC server connection failed: %v", err)
-	}
-
-	// Start notifier
-	g.Go(func() error { return pc.RefStartNtfnStream(ctx) })
-
 	defer as.cancel()
 
 	p := tea.NewProgram(as)
@@ -385,7 +345,7 @@ func realMain() error {
 		return err
 	}
 
-	return g.Wait()
+	return nil
 }
 
 func main() {

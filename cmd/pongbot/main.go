@@ -32,7 +32,6 @@ var (
 	flagRPCURL         = flag.String("rpcurl", "", "URL of the RPC server")
 	flagGRPCHost       = flag.String("grpchost", "", "Host for gRPC server")
 	flagGRPCPort       = flag.String("grpcport", "", "Port for gRPC server")
-	flagHttpPort       = flag.String("httpport", "", "Port for HTTP server")
 	flagServerCertPath = flag.String("servercert", "", "Path to server certificate")
 	flagClientCertPath = flag.String("clientcert", "", "Path to client certificate")
 	flagClientKeyPath  = flag.String("clientkey", "", "Path to client key")
@@ -100,9 +99,6 @@ func realMain() error {
 	}
 	if *flagGRPCPort != "" {
 		cfg.GRPCPort = *flagGRPCPort
-	}
-	if *flagHttpPort != "" {
-		cfg.HttpPort = *flagHttpPort
 	}
 	if *flagServerCertPath != "" {
 		cfg.ServerCertPath = utils.CleanAndExpandPath(*flagServerCertPath)
