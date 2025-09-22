@@ -17,6 +17,7 @@ import (
 	"github.com/decred/slog"
 	"github.com/vctt94/bisonbotkit/logging"
 	pongbisonrelay "github.com/vctt94/pongbisonrelay"
+	"github.com/vctt94/pongbisonrelay/chainwatcher"
 	"github.com/vctt94/pongbisonrelay/ponggame"
 	"github.com/vctt94/pongbisonrelay/pongrpc/grpc/pong"
 	"github.com/vctt94/pongbisonrelay/server/serverdb"
@@ -87,9 +88,9 @@ type escrowSession struct {
 
 	// ----------------- runtime state (protected by mu) -------------
 	mu        sync.RWMutex
-	latest    DepositUpdate      // watcher-pushed snapshot (Confs, UTXOCount, OK, At)
-	lastUTXOs []*pong.EscrowUTXO // optional cache for settlement (first UTXO, etc.)
-	unsubW    func()             // watcher unsubscribe hook
+	latest    chainwatcher.DepositUpdate // watcher-pushed snapshot (Confs, UTXOCount, OK, At)
+	lastUTXOs []*pong.EscrowUTXO         // optional cache for settlement (first UTXO, etc.)
+	unsubW    func()                     // watcher unsubscribe hook
 	// cancelTrack cancels the background trackEscrow goroutine associated
 	// with this escrow session.
 	cancelTrack context.CancelFunc
@@ -124,7 +125,7 @@ type Server struct {
 	dcrd *rpcclient.Client
 
 	// chain watcher for tip + mempool
-	watcher *chainWatcher
+	watcher *chainwatcher.ChainWatcher
 
 	// Escrow-first funding state
 	escrowsMu sync.RWMutex
@@ -201,8 +202,8 @@ func NewServer(id *zkidentity.ShortID, cfg ServerConfig) (*Server, error) {
 	s.log.Infof("Connected to dcrd at %s", cfg.DcrdHostPort)
 
 	// Start chain watcher to keep tip and mempool for watched scripts
-	s.watcher = newChainWatcher(s.log, s.dcrd)
-	go s.watcher.run(context.Background())
+	s.watcher = chainwatcher.NewChainWatcher(s.log, s.dcrd)
+	go s.watcher.Run(context.Background())
 
 	return s, nil
 }
@@ -399,7 +400,7 @@ func (s *Server) Run(ctx context.Context) error {
 func (s *Server) Shutdown(ctx context.Context) error {
 	// Stop chain watcher first so background RPCs stop
 	if s.watcher != nil {
-		s.watcher.stop()
+		s.watcher.Stop()
 	}
 	// Stop HTTP server first
 	if s.httpServer != nil {

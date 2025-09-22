@@ -1,4 +1,4 @@
-package server
+package chainwatcher
 
 import (
 	"bytes"
@@ -26,7 +26,7 @@ type DepositUpdate struct {
 // chainWatcher is a minimal pusher: it scans the chain/mempool for every
 // pkScript that currently has at least one subscriber, and broadcasts a
 // DepositUpdate each tick. No per-script state is retained.
-type chainWatcher struct {
+type ChainWatcher struct {
 	log  slog.Logger
 	dcrd *rpcclient.Client
 
@@ -37,8 +37,8 @@ type chainWatcher struct {
 	quit chan struct{}
 }
 
-func newChainWatcher(log slog.Logger, c *rpcclient.Client) *chainWatcher {
-	return &chainWatcher{
+func NewChainWatcher(log slog.Logger, c *rpcclient.Client) *ChainWatcher {
+	return &ChainWatcher{
 		log:  log,
 		dcrd: c,
 		subs: make(map[string]map[chan DepositUpdate]struct{}),
@@ -46,9 +46,9 @@ func newChainWatcher(log slog.Logger, c *rpcclient.Client) *chainWatcher {
 	}
 }
 
-func (w *chainWatcher) stop() { close(w.quit) }
+func (w *ChainWatcher) Stop() { close(w.quit) }
 
-func (w *chainWatcher) run(ctx context.Context) {
+func (w *ChainWatcher) Run(ctx context.Context) {
 	w.log.Infof("watcher: started")
 	t := time.NewTicker(5 * time.Second)
 	defer t.Stop()
@@ -65,7 +65,7 @@ func (w *chainWatcher) run(ctx context.Context) {
 	}
 }
 
-func (w *chainWatcher) pollOnce(ctx context.Context) {
+func (w *ChainWatcher) pollOnce(ctx context.Context) {
 	// Update tip (best effort).
 	if _, h, err := w.dcrd.GetBestBlock(ctx); err == nil {
 		w.mu.Lock()
@@ -226,7 +226,7 @@ func (w *chainWatcher) pollOnce(ctx context.Context) {
 	}
 }
 
-func (w *chainWatcher) currentTip() int64 {
+func (w *ChainWatcher) currentTip() int64 {
 	w.mu.RLock()
 	defer w.mu.RUnlock()
 	return w.tip
@@ -234,7 +234,7 @@ func (w *chainWatcher) currentTip() int64 {
 
 // Subscribe adds a listener for pkScriptHex and returns the channel + unsubscribe.
 // No initial snapshot is sent; first data arrives on next tick.
-func (w *chainWatcher) Subscribe(pkScriptHex string) (<-chan DepositUpdate, func()) {
+func (w *ChainWatcher) Subscribe(pkScriptHex string) (<-chan DepositUpdate, func()) {
 	k := strings.ToLower(pkScriptHex)
 
 	ch := make(chan DepositUpdate, 8)
@@ -268,7 +268,7 @@ func (w *chainWatcher) Subscribe(pkScriptHex string) (<-chan DepositUpdate, func
 }
 
 // broadcastUpdate snapshots subscribers for pk, then best-effort sends (non-blocking).
-func (w *chainWatcher) broadcastUpdate(pk string, u DepositUpdate) {
+func (w *ChainWatcher) broadcastUpdate(pk string, u DepositUpdate) {
 	w.mu.RLock()
 	set := w.subs[pk]
 	chs := make([]chan DepositUpdate, 0, len(set))

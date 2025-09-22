@@ -19,6 +19,7 @@ import (
 	"github.com/decred/dcrd/txscript/v4/stdaddr"
 	"github.com/decred/dcrd/wire"
 	pongbisonrelay "github.com/vctt94/pongbisonrelay"
+	"github.com/vctt94/pongbisonrelay/chainwatcher"
 	"github.com/vctt94/pongbisonrelay/ponggame"
 	"github.com/vctt94/pongbisonrelay/pongrpc/grpc/pong"
 	"google.golang.org/grpc/codes"
@@ -46,7 +47,7 @@ type twoBranchDrafts struct {
 	InputsB   []*pong.NeedPreSigs_PerInput
 }
 
-func (s *Server) trackEscrow(ctx context.Context, es *escrowSession, ch <-chan DepositUpdate) {
+func (s *Server) trackEscrow(ctx context.Context, es *escrowSession, ch <-chan chainwatcher.DepositUpdate) {
 	for {
 		select {
 		case <-ctx.Done():
