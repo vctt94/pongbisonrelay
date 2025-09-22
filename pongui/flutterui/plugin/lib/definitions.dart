@@ -299,8 +299,10 @@ class CreateWaitingRoomArgs {
   final String clientId;
   @JsonKey(name: 'bet_amt')
   final int betAmt;
+  @JsonKey(name: 'escrow_id')
+  final String? escrowId;
 
-  CreateWaitingRoomArgs(this.clientId, this.betAmt);
+  CreateWaitingRoomArgs(this.clientId, this.betAmt, {this.escrowId});
 
   Map<String, dynamic> toJson() => _$CreateWaitingRoomArgsToJson(this);
 
@@ -384,9 +386,9 @@ mixin NtfStreams {
   Stream<UINotification> uiNotifications() => ntfUINotifications.stream;
 
   handleNotifications(int cmd, bool isError, String jsonPayload) {
-    dynamic payload;
     if (jsonPayload != "") {
-      payload = jsonDecode(jsonPayload);
+      // ignore: unused_local_variable
+      final dynamic _ = jsonDecode(jsonPayload);
     }
 
     switch (cmd) {
@@ -464,9 +466,14 @@ abstract class PluginPlatform {
     }).toList();
   }
 
-  Future<LocalWaitingRoom> JoinWaitingRoom(String id) async {
+  Future<LocalWaitingRoom> JoinWaitingRoom(String id, {String? escrowId}) async {
     try {
-      final response = await asyncCall(CTJoinWaitingRoom, id);
+      // Always send JSON object so golib handler can consistently parse
+      final payload = {
+        'room_id': id,
+        'escrow_id': escrowId ?? '',
+      };
+      final response = await asyncCall(CTJoinWaitingRoom, payload);
 
       if (response is Map<String, dynamic>) {
         return LocalWaitingRoom.fromJson(response);
@@ -480,7 +487,13 @@ abstract class PluginPlatform {
 
   Future<LocalWaitingRoom> CreateWaitingRoom(CreateWaitingRoomArgs args) async {
     try {
-      final response = await asyncCall(CTCreateWaitingRoom, args);
+      // Always ensure escrow_id is present in the payload
+      final payload = {
+        'client_id': args.clientId,
+        'bet_amt': args.betAmt,
+        'escrow_id': args.escrowId ?? '',
+      };
+      final response = await asyncCall(CTCreateWaitingRoom, payload);
 
       if (response is Map<String, dynamic>) {
         return LocalWaitingRoom.fromJson(response);
@@ -495,6 +508,26 @@ abstract class PluginPlatform {
   Future<void> LeaveWaitingRoom(String id) async {
     await asyncCall(CTLeaveWaitingRoom, id);
   }
+
+  // Escrow/Settlement methods
+  Future<Map<String, String>> generateSettlementSessionKey() async {
+    final res = await asyncCall(CTGenerateSessionKey, "");
+    return Map<String, String>.from(res as Map);
+  }
+
+  Future<Map<String, dynamic>> openEscrow({required String payout, required int betAtoms, int csvBlocks = 64}) async {
+    final payload = {
+      'payout': payout,
+      'bet_atoms': betAtoms,
+      'csv_blocks': csvBlocks,
+    };
+    final res = await asyncCall(CTOpenEscrow, payload);
+    return Map<String, dynamic>.from(res as Map);
+  }
+
+  Future<void> startPreSign(String matchId) async {
+    await asyncCall(CTStartPreSign, { 'match_id': matchId });
+  }
 }
 
 const int CTUnknown = 0x00;
@@ -507,6 +540,9 @@ const int CTGetWaitingRooms = 0x06;
 const int CTJoinWaitingRoom = 0x07;
 const int CTCreateWaitingRoom = 0x08;
 const int CTLeaveWaitingRoom = 0x09;
+const int CTGenerateSessionKey = 0x0a;
+const int CTOpenEscrow        = 0x0b;
+const int CTStartPreSign      = 0x0c;
 const int CTCloseLockFile = 0x60;
 
 const int notificationsStartID = 0x1000;

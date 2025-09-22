@@ -27,6 +27,10 @@ const (
 	CTJoinWaitingRoom           = 0x07
 	CTCreateWaitingRoom         = 0x08
 	CTLeaveWaitingRoom          = 0x09
+	// Settlement-related commands
+	CTGenerateSessionKey = 0x0a
+	CTOpenEscrow         = 0x0b
+	CTStartPreSign       = 0x0c
 
 	CTCreateLockFile        = 0x60
 	CTCloseLockFile         = 0x61

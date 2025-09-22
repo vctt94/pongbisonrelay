@@ -9,6 +9,7 @@ class NewConfigModel extends ChangeNotifier {
   String rpcPass         = 'defaultpass';
   String serverAddr      = '104.131.180.29:50051';
   String grpcCertPath    = '';
+  String address         = '';
   String rpcCertPath     = '';
   String rpcClientCertPath = '';
   String rpcClientKeyPath  = '';
@@ -30,6 +31,7 @@ class NewConfigModel extends ChangeNotifier {
     ..rpcPass            = c.rpcPass
     ..serverAddr         = c.serverAddr
     ..grpcCertPath       = c.grpcCertPath
+    ..address            = c.address
     ..rpcCertPath        = c.rpcCertPath
     ..rpcClientCertPath  = c.rpcClientCertPath
     ..rpcClientKeyPath   = c.rpcClientKeyPath
@@ -63,6 +65,7 @@ class NewConfigModel extends ChangeNotifier {
     final content = (StringBuffer()
       ..writeln('server=$serverAddr')
       ..writeln('grpccertpath=$grpcCertPath')
+      ..writeln('address=$address')
       ..writeln()
       ..writeln('[clientrpc]')
       ..writeln('rpcuser=$rpcUser')

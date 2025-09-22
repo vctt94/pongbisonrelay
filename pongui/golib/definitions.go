@@ -31,11 +31,29 @@ type initClient struct {
 type createWaitingRoom struct {
 	ClientID string `json:"client_id"`
 	BetAmt   int64  `json:"bet_amt"`
+	EscrowId string `json:"escrow_id"`
 }
 
 type localInfo struct {
 	ID   clientintf.UserID `json:"id"`
 	Nick string            `json:"nick"`
+}
+
+// Settlement/escrow payloads
+type openEscrowReq struct {
+	// Payout may be a 33/65-byte pubkey hex or a Decred pubkey address (P2PK).
+	Payout    string `json:"payout"`
+	BetAtoms  uint64 `json:"bet_atoms"`
+	CSVBlocks uint32 `json:"csv_blocks"`
+}
+
+type preSignReq struct {
+	MatchID string `json:"match_id"` // "<wrID>|<hostId>"
+}
+
+type joinWaitingRoom struct {
+	RoomID   string `json:"room_id"`
+	EscrowId string `json:"escrow_id"`
 }
 
 type waitingRoom struct {

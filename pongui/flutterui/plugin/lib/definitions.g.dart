@@ -244,6 +244,7 @@ CreateWaitingRoomArgs _$CreateWaitingRoomArgsFromJson(
     CreateWaitingRoomArgs(
       json['client_id'] as String,
       (json['bet_amt'] as num).toInt(),
+      escrowId: json['escrow_id'] as String?,
     );
 
 Map<String, dynamic> _$CreateWaitingRoomArgsToJson(
@@ -251,6 +252,7 @@ Map<String, dynamic> _$CreateWaitingRoomArgsToJson(
     <String, dynamic>{
       'client_id': instance.clientId,
       'bet_amt': instance.betAmt,
+      'escrow_id': instance.escrowId,
     };
 
 RunState _$RunStateFromJson(Map<String, dynamic> json) => RunState(

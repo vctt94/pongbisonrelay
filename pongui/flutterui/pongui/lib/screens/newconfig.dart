@@ -26,6 +26,7 @@ class _NewConfigScreenState extends State<NewConfigScreen> {
   // text controllers
   late final _serverAddr = TextEditingController(text: widget.model.serverAddr);
   late final _grpcCert   = TextEditingController(text: widget.model.grpcCertPath);
+  late final _address    = TextEditingController(text: widget.model.address);
   late final _rpcCert    = TextEditingController(text: widget.model.rpcCertPath);
   late final _rpcCliCert = TextEditingController(text: widget.model.rpcClientCertPath);
   late final _rpcCliKey  = TextEditingController(text: widget.model.rpcClientKeyPath);
@@ -80,6 +81,7 @@ Aq6RDElOTqAlDbNAuV8b/joQjIDLwqA=
       widget.model
         ..serverAddr        = _serverAddr.text
         ..grpcCertPath      = _grpcCert.text
+        ..address           = _address.text
         ..rpcCertPath       = _rpcCert.text
         ..rpcClientCertPath = _rpcCliCert.text
         ..rpcClientKeyPath  = _rpcCliKey.text
@@ -122,6 +124,7 @@ Aq6RDElOTqAlDbNAuV8b/joQjIDLwqA=
                 const SizedBox(height: 20),
                 _field(_serverAddr, 'Server Address', required: true),
                 _field(_grpcCert,   'gRPC Server Cert Path'),
+                _field(_address,    'Payout Address or PubKey (33/65B hex)') ,
                 _field(_rpcCert,    'RPC Cert Path'),
                 _field(_rpcCliCert, 'RPC Client Cert Path'),
                 _field(_rpcCliKey,  'RPC Client Key Path'),

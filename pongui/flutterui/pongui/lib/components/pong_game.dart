@@ -11,7 +11,7 @@ class PongGame {
 
   PongGame(this.clientId, this.grpcClient);
 
-  Widget buildWidget(GameUpdate gameState, FocusNode focusNode) {
+  Widget buildWidget(GameUpdate gameState, FocusNode focusNode, {VoidCallback? onReadyHotkey}) {
     return GestureDetector(
       onPanUpdate: handlePaddleMovement,
       onPanEnd: (details) {
@@ -26,6 +26,13 @@ class PongGame {
           onKeyEvent: (KeyEvent event) {
             if (event is KeyDownEvent || event is KeyRepeatEvent) {
               String keyLabel = event.logicalKey.keyLabel;
+              // Ready-to-play hotkey: Space or 'R'
+              if (onReadyHotkey != null) {
+                if (event.logicalKey == LogicalKeyboardKey.space || keyLabel == 'r' || keyLabel == 'R') {
+                  onReadyHotkey();
+                  return; // don't also move paddles for space/r
+                }
+              }
               handleInput(clientId, keyLabel);
             } else if (event is KeyUpEvent) {
               // Handle key up events to stop paddle movement
@@ -39,9 +46,19 @@ class PongGame {
           },
           child: LayoutBuilder(
             builder: (context, constraints) {
-              return CustomPaint(
-                size: Size(constraints.maxWidth, constraints.maxHeight),
-                painter: PongPainter(gameState),
+              final gw = (gameState.gameWidth > 0) ? gameState.gameWidth : 800.0;
+              final gh = (gameState.gameHeight > 0) ? gameState.gameHeight : 600.0;
+
+              return FittedBox(
+                fit: BoxFit.contain,
+                child: SizedBox(
+                  width: gw,
+                  height: gh,
+                  child: CustomPaint(
+                    size: Size(gw, gh),
+                    painter: PongPainter(gameState),
+                  ),
+                ),
               );
             },
           ),

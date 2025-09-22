@@ -1,4 +1,3 @@
-import 'dart:convert';
 import 'dart:developer' as developer;
 
 import 'package:flutter/material.dart';
@@ -31,6 +30,12 @@ class PongModel extends ChangeNotifier {
   String clientId = '';
   String nick = '';
   int betAmt = 0;
+  String escrowId = '';
+  String payoutAddressOrPubkey = '';
+  String escrowDepositAddress = '';
+  String escrowPkScriptHex = '';
+  int escrowBetAtoms = 0;
+  String fundingStatus = '';
   String errorMessage = '';
   List<LocalWaitingRoom> waitingRooms = [];
   LocalWaitingRoom? currentWR;
@@ -43,6 +48,25 @@ class PongModel extends ChangeNotifier {
   GameState _currentGameState = GameState.idle;
   String currentGameId = '';
   String countdownMessage = '';
+  void setEscrowId(String id) {
+    escrowId = id;
+    notifyListeners();
+  }
+
+  void setEscrowDetails(String id, String depositAddr, [String? pkScriptHex]) {
+    escrowId = id;
+    escrowDepositAddress = depositAddr;
+    escrowPkScriptHex = pkScriptHex ?? escrowPkScriptHex;
+    notifyListeners();
+  }
+
+  void setEscrowBetAtoms(int atoms) {
+    escrowBetAtoms = atoms;
+    // Reflect intended bet in UI immediately
+    betAmt = atoms;
+    notifyListeners();
+  }
+
 
   // Getters for the game state
   GameState get currentGameState => _currentGameState;
@@ -73,7 +97,8 @@ class PongModel extends ChangeNotifier {
       
       final appDataDir = await defaultAppDataDir();
       final logFilePath = path.join(appDataDir, "logs", "pongui.log");
-      
+
+      // Let golib load the authoritative BR config from disk; pass UI config as overrides only.
       InitClient initArgs = InitClient(
         cfg.serverAddr,
         cfg.grpcCertPath,
@@ -96,8 +121,9 @@ class PongModel extends ChangeNotifier {
 
       clientId = localInfo.id;
       nick = localInfo.nick;
-      var rooms = await Golib.getWaitingRooms();
-      waitingRooms = rooms;
+      payoutAddressOrPubkey = cfg.address;
+      // Query initial waiting rooms via golib
+      waitingRooms = await Golib.getWaitingRooms();
       List<String> parts = cfg.serverAddr.split(":");
       String ipAddress = parts[0];
       int port = int.parse(parts[1]);
@@ -110,8 +136,8 @@ class PongModel extends ChangeNotifier {
       startListeningToNtfn(grpcClient, clientId);
       notifyListeners();
     } catch (exception) {
-      print("Exception: $exception");
-      // XXX this is not correct, need to check if error is eof
+      // Surface startup/config errors to the UI
+      errorMessage = "${exception.toString()}";
       isConnected = false;
       notifyListeners();
     }
@@ -125,6 +151,25 @@ class PongModel extends ChangeNotifier {
       notifyListeners();
 
       switch (ntfn.notificationType) {
+        case NotificationType.MESSAGE:
+          final msg = ntfn.message.toLowerCase();
+          if (msg.contains('deposit seen in mempool') || msg.contains('deposit confirmed')) {
+            // Reflect escrow bet amount in header; require known value
+            if (escrowBetAtoms > 0) {
+              betAmt = escrowBetAtoms;
+            } else {
+              // Try to infer from waitingRooms/players if present
+              for (final wr in waitingRooms) {
+                if (wr.betAmt > 0) { betAmt = wr.betAmt; break; }
+              }
+              if (betAmt <= 0) {
+                errorMessage = 'escrow bet amount unknown; please reopen escrow or contact support';
+              }
+            }
+            fundingStatus = ntfn.message;
+            notifyListeners();
+          }
+          break;
         case NotificationType.BET_AMOUNT_UPDATE:
           if (ntfn.playerId == clientId) {
             betAmt = ntfn.betAmt.toInt();
@@ -133,11 +178,18 @@ class PongModel extends ChangeNotifier {
           break;
 
         case NotificationType.ON_WR_CREATED:
-          waitingRooms.add(LocalWaitingRoom.fromProto(ntfn.wr));
+          // Refresh rooms in background (can't await in this listener)
+          Golib.getWaitingRooms().then((rooms) {
+            waitingRooms = rooms;
+            notifyListeners();
+          }).catchError((_) {
+            // Fallback: append from notification payload
+            waitingRooms.add(LocalWaitingRoom.fromProto(ntfn.wr));
+            notifyListeners();
+          });
           notificationModel.showNotification(
             "Waiting room created by ${ntfn.wr.hostId}",
           );
-          notifyListeners();
           break;
 
         case NotificationType.GAME_START:
@@ -293,8 +345,15 @@ class PongModel extends ChangeNotifier {
         return;
       }
 
+      // Gate on having an escrow. If not, prompt user via error.
+      if (escrowId.isEmpty) {
+        errorMessage = "Open escrow first in Settings → Settlement panel";
+        notifyListeners();
+        return;
+      }
+
       CreateWaitingRoomArgs createRoomArgs =
-          CreateWaitingRoomArgs(clientId, betAmt);
+          CreateWaitingRoomArgs(clientId, betAmt, escrowId: escrowId);
 
       developer.log("CreateWaitingRoom args: $createRoomArgs");
       var roomInfo = await Golib.CreateWaitingRoom(createRoomArgs);
@@ -317,7 +376,7 @@ class PongModel extends ChangeNotifier {
 
   Future<void> joinWaitingRoom(String id) async {
     try {
-      await Golib.JoinWaitingRoom(id);
+      await Golib.JoinWaitingRoom(id, escrowId: escrowId);
       _currentGameState = GameState.inWaitingRoom;
       errorMessage = '';
       notifyListeners();

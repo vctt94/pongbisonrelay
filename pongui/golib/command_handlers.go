@@ -22,6 +22,7 @@ import (
 	"github.com/vctt94/bisonbotkit/botclient"
 	"github.com/vctt94/bisonbotkit/config"
 	"github.com/vctt94/bisonbotkit/logging"
+	"github.com/vctt94/pongbisonrelay"
 	"github.com/vctt94/pongbisonrelay/client"
 	"golang.org/x/sync/errgroup"
 )
@@ -106,24 +107,51 @@ func handleInitClient(handle uint32, args initClient) (*localInfo, error) {
 		return nil, fmt.Errorf("failed to load config: %v", err)
 	}
 
-	// Apply overrides from args
+	// Apply overrides from args when available
 	if args.RPCWebsocketURL != "" {
 		cfg.RPCURL = args.RPCWebsocketURL
 	}
 	if args.RPCCertPath != "" {
-		cfg.ServerCertPath = args.RPCCertPath
+		cfg.BRClientCert = args.RPCCertPath
 	}
 	if args.RPCCLientCertPath != "" {
-		cfg.ClientCertPath = args.RPCCLientCertPath
+		cfg.BRClientRPCCert = args.RPCCLientCertPath
 	}
 	if args.RPCCLientKeyPath != "" {
-		cfg.ClientKeyPath = args.RPCCLientKeyPath
+		cfg.BRClientRPCKey = args.RPCCLientKeyPath
 	}
 	if args.RPCUser != "" {
 		cfg.RPCUser = args.RPCUser
 	}
 	if args.RPCPass != "" {
 		cfg.RPCPass = args.RPCPass
+	}
+	if args.DebugLevel != "" {
+		cfg.Debug = args.DebugLevel
+	}
+
+	// Validate required BR RPC fields.
+	var missing []string
+	if strings.TrimSpace(cfg.RPCURL) == "" {
+		missing = append(missing, "brrpcurl")
+	}
+	if strings.TrimSpace(cfg.BRClientCert) == "" {
+		missing = append(missing, "brclientcert")
+	}
+	if strings.TrimSpace(cfg.BRClientRPCCert) == "" {
+		missing = append(missing, "brclientrpccert")
+	}
+	if strings.TrimSpace(cfg.BRClientRPCKey) == "" {
+		missing = append(missing, "brclientrpckey")
+	}
+	if strings.TrimSpace(cfg.RPCUser) == "" {
+		missing = append(missing, "rpcuser")
+	}
+	if strings.TrimSpace(cfg.RPCPass) == "" {
+		missing = append(missing, "rpcpass")
+	}
+	if len(missing) > 0 {
+		return nil, fmt.Errorf("missing required fields in client config: %s", strings.Join(missing, ", "))
 	}
 
 	logBackend, err := logging.NewLogBackend(logging.LogConfig{
@@ -140,8 +168,8 @@ func handleInitClient(handle uint32, args initClient) (*localInfo, error) {
 	ctx, cancel := context.WithCancel(context.Background())
 	g, gctx := errgroup.WithContext(ctx)
 
-	// Use botclient instead of manual JSON-RPC client
-	c, err := botclient.NewClient(cfg, logBackend)
+	// Start a BR RPC client to fetch identity
+	c, err := botclient.NewClient(cfg)
 	if err != nil {
 		cancel()
 		return nil, fmt.Errorf("failed to create bot client: %v", err)
@@ -164,11 +192,16 @@ func handleInitClient(handle uint32, args initClient) (*localInfo, error) {
 		Nick: publicIdentity.Nick,
 	}
 
-	pc, err := client.NewPongClient(localInfo.ID.String(), &client.PongClientCfg{
+	// Build consolidated AppConfig for the pong client
+	appCfg := &client.AppConfig{
+		DataDir:      args.DataDir,
+		BR:           cfg,
 		ServerAddr:   args.ServerAddr,
-		ChatClient:   c.Chat,
-		Log:          logBackend.Logger("client"),
 		GRPCCertPath: args.GRPCCertPath,
+	}
+	pc, err := client.NewPongClient(localInfo.ID.String(), &client.PongClientCfg{
+		AppCfg: appCfg,
+		Log:    logBackend.Logger("client"),
 	})
 	if err != nil {
 		cancel()
@@ -221,20 +254,10 @@ func handleClientCmd(cc *clientCtx, cmd *cmd) (interface{}, error) {
 		}
 		return resp.Nick, nil
 	case CTGetWRPlayers:
-		wrp, err := cc.c.GetWRPlayers()
-		if err != nil {
-			return nil, err
-		}
-		res := make([]*player, len(wrp))
-		for i, p := range wrp {
-			res[i], err = playerFromServer(p)
-			if err != nil {
-				return nil, err
-			}
-		}
-		return res, nil
+		// Not supported via client API; return empty for now
+		return []*player{}, nil
 	case CTGetWaitingRooms:
-		rooms, err := cc.c.GetWaitingRooms()
+		rooms, err := cc.c.RefGetWaitingRooms()
 		if err != nil {
 			return nil, err
 		}
@@ -262,8 +285,23 @@ func handleClientCmd(cc *clientCtx, cmd *cmd) (interface{}, error) {
 		}
 		return res, nil
 	case CTJoinWaitingRoom:
-		id := string(bytes.Trim(cmd.Payload, "\""))
-		res, err := cc.c.JoinWaitingRoom(id, "")
+		// Accept either raw string room_id or JSON with escrow_id
+		var roomID string
+		var req joinWaitingRoom
+		if err := json.Unmarshal(cmd.Payload, &req); err == nil && req.RoomID != "" {
+			roomID = req.RoomID
+			res, err := cc.c.RefJoinWaitingRoom(roomID, req.EscrowId)
+			if err != nil {
+				return nil, err
+			}
+			return &waitingRoom{
+				ID:     res.Wr.Id,
+				HostID: res.Wr.HostId,
+				BetAmt: res.Wr.BetAmt,
+			}, nil
+		}
+		roomID = string(bytes.Trim(cmd.Payload, "\""))
+		res, err := cc.c.RefJoinWaitingRoom(roomID, "")
 		if err != nil {
 			return nil, err
 		}
@@ -282,7 +320,8 @@ func handleClientCmd(cc *clientCtx, cmd *cmd) (interface{}, error) {
 			return nil, fmt.Errorf("invalid create waiting room payload: %v", err)
 		}
 
-		res, err := cc.c.CreateWaitingRoom(req.ClientID, req.BetAmt, "")
+		// EscrowId is optional; empty string lets server auto-pick
+		res, err := cc.c.RefCreateWaitingRoom(req.ClientID, req.BetAmt, req.EscrowId)
 		if err != nil {
 			return nil, fmt.Errorf("failed to create waiting room: %v", err)
 		}
@@ -308,8 +347,44 @@ func handleClientCmd(cc *clientCtx, cmd *cmd) (interface{}, error) {
 	case CTLeaveWaitingRoom:
 		id := strings.Trim(string(cmd.Payload), `"`)
 		fmt.Printf("Leaving waiting room: %s\n", id)
-		err := cc.c.LeaveWaitingRoom(id)
+		err := cc.c.RefLeaveWaitingRoom(id)
 		return nil, err
+
+	// Settlement-related commands
+	case CTGenerateSessionKey:
+		priv, pub, err := cc.c.GenerateNewSettlementSessionKey()
+		if err != nil {
+			return nil, err
+		}
+		return map[string]string{"priv": priv, "pub": pub}, nil
+	case CTOpenEscrow:
+		var req openEscrowReq
+		if err := json.Unmarshal(cmd.Payload, &req); err != nil {
+			return nil, fmt.Errorf("bad open escrow payload: %v", err)
+		}
+		// Accept hex pubkey or Decred pubkey address and return 33B compressed
+		payout, err := pongbisonrelay.PayoutPubkeyFromConfHex(req.Payout)
+		if err != nil {
+			return nil, fmt.Errorf("payout parse: %v", err)
+		}
+		res, err := cc.c.OpenEscrowWithSession(cc.ctx, payout, req.BetAtoms, req.CSVBlocks)
+		if err != nil {
+			return nil, err
+		}
+		return map[string]any{
+			"escrow_id":       res.EscrowId,
+			"deposit_address": res.DepositAddress,
+			"pk_script_hex":   res.PkScriptHex,
+		}, nil
+	case CTStartPreSign:
+		var req preSignReq
+		if err := json.Unmarshal(cmd.Payload, &req); err != nil {
+			return nil, fmt.Errorf("bad presign payload: %v", err)
+		}
+		if err := cc.c.RefStartSettlementHandshake(cc.ctx, req.MatchID); err != nil {
+			return nil, err
+		}
+		return map[string]string{"status": "ok"}, nil
 	}
 	return nil, nil
 }

@@ -77,15 +77,14 @@ func (s *Server) trackEscrow(ctx context.Context, es *escrowSession, ch <-chan c
 				if prev.UTXOCount == 0 && u.UTXOCount > 0 {
 					if u.Confs == 0 {
 						s.log.Debugf("trackEscrow: mempool seen for owner=%s pk=%s utxos=%d", es.ownerUID, u.PkScriptHex, u.UTXOCount)
-						s.notify(es.player, &pong.NtfnStreamResponse{NotificationType: pong.NotificationType_MESSAGE, Message: "Deposit seen in mempool. Waiting confirmations."})
+						s.notify(es.player, &pong.NtfnStreamResponse{NotificationType: pong.NotificationType_BET_AMOUNT_UPDATE, PlayerId: es.ownerUID, BetAmt: int64(es.betAtoms)})
 					} else {
 						s.log.Debugf("trackEscrow: confirmed on first sight for owner=%s pk=%s confs=%d", es.ownerUID, u.PkScriptHex, u.Confs)
-						s.notify(es.player, &pong.NtfnStreamResponse{NotificationType: pong.NotificationType_MESSAGE, Message: "Deposit confirmed."})
+						s.notify(es.player, &pong.NtfnStreamResponse{NotificationType: pong.NotificationType_BET_AMOUNT_UPDATE, PlayerId: es.ownerUID, BetAmt: int64(es.betAtoms)})
 					}
 				} else if prev.Confs < 1 && u.Confs >= 1 && u.UTXOCount > 0 {
 					s.log.Debugf("trackEscrow: transitioned to confirmed for owner=%s pk=%s confs=%d", es.ownerUID, u.PkScriptHex, u.Confs)
-					// Transition to confirmed after already seeing funding.
-					s.notify(es.player, &pong.NtfnStreamResponse{NotificationType: pong.NotificationType_MESSAGE, Message: "Deposit confirmed."})
+					s.notify(es.player, &pong.NtfnStreamResponse{NotificationType: pong.NotificationType_BET_AMOUNT_UPDATE, PlayerId: es.ownerUID, BetAmt: int64(es.betAtoms)})
 				}
 			}
 		}
