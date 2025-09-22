@@ -166,7 +166,7 @@ func (m *appstate) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			m.listWaitingRooms()
 			return m, nil
 		case "c":
-			// Escrow-first: create room when an escrow exists (server will enforce 0-conf funding)
+			// In F2P, allow creating room without escrow. Otherwise, enforce escrow.
 			if m.settle.activeEscrowID == "" && !isF2p {
 				m.notification = "Open escrow first ([X] -> [E]) before creating a room."
 				return m, nil
@@ -481,12 +481,23 @@ func (m *appstate) listWaitingRooms() error {
 
 func (m *appstate) createRoom() error {
 	var err error
-	// Require escrow betAtoms and use it as the room bet for UI/consistency
-	if m.settle.betAtoms == 0 {
-		m.notification = "Set bet atoms first ([X] -> [E] or prefill bet) before creating a room"
-		return nil
+	// In F2P, allow creating room with zero bet and without escrow.
+	bet := int64(m.settle.betAtoms)
+	escrowID := m.settle.activeEscrowID
+	if isF2p {
+		// Default to zero bet if none set; server accepts req.BetAmt in F2P
+		if bet == 0 {
+			bet = 0
+		}
+		escrowID = ""
+	} else {
+		// Require escrow betAtoms and use it as the room bet for UI/consistency
+		if bet == 0 {
+			m.notification = "Set bet atoms first ([X] -> [E] or prefill bet) before creating a room"
+			return nil
+		}
 	}
-	wr, err := m.pc.RefCreateWaitingRoom(m.pc.ID, int64(m.settle.betAtoms), m.settle.activeEscrowID)
+	wr, err := m.pc.RefCreateWaitingRoom(m.pc.ID, bet, escrowID)
 	if err != nil {
 		m.log.Errorf("Error creating room: %v", err)
 		return err

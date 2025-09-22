@@ -36,6 +36,7 @@ var (
 	grpcServerCert     = flag.String("grpcservercert", "", "Path to grpc server.cert file")
 	refHTTP            = flag.String("refhttp", "", "Referee HTTP base URL, e.g. http://localhost:8080")
 	addressFlag        = flag.String("address", "", "33-byte compressed pubkey hex for winner payout")
+	flagIsF2P          = flag.Bool("isf2p", false, "Enable free-to-play client mode (no escrow gating)")
 )
 
 type appstate struct {
@@ -194,6 +195,9 @@ func (m *appstate) preSign() {
 func realMain() error {
 	flag.Parse()
 
+	// Apply F2P UI mode flag early for global gating
+	isF2p = *flagIsF2P
+
 	if *datadir == "" {
 		*datadir = utils.AppDataDir("pongclient", false)
 	}
@@ -250,6 +254,11 @@ func realMain() error {
 		mode:       gameIdle,
 	}
 	as.dataDir = appCfg.DataDir
+
+	if isF2p {
+		// Will not require escrow for creating/joining rooms
+		log.Infof("F2P mode enabled in client (UI gating relaxed)")
+	}
 
 	// Notifications
 	ntfns := client.NewNotificationManager()
