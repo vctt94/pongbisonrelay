@@ -61,7 +61,7 @@ class TopStatusCard extends StatelessWidget {
                               style: Theme.of(context).textTheme.titleMedium,
                             ),
                             if (pongModel.betAmt > 0) ...[
-                              if (pongModel.currentWR == null)
+                              if (pongModel.currentWR == null && pongModel.escrowFunded)
                                 FilledButton(
                                   onPressed: pongModel.createWaitingRoom,
                                   child: const Text("Create Waiting Room"),

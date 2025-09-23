@@ -183,6 +183,8 @@ message NtfnStreamResponse {
   WaitingRoom wr=9;
   bool ready = 10;
   MatchAllocatedNtfn match_alloc = 11;
+  // Number of confirmations for the relevant escrow deposit (if applicable)
+  uint32 confs = 12;
 }
 
 // Waiting Room Messages

@@ -1566,6 +1566,7 @@ class NtfnStreamResponse extends $pb.GeneratedMessage {
     WaitingRoom? wr,
     $core.bool? ready,
     MatchAllocatedNtfn? matchAlloc,
+    $core.int? confs,
   }) {
     final $result = create();
     if (notificationType != null) {
@@ -1601,6 +1602,9 @@ class NtfnStreamResponse extends $pb.GeneratedMessage {
     if (matchAlloc != null) {
       $result.matchAlloc = matchAlloc;
     }
+    if (confs != null) {
+      $result.confs = confs;
+    }
     return $result;
   }
   NtfnStreamResponse._() : super();
@@ -1619,6 +1623,7 @@ class NtfnStreamResponse extends $pb.GeneratedMessage {
     ..aOM<WaitingRoom>(9, _omitFieldNames ? '' : 'wr', subBuilder: WaitingRoom.create)
     ..aOB(10, _omitFieldNames ? '' : 'ready')
     ..aOM<MatchAllocatedNtfn>(11, _omitFieldNames ? '' : 'matchAlloc', subBuilder: MatchAllocatedNtfn.create)
+    ..a<$core.int>(12, _omitFieldNames ? '' : 'confs', $pb.PbFieldType.OU3)
     ..hasRequiredFields = false
   ;
 
@@ -1745,6 +1750,16 @@ class NtfnStreamResponse extends $pb.GeneratedMessage {
   void clearMatchAlloc() => clearField(11);
   @$pb.TagNumber(11)
   MatchAllocatedNtfn ensureMatchAlloc() => $_ensure(10);
+
+  /// Number of confirmations for the relevant escrow deposit (if applicable)
+  @$pb.TagNumber(12)
+  $core.int get confs => $_getIZ(11);
+  @$pb.TagNumber(12)
+  set confs($core.int v) { $_setUnsignedInt32(11, v); }
+  @$pb.TagNumber(12)
+  $core.bool hasConfs() => $_has(11);
+  @$pb.TagNumber(12)
+  void clearConfs() => clearField(12);
 }
 
 /// Waiting Room Messages

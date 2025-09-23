@@ -15,7 +15,6 @@ class PongGame {
     return GestureDetector(
       onPanUpdate: handlePaddleMovement,
       onPanEnd: (details) {
-        // Stop paddle movement when the user stops dragging
         stopPaddleMovement(clientId, 'ArrowUpStop');
         stopPaddleMovement(clientId, 'ArrowDownStop');
       },
@@ -26,16 +25,14 @@ class PongGame {
           onKeyEvent: (KeyEvent event) {
             if (event is KeyDownEvent || event is KeyRepeatEvent) {
               String keyLabel = event.logicalKey.keyLabel;
-              // Ready-to-play hotkey: Space or 'R'
               if (onReadyHotkey != null) {
                 if (event.logicalKey == LogicalKeyboardKey.space || keyLabel == 'r' || keyLabel == 'R') {
                   onReadyHotkey();
-                  return; // don't also move paddles for space/r
+                  return;
                 }
               }
               handleInput(clientId, keyLabel);
             } else if (event is KeyUpEvent) {
-              // Handle key up events to stop paddle movement
               String keyLabel = event.logicalKey.keyLabel;
               if (keyLabel == 'W' || keyLabel == 'Arrow Up') {
                 stopPaddleMovement(clientId, 'ArrowUpStop');
@@ -49,14 +46,55 @@ class PongGame {
               final gw = (gameState.gameWidth > 0) ? gameState.gameWidth : 800.0;
               final gh = (gameState.gameHeight > 0) ? gameState.gameHeight : 600.0;
 
-              return FittedBox(
-                fit: BoxFit.contain,
+              return Center(
                 child: SizedBox(
-                  width: gw,
-                  height: gh,
-                  child: CustomPaint(
-                    size: Size(gw, gh),
-                    painter: PongPainter(gameState),
+                  width: constraints.maxWidth,             // take available width
+                  child: AspectRatio(                      // preserve game aspect
+                    aspectRatio: gw / gh,
+                    child: RepaintBoundary(                // isolate canvas repaints
+                      child: Stack(
+                        fit: StackFit.expand,
+                        children: [
+                          // Single game canvas
+                          CustomPaint(
+                            painter: PongPainter(gameState),
+                          ),
+
+                          // Score overlay (does not intercept input)
+                          IgnorePointer(
+                            child: Stack(
+                              fit: StackFit.expand,
+                              children: [
+                                Align(
+                                  alignment: const FractionalOffset(0.25, 0.10),
+                                  child: Text(
+                                    '${gameState.p1Score}',
+                                    style: const TextStyle(
+                                      color: Colors.white,
+                                      fontSize: 24,
+                                      fontWeight: FontWeight.bold,
+                                      height: 1.0,
+                                    ),
+                                  ),
+                                ),
+                                Align(
+                                  alignment: const FractionalOffset(0.75, 0.10),
+                                  child: Text(
+                                    '${gameState.p2Score}',
+                                    style: const TextStyle(
+                                      color: Colors.white,
+                                      fontSize: 24,
+                                      fontWeight: FontWeight.bold,
+                                      height: 1.0,
+                                    ),
+                                  ),
+                                ),
+                              ],
+                            ),
+                          ),
+                        ],
+                      ),
+                    ),
                   ),
                 ),
               );
@@ -345,7 +383,7 @@ class PongGame {
     }
   }
 
-  @override
+  // Removed stray override; this isn't implementing a named interface
   String get name => 'Pong';
 }
 
@@ -356,75 +394,62 @@ class PongPainter extends CustomPainter {
 
   @override
   void paint(Canvas canvas, Size size) {
-    // Extract game dimensions
     double gameWidth = gameState.gameWidth;
     double gameHeight = gameState.gameHeight;
 
-    // Calculate scaling factors
     double scaleX = size.width / gameWidth;
     double scaleY = size.height / gameHeight;
 
-    // Paint object for drawing
     var paint = Paint()
       ..color = Colors.white
       ..style = PaintingStyle.fill
       ..isAntiAlias = true;
 
-    // Draw background
     canvas.drawRect(
       Rect.fromLTWH(0.0, 0.0, size.width, size.height),
       Paint()..color = Colors.black,
     );
 
-    // Extract and scale paddle 1 properties (use real position from server)
     double paddle1X = gameState.p1X;
     double paddle1Y = gameState.p1Y;
     double paddle1Width = gameState.p1Width;
     double paddle1Height = gameState.p1Height;
 
-    // Scale paddle 1 properties
     paddle1X *= scaleX;
     paddle1Y *= scaleY;
     paddle1Width *= scaleX;
     paddle1Height *= scaleY;
 
-    // Extract and scale paddle 2 properties
     double paddle2X = gameState.p2X;
     double paddle2Y = gameState.p2Y;
     double paddle2Width = gameState.p2Width;
     double paddle2Height = gameState.p2Height;
 
-    // Scale paddle 2 properties
     paddle2X *= scaleX;
     paddle2Y *= scaleY;
     paddle2Width *= scaleX;
     paddle2Height *= scaleY;
 
-    // Extract and scale ball properties
     double ballX = gameState.ballX;
     double ballY = gameState.ballY;
     double ballWidth = gameState.ballWidth;
     double ballHeight = gameState.ballHeight;
 
-    // Scale ball properties
     ballX *= scaleX;
     ballY *= scaleY;
     ballWidth *= scaleX;
     ballHeight *= scaleY;
 
-    // Draw Paddle 1
     canvas.drawRect(
       Rect.fromLTWH(paddle1X, paddle1Y, paddle1Width, paddle1Height),
       paint,
     );
 
-    // Draw Paddle 2
     canvas.drawRect(
       Rect.fromLTWH(paddle2X, paddle2Y, paddle2Width, paddle2Height),
       paint,
     );
 
-    // Draw the ball as a circle for smoother motion
     double radius = (ballWidth + ballHeight) / 4;
     canvas.drawCircle(
       Offset(ballX + ballWidth / 2, ballY + ballHeight / 2),
@@ -432,43 +457,9 @@ class PongPainter extends CustomPainter {
       paint,
     );
 
-    // Draw scores
-    int p1Score = gameState.p1Score;
-    int p2Score = gameState.p2Score;
 
-    // Create text painters for scores
-    final p1ScoreTextPainter = TextPainter(
-      text: TextSpan(
-        text: '$p1Score',
-        style: TextStyle(
-            color: Colors.white, fontSize: 24, fontWeight: FontWeight.bold),
-      ),
-      textDirection: TextDirection.ltr,
-    );
-
-    final p2ScoreTextPainter = TextPainter(
-      text: TextSpan(
-        text: '$p2Score',
-        style: TextStyle(
-            color: Colors.white, fontSize: 24, fontWeight: FontWeight.bold),
-      ),
-      textDirection: TextDirection.ltr,
-    );
-
-    // Layout the text
-    p1ScoreTextPainter.layout();
-    p2ScoreTextPainter.layout();
-
-    // Position and draw the scores at the top of the screen
-    p1ScoreTextPainter.paint(
-        canvas, Offset(size.width * 0.25 - p1ScoreTextPainter.width / 2, 20));
-    p2ScoreTextPainter.paint(
-        canvas, Offset(size.width * 0.75 - p2ScoreTextPainter.width / 2, 20));
   }
 
   @override
-  bool shouldRepaint(PongPainter oldDelegate) {
-    // Repaint whenever the game state changes
-    return true;
-  }
+  bool shouldRepaint(covariant PongPainter old) => true;
 }

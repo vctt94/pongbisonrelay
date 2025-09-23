@@ -363,6 +363,7 @@ const NtfnStreamResponse$json = {
     {'1': 'wr', '3': 9, '4': 1, '5': 11, '6': '.pong.WaitingRoom', '10': 'wr'},
     {'1': 'ready', '3': 10, '4': 1, '5': 8, '10': 'ready'},
     {'1': 'match_alloc', '3': 11, '4': 1, '5': 11, '6': '.pong.MatchAllocatedNtfn', '10': 'matchAlloc'},
+    {'1': 'confs', '3': 12, '4': 1, '5': 13, '10': 'confs'},
   ],
 };
 
@@ -375,7 +376,7 @@ final $typed_data.Uint8List ntfnStreamResponseDescriptor = $convert.base64Decode
     'dW1iZXISGwoJcGxheWVyX2lkGAcgASgJUghwbGF5ZXJJZBIXCgdyb29tX2lkGAggASgJUgZyb2'
     '9tSWQSIQoCd3IYCSABKAsyES5wb25nLldhaXRpbmdSb29tUgJ3chIUCgVyZWFkeRgKIAEoCFIF'
     'cmVhZHkSOQoLbWF0Y2hfYWxsb2MYCyABKAsyGC5wb25nLk1hdGNoQWxsb2NhdGVkTnRmblIKbW'
-    'F0Y2hBbGxvYw==');
+    'F0Y2hBbGxvYxIUCgVjb25mcxgMIAEoDVIFY29uZnM=');
 
 @$core.Deprecated('Use waitingRoomsRequestDescriptor instead')
 const WaitingRoomsRequest$json = {

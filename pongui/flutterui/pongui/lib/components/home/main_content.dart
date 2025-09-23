@@ -1,22 +1,36 @@
+// main_content.dart
 import 'package:flutter/material.dart';
+import 'package:golib_plugin/grpc/generated/pong.pb.dart';
 import 'package:pongui/components/waiting_rooms.dart';
 import 'package:pongui/models/pong.dart';
 
-class MainContent extends StatelessWidget {
+class MainContent extends StatefulWidget {
   final PongModel pongModel;
 
-  MainContent({
-    Key? key,
-    required this.pongModel,
-  }) : super(key: key);
+  const MainContent({Key? key, required this.pongModel}) : super(key: key);
+
+  @override
+  State<MainContent> createState() => _MainContentState();
+}
+
+class _MainContentState extends State<MainContent> {
+  final FocusNode _gameFocus = FocusNode();
+
+  @override
+  void dispose() {
+    _gameFocus.dispose();
+    super.dispose();
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    return _buildContentForState(context);
+  }
 
   // Map the PongModel's game state to appropriate UI state
   Widget _buildContentForState(BuildContext context) {
-    // Render the appropriate UI based on the current state
-    switch (pongModel.currentGameState) {
+    switch (widget.pongModel.currentGameState) {
       case GameState.idle:
-        return _buildWelcomeState(context);
-
       case GameState.inWaitingRoom:
         return _buildWelcomeState(context);
 
@@ -37,18 +51,13 @@ class MainContent extends StatelessWidget {
     }
   }
 
-  @override
-  Widget build(BuildContext context) {
-    return _buildContentForState(context);
-  }
-
   // Welcome state UI
   Widget _buildWelcomeState(BuildContext context) {
+    final model = widget.pongModel;
     return SingleChildScrollView(
       padding: const EdgeInsets.only(bottom: 16),
       child: Column(
         children: [
-          // Welcome section
           const SizedBox(height: 40),
           const Text(
             "Welcome to Pong!",
@@ -71,9 +80,7 @@ class MainContent extends StatelessWidget {
               ),
             ),
           ),
-
-          // Waiting rooms or empty state
-          if (pongModel.waitingRooms.isEmpty)
+          if (model.waitingRooms.isEmpty)
             Center(
               child: Column(
                 mainAxisAlignment: MainAxisAlignment.center,
@@ -115,12 +122,11 @@ class MainContent extends StatelessWidget {
             Padding(
               padding: const EdgeInsets.symmetric(horizontal: 12.0),
               child: WaitingRoomList(
-                pongModel.waitingRooms,
-                currentRoomId: pongModel.currentWR?.id,
-                onJoinRoom: (roomId) => pongModel.joinWaitingRoom(roomId),
+                model.waitingRooms,
+                currentRoomId: model.currentWR?.id,
+                onJoinRoom: (roomId) => model.joinWaitingRoom(roomId),
               ),
             ),
-
         ],
       ),
     );
@@ -132,11 +138,7 @@ class MainContent extends StatelessWidget {
       child: Column(
         mainAxisAlignment: MainAxisAlignment.center,
         children: [
-          Icon(
-            Icons.sports_tennis,
-            size: 60,
-            color: Colors.blueAccent,
-          ),
+          Icon(Icons.sports_tennis, size: 60, color: Colors.blueAccent),
           SizedBox(height: 16),
           Text(
             "Waiting for players...",
@@ -153,115 +155,83 @@ class MainContent extends StatelessWidget {
 
   // Game state UI with appropriate overlay based on the current sub-state
   Widget _buildGameState(GameState state) {
-    // Basic check for game state availability
-    if (pongModel.gameState == null) {
-      return const Center(
-        child: CircularProgressIndicator(
-          valueColor: AlwaysStoppedAnimation<Color>(Colors.blueAccent),
-        ),
-      );
-    }
+    final model = widget.pongModel;
+    // Use a safe fallback before first frame arrives
+    final initial = model.gameState ??
+        (GameUpdate()
+          ..gameWidth = 800
+          ..gameHeight = 600);
 
-    // For playing state, return a direct game widget without any overlays
-    if (state == GameState.playing) {
-      return LayoutBuilder(builder: (context, constraints) {
-        final gw = pongModel.gameState!.gameWidth > 0 ? pongModel.gameState!.gameWidth : 800.0;
-        final gh = pongModel.gameState!.gameHeight > 0 ? pongModel.gameState!.gameHeight : 600.0;
-        final maxW = constraints.maxWidth;
-        final maxH = constraints.maxHeight;
-        final scale = (maxH.isFinite)
-            ? (maxW / gw).clamp(0.0, double.infinity).compareTo((maxH / gh).clamp(0.0, double.infinity)) <= 0
-                ? (maxW / gw)
-                : (maxH / gh)
-            : (maxW / gw);
-        final childW = gw * scale;
-        final childH = gh * scale;
-        return SizedBox(
-          width: maxW,
-          height: maxH.isFinite ? maxH : childH,
-          child: Center(
-            child: SizedBox(
-              width: childW,
-              height: childH,
-              child: Container(
-                color: Colors.black,
-                child: pongModel.pongGame.buildWidget(
-                  pongModel.gameState!,
-                  FocusNode(),
-                  onReadyHotkey: () => pongModel.signalReadyToPlay(),
-                ),
+    // Base game canvas (centered, preserves aspect). We rebuild only when
+    // the render loop ticks, sampling the interpolated state to avoid
+    // invalidating the entire page per network update.
+    Widget gameCanvas = AnimatedBuilder(
+      animation: model.renderLoop,
+      builder: (context, _) {
+        final interpolated = model.sampleInterpolatedGameState();
+        final use = (interpolated.gameWidth > 0 && interpolated.gameHeight > 0)
+            ? interpolated
+            : initial;
+        final gw = use.gameWidth > 0 ? use.gameWidth : 800.0;
+        final gh = use.gameHeight > 0 ? use.gameHeight : 600.0;
+        return Center(
+          child: AspectRatio(
+            aspectRatio: gw / gh,
+            child: Container(
+              color: Colors.black,
+              child: model.pongGame.buildWidget(
+                use,
+                _gameFocus,
+                onReadyHotkey: () => model.signalReadyToPlay(),
               ),
             ),
           ),
         );
-      });
+      },
+    );
+
+    // Playing: raw canvas only (no overlays)
+    if (state == GameState.playing) {
+      return SizedBox.expand(child: gameCanvas);
     }
 
-    List<Widget> stackChildren = [
-      // Black background layer
-      Container(color: Colors.black),
+    // Overlays for non-playing sub-states
+    final List<Widget> stackChildren = [
+      // Base game
+      Positioned.fill(child: gameCanvas),
 
-      // Base game widget - always show the game state when available
-      Positioned.fill(
-        child: pongModel.pongGame.buildWidget(
-          pongModel.gameState!,
-          FocusNode(),
-          onReadyHotkey: () => pongModel.signalReadyToPlay(),
-        ),
-      ),
+      // Specific overlays
+      if (state == GameState.gameInitialized) _buildReadyToPlayOverlay(state, model),
+      if (state == GameState.readyToPlay) _buildWaitingForPlayersOverlay(),
+      if (state == GameState.countdown) _buildCountdownOverlay(model),
     ];
 
-    // Add the appropriate overlay based on the game state
-    // ONLY add overlays for specific states, not for playing state
-    if (state == GameState.gameInitialized) {
-      stackChildren.add(_buildReadyToPlayOverlay(state));
-    } else if (state == GameState.readyToPlay) {
-      stackChildren.add(_buildWaitingForPlayersOverlay());
-    } else if (state == GameState.countdown) {
-      stackChildren.add(_buildCountdownOverlay(state));
-    }
-
-    return LayoutBuilder(builder: (context, constraints) {
-      final gw = pongModel.gameState!.gameWidth > 0 ? pongModel.gameState!.gameWidth : 800.0;
-      final gh = pongModel.gameState!.gameHeight > 0 ? pongModel.gameState!.gameHeight : 600.0;
-      final maxW = constraints.maxWidth;
-      final maxH = constraints.maxHeight;
-      final scale = (maxH.isFinite)
-          ? (maxW / gw).clamp(0.0, double.infinity).compareTo((maxH / gh).clamp(0.0, double.infinity)) <= 0
-              ? (maxW / gw)
-              : (maxH / gh)
-          : (maxW / gw);
-      final childW = gw * scale;
-      final childH = gh * scale;
-      return SizedBox(
-        width: maxW,
-        height: maxH.isFinite ? maxH : childH,
-        child: Center(
-          child: SizedBox(
-            width: childW,
-            height: childH,
-            child: Stack(children: stackChildren),
-          ),
-        ),
-      );
-    });
+    return SizedBox.expand(
+      child: Stack(
+        fit: StackFit.expand,
+        children: stackChildren,
+      ),
+    );
   }
 
   // Ready to play overlay - shows "I'm Ready" button
-  Widget _buildReadyToPlayOverlay(GameState state) {
+  Widget _buildReadyToPlayOverlay(GameState state, PongModel model) {
     return Positioned.fill(
       child: Container(
         color: const Color.fromRGBO(0, 0, 0, 0.5),
         child: Material(
           type: MaterialType.transparency,
           child: Builder(
-            builder: (context) => pongModel.pongGame.buildReadyToPlayOverlay(
+            builder: (context) => model.pongGame.buildReadyToPlayOverlay(
               context,
-              state == GameState.readyToPlay, // Only show as ready in readyToPlay state
-              state == GameState.countdown,   // Only show countdown in countdown state
-              '', // No countdown message
-              () => pongModel.signalReadyToPlay(),
-              pongModel.gameState!,
+              state == GameState.readyToPlay,  // not ready yet in this state
+              false,                           // no countdown here
+              '',
+              () => model.signalReadyToPlay(),
+              model.gameState ??
+                  (GameUpdate()
+                    ..gameWidth = 800
+                    ..gameHeight = 600),
             ),
           ),
         ),
@@ -274,52 +244,10 @@ class MainContent extends StatelessWidget {
     return Positioned.fill(
       child: Container(
         color: const Color.fromRGBO(0, 0, 0, 0.5),
-        child: Material(
+        child: const Material(
           type: MaterialType.transparency,
           child: Center(
-            child: Container(
-              padding: const EdgeInsets.all(20),
-              decoration: BoxDecoration(
-                color: const Color(0xFF1B1E2C).withAlpha(230),
-                borderRadius: BorderRadius.circular(15),
-                boxShadow: [
-                  BoxShadow(
-                    color: Colors.blueAccent.withAlpha(76),
-                    spreadRadius: 3,
-                    blurRadius: 10,
-                  ),
-                ],
-              ),
-              child: Column(
-                mainAxisSize: MainAxisSize.min,
-                children: const [
-                  Icon(
-                    Icons.sports_esports,
-                    size: 50,
-                    color: Colors.blueAccent,
-                  ),
-                  SizedBox(height: 20),
-                  Text(
-                    "Waiting for players to get ready...",
-                    style: TextStyle(
-                      color: Colors.white,
-                      fontSize: 24,
-                      fontWeight: FontWeight.bold,
-                    ),
-                  ),
-                  SizedBox(height: 20),
-                  SizedBox(
-                    width: 40,
-                    height: 40,
-                    child: CircularProgressIndicator(
-                      color: Colors.blueAccent,
-                      backgroundColor: Colors.grey,
-                      strokeWidth: 4,
-                    ),
-                  ),
-                ],
-              ),
-            ),
+            child: _WaitingForPlayersCard(),
           ),
         ),
       ),
@@ -327,23 +255,74 @@ class MainContent extends StatelessWidget {
   }
 
   // Countdown overlay
-  Widget _buildCountdownOverlay(GameState state) {
+  Widget _buildCountdownOverlay(PongModel model) {
     return Positioned.fill(
       child: Container(
         color: const Color.fromRGBO(0, 0, 0, 0.5),
         child: Material(
           type: MaterialType.transparency,
           child: Builder(
-            builder: (context) => pongModel.pongGame.buildReadyToPlayOverlay(
+            builder: (context) => model.pongGame.buildReadyToPlayOverlay(
               context,
-              true, // Always show as ready during countdown
-              true, // In countdown
-              pongModel.countdownMessage,
-              () {}, // No action during countdown
-              pongModel.gameState!,
+              true, // shows as ready during countdown
+              true, // in countdown
+              model.countdownMessage,
+              () {}, // no action during countdown
+              model.gameState ??
+                  (GameUpdate()
+                    ..gameWidth = 800
+                    ..gameHeight = 600),
             ),
           ),
         ),
+      ),
+    );
+  }
+}
+
+// Small presentational widget for the waiting overlay
+class _WaitingForPlayersCard extends StatelessWidget {
+  const _WaitingForPlayersCard();
+
+  @override
+  Widget build(BuildContext context) {
+    return Container(
+      padding: const EdgeInsets.all(20),
+      decoration: BoxDecoration(
+        color: const Color(0xFF1B1E2C).withAlpha(230),
+        borderRadius: BorderRadius.circular(15),
+        boxShadow: [
+          BoxShadow(
+            color: Colors.blueAccent.withAlpha(76),
+            spreadRadius: 3,
+            blurRadius: 10,
+          ),
+        ],
+      ),
+      child: const Column(
+        mainAxisSize: MainAxisSize.min,
+        children: [
+          Icon(Icons.sports_esports, size: 50, color: Colors.blueAccent),
+          SizedBox(height: 20),
+          Text(
+            "Waiting for players to get ready...",
+            style: TextStyle(
+              color: Colors.white,
+              fontSize: 24,
+              fontWeight: FontWeight.bold,
+            ),
+          ),
+          SizedBox(height: 20),
+          SizedBox(
+            width: 40,
+            height: 40,
+            child: CircularProgressIndicator(
+              color: Colors.blueAccent,
+              backgroundColor: Colors.grey,
+              strokeWidth: 4,
+            ),
+          ),
+        ],
       ),
     );
   }

@@ -16,19 +16,23 @@ class HomeScreen extends StatefulWidget {
 class _HomeScreenState extends State<HomeScreen> {
   @override
   Widget build(BuildContext context) {
-    final pongModel = Provider.of<PongModel>(context);
-    final bool gameInProgress = pongModel.isGameStarted;
+    // Only rebuild this widget when the "in game" flag toggles; other
+    // updates are handled by Consumers inside each branch.
+    final gameInProgress = context.select<PongModel, bool>((m) => m.isGameStarted);
 
     return SharedLayout(
       title: "Pong Game - Home",
       child: gameInProgress
           ? Padding(
               padding: const EdgeInsets.only(top: 12.0),
-              child: MainContent(pongModel: pongModel),
+              child: Consumer<PongModel>(
+                builder: (_, model, __) => MainContent(pongModel: model),
+              ),
             )
-          : SingleChildScrollView(
-              padding: const EdgeInsets.only(bottom: 24),
-              child: Column(
+          : Consumer<PongModel>(builder: (context, pongModel, _) {
+              return SingleChildScrollView(
+                padding: const EdgeInsets.only(bottom: 24),
+                child: Column(
               crossAxisAlignment: CrossAxisAlignment.center,
               children: [
                 // 1) Top area: bet status
@@ -127,7 +131,7 @@ class _HomeScreenState extends State<HomeScreen> {
                                   style: ElevatedButton.styleFrom(backgroundColor: Colors.blueAccent),
                                 ),
                                 const SizedBox(width: 8),
-                                if (pongModel.betAmt > 0 && pongModel.currentWR == null)
+                                if (pongModel.betAmt > 0 && pongModel.currentWR == null && pongModel.escrowFunded)
                                   ElevatedButton(
                                     onPressed: pongModel.createWaitingRoom,
                                     style: ElevatedButton.styleFrom(
@@ -137,10 +141,9 @@ class _HomeScreenState extends State<HomeScreen> {
                                   ),
                               ]),
                             const SizedBox(width: 8),
-                            // Presign action when confirmed and in a room
+                            // Presign action when escrow confirmed and in a room
                             Builder(builder: (ctx) {
-                              final confirmed = pongModel.fundingStatus.toLowerCase().contains('confirmed');
-                              final canPresign = confirmed && pongModel.currentWR != null;
+                              final canPresign = pongModel.escrowConfirmed && pongModel.currentWR != null;
                               final onPressed = canPresign
                                   ? () async {
                                       final wr = pongModel.currentWR!;
@@ -170,14 +173,14 @@ class _HomeScreenState extends State<HomeScreen> {
                               if (canPresign) return button;
                               final msg = pongModel.currentWR == null
                                   ? 'Join or create a room to presign'
-                                  : (confirmed ? '' : 'Wait for deposit confirmation');
+                                  : (pongModel.escrowConfirmed ? '' : 'Wait for deposit confirmation');
                               if (msg.isEmpty) {
                                 return button; // no tooltip when message is empty to avoid zero-size hit test
                               }
                               return Tooltip(message: msg, child: AbsorbPointer(child: button));
                             }),
                             const SizedBox(width: 8),
-                            if (pongModel.betAmt > 0 && pongModel.currentWR == null && pongModel.escrowId.isNotEmpty)
+                            if (pongModel.betAmt > 0 && pongModel.currentWR == null && pongModel.escrowId.isNotEmpty && pongModel.escrowFunded)
                               ElevatedButton.icon(
                                 onPressed: pongModel.createWaitingRoom,
                                 icon: const Icon(Icons.meeting_room),
@@ -379,7 +382,8 @@ class _HomeScreenState extends State<HomeScreen> {
                 ),
               ],
               ),
-            ),
+            );
+            }),
     );
   }
 }

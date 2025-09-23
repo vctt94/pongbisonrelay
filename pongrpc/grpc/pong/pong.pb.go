@@ -1300,8 +1300,10 @@ type NtfnStreamResponse struct {
 	Wr               *WaitingRoom           `protobuf:"bytes,9,opt,name=wr,proto3" json:"wr,omitempty"`
 	Ready            bool                   `protobuf:"varint,10,opt,name=ready,proto3" json:"ready,omitempty"`
 	MatchAlloc       *MatchAllocatedNtfn    `protobuf:"bytes,11,opt,name=match_alloc,json=matchAlloc,proto3" json:"match_alloc,omitempty"`
-	unknownFields    protoimpl.UnknownFields
-	sizeCache        protoimpl.SizeCache
+	// Number of confirmations for the relevant escrow deposit (if applicable)
+	Confs         uint32 `protobuf:"varint,12,opt,name=confs,proto3" json:"confs,omitempty"`
+	unknownFields protoimpl.UnknownFields
+	sizeCache     protoimpl.SizeCache
 }
 
 func (x *NtfnStreamResponse) Reset() {
@@ -1409,6 +1411,13 @@ func (x *NtfnStreamResponse) GetMatchAlloc() *MatchAllocatedNtfn {
 		return x.MatchAlloc
 	}
 	return nil
+}
+
+func (x *NtfnStreamResponse) GetConfs() uint32 {
+	if x != nil {
+		return x.Confs
+	}
+	return 0
 }
 
 // Waiting Room Messages
@@ -2699,7 +2708,7 @@ const file_pong_proto_rawDesc = "" +
 	"\tclient_id\x18\x01 \x01(\tR\bclientId\"\x1b\n" +
 	"\x19UnreadyGameStreamResponse\"5\n" +
 	"\x16StartNtfnStreamRequest\x12\x1b\n" +
-	"\tclient_id\x18\x01 \x01(\tR\bclientId\"\x8d\x03\n" +
+	"\tclient_id\x18\x01 \x01(\tR\bclientId\"\xa3\x03\n" +
 	"\x12NtfnStreamResponse\x12C\n" +
 	"\x11notification_type\x18\x01 \x01(\x0e2\x16.pong.NotificationTypeR\x10notificationType\x12\x18\n" +
 	"\astarted\x18\x02 \x01(\bR\astarted\x12\x17\n" +
@@ -2713,7 +2722,8 @@ const file_pong_proto_rawDesc = "" +
 	"\x05ready\x18\n" +
 	" \x01(\bR\x05ready\x129\n" +
 	"\vmatch_alloc\x18\v \x01(\v2\x18.pong.MatchAllocatedNtfnR\n" +
-	"matchAlloc\".\n" +
+	"matchAlloc\x12\x14\n" +
+	"\x05confs\x18\f \x01(\rR\x05confs\".\n" +
 	"\x13WaitingRoomsRequest\x12\x17\n" +
 	"\aroom_id\x18\x01 \x01(\tR\x06roomId\"9\n" +
 	"\x14WaitingRoomsResponse\x12!\n" +
