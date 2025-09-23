@@ -60,9 +60,9 @@ class _HomeScreenState extends State<HomeScreen> {
                               ),
                             ),
                             const Spacer(),
-                            if (pongModel.fundingStatus.isNotEmpty) ...[
+                            if (pongModel.escrowFunded) ...[
                               Tooltip(
-                                message: pongModel.fundingStatus,
+                                message: pongModel.fundingStatus.isNotEmpty ? pongModel.fundingStatus : (pongModel.escrowConfirmed ? 'Deposit confirmed (${pongModel.escrowConfs})' : 'Deposit seen (mempool)'),
                                 child: Row(children: const [
                                   Icon(Icons.check_circle, color: Colors.greenAccent, size: 16),
                                   SizedBox(width: 6),
@@ -71,10 +71,8 @@ class _HomeScreenState extends State<HomeScreen> {
                               ),
                               const SizedBox(width: 12),
                             ],
-                            // Consider escrow active if we have an id, deposit address, or funding msg
-                            if (pongModel.escrowId.isNotEmpty ||
-                                pongModel.escrowDepositAddress.isNotEmpty ||
-                                pongModel.fundingStatus.isNotEmpty)
+                            // Consider escrow active strictly when there is a current escrow id.
+                            if (pongModel.escrowId.isNotEmpty)
                               Container(
                                 padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 6),
                                 decoration: BoxDecoration(
@@ -148,6 +146,7 @@ class _HomeScreenState extends State<HomeScreen> {
                                   ? () async {
                                       final wr = pongModel.currentWR!;
                                       final matchId = '${wr.id}|${wr.host}';
+                                      pongModel.lastMatchId = matchId;
                                       try {
                                         await Golib.startPreSign(matchId);
                                         if (!ctx.mounted) return;

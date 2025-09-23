@@ -528,6 +528,10 @@ abstract class PluginPlatform {
   Future<void> startPreSign(String matchId) async {
     await asyncCall(CTStartPreSign, { 'match_id': matchId });
   }
+
+  Future<void> archiveSettlementSessionKey(String matchId) async {
+    await asyncCall(CTArchiveSessionKey, { 'match_id': matchId });
+  }
 }
 
 const int CTUnknown = 0x00;
@@ -543,6 +547,7 @@ const int CTLeaveWaitingRoom = 0x09;
 const int CTGenerateSessionKey = 0x0a;
 const int CTOpenEscrow        = 0x0b;
 const int CTStartPreSign      = 0x0c;
+const int CTArchiveSessionKey = 0x0e;
 const int CTCloseLockFile = 0x60;
 
 const int notificationsStartID = 0x1000;

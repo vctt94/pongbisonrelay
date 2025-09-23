@@ -2,9 +2,11 @@ package client
 
 import (
 	"context"
+	"crypto/rand"
 	"encoding/hex"
 	"encoding/json"
 	"fmt"
+	"io"
 	"log"
 	"os"
 	"path/filepath"
@@ -12,13 +14,11 @@ import (
 	"sync"
 	"time"
 
-	"github.com/companyzero/bisonrelay/clientrpc/types"
 	"github.com/decred/dcrd/dcrec/secp256k1/v4"
 	"github.com/decred/slog"
 
 	tea "github.com/charmbracelet/bubbletea"
 
-	"github.com/vctt94/bisonbotkit/botclient"
 	"github.com/vctt94/bisonbotkit/logging"
 	"github.com/vctt94/pongbisonrelay/pongrpc/grpc/pong"
 	"google.golang.org/grpc"
@@ -137,38 +137,45 @@ func NewPongClient(clientID string, cfg *PongClientCfg) (*PongClient, error) {
 // user's identity and returns it as a hex string. The internal RPC client
 // is stopped before returning.
 func ResolveClientID(ctx context.Context, appCfg *AppConfig) (string, error) {
-	if appCfg == nil || appCfg.BR == nil {
-		return "", fmt.Errorf("missing BR config in AppConfig")
+	// if appCfg == nil || appCfg.BR == nil {
+	// 	return "", fmt.Errorf("missing BR config in AppConfig")
+	// }
+
+	// c, err := botclient.NewClient(appCfg.BR)
+	// if err != nil {
+	// 	return "", fmt.Errorf("create botclient: %w", err)
+	// }
+
+	// // Run the RPC client in the background while we query identity.
+	// runCtx, runCancel := context.WithCancel(context.Background())
+	// defer runCancel()
+	// go func() { _ = c.RPCClient.Run(runCtx) }()
+
+	// // Retry identity query until the RPC is ready, up to a short deadline.
+	// deadline := time.Now().Add(10 * time.Second)
+	// var pii types.PublicIdentity
+	// for {
+	// 	// Use a short per-attempt timeout, but honor the parent ctx.
+	// 	attemptCtx, cancel := context.WithTimeout(ctx, 3*time.Second)
+	// 	err = c.Chat.UserPublicIdentity(attemptCtx, &types.PublicIdentityReq{}, &pii)
+	// 	cancel()
+	// 	if err == nil {
+	// 		break
+	// 	}
+	// 	if time.Now().After(deadline) || attemptCtx.Err() != nil {
+	// 		return "", fmt.Errorf("get public identity: %w", err)
+	// 	}
+	// 	time.Sleep(200 * time.Millisecond)
+	// }
+
+	// return hex.EncodeToString(pii.Identity[:]), nil
+
+	// For now, avoid BR identity and generate a random 32-byte hex ID.
+	var b [32]byte
+	if _, err := rand.Read(b[:]); err != nil {
+		return "", fmt.Errorf("generate random id: %w", err)
 	}
-
-	c, err := botclient.NewClient(appCfg.BR)
-	if err != nil {
-		return "", fmt.Errorf("create botclient: %w", err)
-	}
-
-	// Run the RPC client in the background while we query identity.
-	runCtx, runCancel := context.WithCancel(context.Background())
-	defer runCancel()
-	go func() { _ = c.RPCClient.Run(runCtx) }()
-
-	// Retry identity query until the RPC is ready, up to a short deadline.
-	deadline := time.Now().Add(10 * time.Second)
-	var pii types.PublicIdentity
-	for {
-		// Use a short per-attempt timeout, but honor the parent ctx.
-		attemptCtx, cancel := context.WithTimeout(ctx, 3*time.Second)
-		err = c.Chat.UserPublicIdentity(attemptCtx, &types.PublicIdentityReq{}, &pii)
-		cancel()
-		if err == nil {
-			break
-		}
-		if time.Now().After(deadline) || attemptCtx.Err() != nil {
-			return "", fmt.Errorf("get public identity: %w", err)
-		}
-		time.Sleep(200 * time.Millisecond)
-	}
-
-	return hex.EncodeToString(pii.Identity[:]), nil
+	return hex.EncodeToString(b[:]), nil
 }
 
 func SetupLogging(appCfg *AppConfig, appName string) (*logging.LogBackend, slog.Logger, error) {
@@ -257,6 +264,97 @@ func (pc *PongClient) loadSettlementSessionKey() (bool, error) {
 	pc.settlePubHex = p.Pub
 	pc.Unlock()
 	return true, nil
+}
+
+// allow letters/digits and -_.; map everything else (incl. '/', '\', '|', quotes) to '_'
+func sanitize(matchID string) string {
+	matchID = strings.TrimSpace(matchID)
+	if matchID == "" {
+		return ""
+	}
+	mapped := strings.Map(func(r rune) rune {
+		switch {
+		case r >= 'a' && r <= 'z',
+			r >= 'A' && r <= 'Z',
+			r >= '0' && r <= '9',
+			r == '-', r == '_', r == '.':
+			return r
+		default:
+			return '_'
+		}
+	}, matchID)
+	// avoid hidden/awkward names
+	mapped = strings.Trim(mapped, "._")
+	if mapped == "" {
+		return ""
+	}
+	return mapped
+}
+
+// ArchiveSettlementSessionKey moves the current session key file to a historical
+// directory, namespaced by match ID, and clears in-memory keys.
+func (pc *PongClient) ArchiveSettlementSessionKey(matchID string) error {
+	// Clear cached keys in memory
+	pc.Lock()
+	pc.settlePrivHex, pc.settlePubHex = "", ""
+	pc.Unlock()
+
+	base := strings.TrimSpace(pc.sessionKeyFilePath())
+	if base == "" {
+		return nil
+	}
+	if _, err := os.Stat(base); err != nil {
+		if os.IsNotExist(err) {
+			return nil
+		}
+		return err
+	}
+
+	// Ensure destination dir
+	dir := filepath.Join(filepath.Dir(base), "historic_sessions")
+	if err := os.MkdirAll(dir, 0o700); err != nil {
+		return err
+	}
+
+	// Safe, portable name (fallback to timestamp)
+	safe := sanitize(matchID)
+	if safe == "" {
+		safe = fmt.Sprintf("unknown_%d", time.Now().Unix())
+	}
+	dst := filepath.Join(dir, fmt.Sprintf("sessionkey_%s.json", safe))
+
+	// If a file with same name exists, add a short timestamp suffix
+	if _, err := os.Stat(dst); err == nil {
+		dst = filepath.Join(dir, fmt.Sprintf("sessionkey_%s_%s.json",
+			safe, time.Now().Format("20060102-150405")))
+	}
+
+	// Move: try rename; if cross-device, copy then remove
+	if err := os.Rename(base, dst); err != nil {
+		srcF, rerr := os.Open(base)
+		if rerr != nil {
+			return rerr
+		}
+		defer srcF.Close()
+
+		// 0600: only current user can read the archived key
+		dstF, werr := os.OpenFile(dst, os.O_CREATE|os.O_WRONLY|os.O_TRUNC, 0o600)
+		if werr != nil {
+			return werr
+		}
+		if _, cerr := io.Copy(dstF, srcF); cerr != nil {
+			dstF.Close()
+			_ = os.Remove(dst) // best effort cleanup
+			return cerr
+		}
+		if cerr := dstF.Close(); cerr != nil {
+			return cerr
+		}
+		if derr := os.Remove(base); derr != nil {
+			return derr
+		}
+	}
+	return nil
 }
 
 // GenerateNewSettlementSessionKey always creates a new session key and overwrites the cached one.

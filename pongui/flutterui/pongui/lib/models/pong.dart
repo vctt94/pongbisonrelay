@@ -38,6 +38,7 @@ class PongModel extends ChangeNotifier {
   String escrowPkScriptHex = '';
   int escrowBetAtoms = 0;
   String fundingStatus = '';
+  int escrowConfs = 0;
   // Escrow funding flags derived from notifications
   bool escrowFunded = false;    // true when deposit seen (0-conf OK)
   bool escrowConfirmed = false; // true when at least 1 confirmation
@@ -56,6 +57,10 @@ class PongModel extends ChangeNotifier {
   GameState _currentGameState = GameState.idle;
   String currentGameId = '';
   String countdownMessage = '';
+
+  // Track last settlement match id used for presign so we can archive the
+  // session key safely after game completion.
+  String lastMatchId = '';
 
   void setEscrowId(String id) {
     escrowId = id;
@@ -160,16 +165,22 @@ class PongModel extends ChangeNotifier {
 
       switch (ntfn.notificationType) {
         case NotificationType.MESSAGE:
-          fundingStatus = ntfn.message;
+          // Avoid deriving funding state from free-form messages; show as toast only.
+          notificationModel.showNotification(ntfn.message);
           notifyListeners();
           break;
         case NotificationType.BET_AMOUNT_UPDATE:
           if (ntfn.playerId == clientId) {
             betAmt = ntfn.betAmt.toInt();
-            // Consider escrow funded whenever a watcher-driven update arrives; rely on confs
+            escrowConfs = ntfn.confs;
+            // Consider escrow funded whenever a watcher-driven update arrives (may be 0-conf)
             escrowFunded = ntfn.confs >= 0;
-            // Use structured confs count straight from server
+            // Confirmed when at least 1 conf
             escrowConfirmed = ntfn.confs >= 1;
+            // Optional: textual status for tooltip only, derived from structured confs
+            fundingStatus = escrowConfirmed
+                ? 'Deposit confirmed (${ntfn.confs})'
+                : 'Deposit seen (mempool)';
             notifyListeners();
           }
           break;
@@ -241,7 +252,9 @@ class PongModel extends ChangeNotifier {
 
         case NotificationType.GAME_END:
           notificationModel.showNotification(ntfn.message);
+          // Reset gameplay state and clear escrow so the user can start fresh.
           resetGameState();
+          clearEscrowState();
           break;
 
         case NotificationType.ON_WR_REMOVED:
@@ -329,6 +342,25 @@ class PongModel extends ChangeNotifier {
     currentGameId = '';
     countdownMessage = '';
     _stopGameStreamAndRenderLoop();
+    notifyListeners();
+  }
+
+  // Clear all escrow-related client state so user can open a fresh escrow
+  // after a game ends or when leaving a room.
+  void clearEscrowState() {
+    escrowId = '';
+    escrowDepositAddress = '';
+    escrowPkScriptHex = '';
+    escrowBetAtoms = 0;
+    escrowFunded = false;
+    escrowConfirmed = false;
+    escrowConfs = 0;
+    fundingStatus = '';
+    // Also archive the persisted session key so a new escrow can use a new key
+    // while retaining recovery data for this match.
+    if (lastMatchId.isNotEmpty) {
+      Golib.archiveSettlementSessionKey(lastMatchId);
+    }
     notifyListeners();
   }
 
@@ -440,10 +472,11 @@ class PongModel extends ChangeNotifier {
     try {
       await Golib.LeaveWaitingRoom(currentWR!.id);
 
-      // Reset waiting room state
+      // Reset waiting room state and escrow so a new match can be started
       currentWR = null;
       _currentGameState = GameState.idle;
       errorMessage = '';
+      clearEscrowState();
       _stopGameStreamAndRenderLoop();
       notifyListeners();
 

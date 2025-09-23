@@ -2,7 +2,7 @@ package main
 
 import (
 	"context"
-	"encoding/hex"
+	"crypto/rand"
 	"flag"
 	"fmt"
 	"net"
@@ -14,7 +14,6 @@ import (
 
 	"github.com/companyzero/bisonrelay/clientrpc/types"
 	"github.com/companyzero/bisonrelay/zkidentity"
-	"github.com/vctt94/bisonbotkit"
 	"github.com/vctt94/bisonbotkit/logging"
 	"github.com/vctt94/bisonbotkit/utils"
 	"github.com/vctt94/pongbisonrelay/pongrpc/grpc/pong"
@@ -147,10 +146,10 @@ func realMain() error {
 		return fmt.Errorf("failed to listen on gRPC port: %v", err)
 	}
 
-	bot, err := bisonbotkit.NewBot(cfg.BotConfig)
-	if err != nil {
-		return fmt.Errorf("failed to create JSON-RPC client: %w", err)
-	}
+	// bot, err := bisonbotkit.NewBot(cfg.BotConfig)
+	// if err != nil {
+	// 	return fmt.Errorf("failed to create JSON-RPC client: %w", err)
+	// }
 
 	sigChan := make(chan os.Signal, 1)
 	signal.Notify(sigChan, os.Interrupt, syscall.SIGTERM)
@@ -160,15 +159,13 @@ func realMain() error {
 		cancel()
 	}()
 
-	req := &types.PublicIdentityReq{}
-	var publicIdentity types.PublicIdentity
-	if err := bot.UserPublicIdentity(ctx, req, &publicIdentity); err != nil {
-		return fmt.Errorf("failed to get public identity: %w", err)
+	// Generate a random server ShortID (avoid BR dependency for now).
+	var rnd [32]byte
+	if _, err := rand.Read(rnd[:]); err != nil {
+		return fmt.Errorf("failed to generate server id: %w", err)
 	}
-
-	clientID := hex.EncodeToString(publicIdentity.Identity[:])
 	var zkShortID zkidentity.ShortID
-	copy(zkShortID[:], clientID)
+	zkShortID.FromBytes(rnd[:])
 
 	srv, err := server.NewServer(&zkShortID, server.ServerConfig{
 		ServerDir:       cfg.DataDir,
@@ -236,8 +233,7 @@ func realMain() error {
 	<-gctx.Done()
 	log.Info("Shutting down servers...")
 
-	// Make sure to call bot.Close() during shutdown
-	bot.Close()
+	// bot.Close()
 	log.Info("Server shutdown complete")
 	select {
 	case <-ctx.Done():

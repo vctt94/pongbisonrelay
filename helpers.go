@@ -13,6 +13,7 @@ import (
 	"github.com/decred/dcrd/crypto/blake256"
 	"github.com/decred/dcrd/dcrec/secp256k1/v4"
 	"github.com/decred/dcrd/dcrutil/v4"
+	"github.com/decred/dcrd/hdkeychain/v3"
 	"github.com/decred/dcrd/txscript/v4"
 	"github.com/decred/dcrd/txscript/v4/stdaddr"
 	"github.com/decred/dcrd/wire"
@@ -350,4 +351,117 @@ func PayoutPubkeyFromConfHex(addrOrHex string) ([]byte, error) {
 		return nil, fmt.Errorf("address is not P2PK (pubkey). Pass a pubkey address (the 'pubkeyaddr' value) or a 33-byte pubkey hex")
 	}
 	return nil, fmt.Errorf("decode failed as hex or address: %v", lastErr)
+}
+
+// PubKeyAddressFromXPub derives m/.../0/index from the given xpub and returns
+// the human-readable Decred P2PK (pubkey) address string for the detected
+// network. The derived compressed pubkey is the same 33-byte key returned by
+// ChildCompressedPubFromXPub and is suitable for P2PK payout scripts.
+func PubKeyAddressFromXPub(xpub string, index uint32) (string, error) {
+	pk33, params, err := childCompressedPubFromXPub(xpub, index)
+	if err != nil {
+		return "", err
+	}
+	pk, err := secp256k1.ParsePubKey(pk33)
+	if err != nil {
+		return "", err
+	}
+	a, err := stdaddr.NewAddressPubKeyEcdsaSecp256k1V0(pk, params)
+	if err != nil {
+		return "", err
+	}
+	return a.String(), nil
+}
+
+// ResolvePayoutKey accepts:
+//   - 33/65B hex pubkey
+//   - Decred P2PK (pubkey) address
+//   - Decred account xpub (tpub/dpub)  -> derives m/.../0/index
+//
+// It returns a 33-byte compressed pubkey suitable for <pk33> 2 OP_CHECKSIGALT.
+// Returns a 33-byte compressed pubkey.
+func ResolvePayoutKey(input string) ([]byte, error) {
+	s := strings.TrimSpace(input)
+	if s == "" {
+		return nil, fmt.Errorf("empty payout")
+	}
+
+	// If it's an xpub, derive m/.../0/0 and return its 33B pubkey.
+	if strings.HasPrefix(s, "tpub") || strings.HasPrefix(s, "dpub") {
+		pk33, err := childFromXpub_0_0(s)
+		if err != nil {
+			return nil, fmt.Errorf("derive from xpub: %w", err)
+		}
+		return pk33, nil
+	}
+
+	// Otherwise, expect hex pubkey or Decred P2PK (pubkey) address.
+	return PayoutPubkeyFromConfHex(s)
+}
+
+func childFromXpub_0_0(xpub string) ([]byte, error) {
+	nets := []*chaincfg.Params{
+		chaincfg.TestNet3Params(),
+		chaincfg.MainNetParams(),
+		chaincfg.SimNetParams(),
+		chaincfg.RegNetParams(),
+	}
+	var lastErr error
+	for _, net := range nets {
+		acc, err := hdkeychain.NewKeyFromString(xpub, net)
+		if err != nil {
+			lastErr = err
+			continue
+		}
+
+		ext, err := acc.Child(0) // external branch
+		if err != nil {
+			return nil, err
+		}
+		ch, err := ext.Child(0) // index 0
+		if err != nil {
+			return nil, err
+		}
+
+		pub := ch.Neuter()
+		return pub.SerializedPubKey(), nil // 33-byte compressed
+	}
+	return nil, fmt.Errorf("xpub didn't match known nets: %v", lastErr)
+}
+
+// ChildCompressedPubFromXPub derives m/.../0/index and returns the 33-byte
+// compressed pubkey.
+func childCompressedPubFromXPub(xpub string, index uint32) ([]byte, *chaincfg.Params, error) {
+	nets := []*chaincfg.Params{
+		chaincfg.TestNet3Params(),
+		chaincfg.MainNetParams(),
+		chaincfg.SimNetParams(),
+		chaincfg.RegNetParams(),
+	}
+
+	var lastErr error
+	for _, net := range nets {
+		acc, err := hdkeychain.NewKeyFromString(xpub, net)
+		if err != nil {
+			lastErr = err
+			continue
+		}
+
+		// External branch (0), then non-hardened child index.
+		ext, err := acc.Child(0)
+		if err != nil {
+			return nil, nil, fmt.Errorf("derive external branch: %w", err)
+		}
+		ch, err := ext.Child(index)
+		if err != nil {
+			return nil, nil, fmt.Errorf("derive child %d: %w", index, err)
+		}
+
+		// Ensure public (neutered) and grab the serialized compressed pubkey.
+		pub := ch.Neuter()
+		pk33 := pub.SerializedPubKey() // <- 33-byte compressed secp256k1 key
+
+		return pk33, net, nil
+	}
+	return nil, nil, fmt.Errorf("xpub didn't match known networks: %v", lastErr)
 }
