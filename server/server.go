@@ -1,6 +1,7 @@
 package server
 
 import (
+	"bytes"
 	"context"
 	"encoding/hex"
 	"fmt"
@@ -14,6 +15,7 @@ import (
 	"github.com/companyzero/bisonrelay/clientrpc/types"
 	"github.com/companyzero/bisonrelay/zkidentity"
 	"github.com/decred/dcrd/rpcclient/v8"
+	"github.com/decred/dcrd/wire"
 	"github.com/decred/slog"
 	"github.com/vctt94/bisonbotkit/logging"
 	pongbisonrelay "github.com/vctt94/pongbisonrelay"
@@ -552,7 +554,7 @@ func (s *Server) handleGameEnd(ctx context.Context, game *ponggame.GameInstance,
 		s.gameManager.RemovePlayerGame(*player.ID)
 	}
 
-	// POC: deliver gamma to winner via NtfnStream for finalization (skip in F2P)
+	// Finalize winner branch and broadcast on server (skip in F2P)
 	if winner != nil && !s.isF2P {
 		// Determine branch index anchored to room host: branch 0 pays host (a), 1 pays non-host (b).
 		winnerBranch := int32(0)
@@ -569,8 +571,7 @@ func (s *Server) handleGameEnd(ctx context.Context, game *ponggame.GameInstance,
 		}
 		s.log.Debugf("finalize: computed winnerBranch=%d host=%s winner=%s", winnerBranch, hostUID, winnerID)
 
-		// Look up the winner's escrow session bound to this room and find the presign context
-		// for the computed winner branch.
+		// Look up the winner's escrow session bound to this room and gather presigs for the branch.
 		var wrID string
 		for _, p := range players {
 			if p != nil && p.WR != nil {
@@ -594,14 +595,12 @@ func (s *Server) handleGameEnd(ctx context.Context, game *ponggame.GameInstance,
 			s.log.Errorf("finalize: no room-bound escrow session found for winner %s in wr %s", winnerID, wrID)
 			return
 		}
-		if es == nil {
-			s.log.Warnf("finalize: no escrow session found for winner %s", winnerID)
-			return
-		}
-		if es.preSign == nil {
+		if es.preSign == nil || len(es.preSign) == 0 {
 			s.log.Warnf("finalize: no presign contexts stored for winner %s", winnerID)
 			return
 		}
+
+		// Choose any context for the winner branch to anchor the draft hex.
 		var chosen *PreSignCtx
 		var branches []int32
 		for _, ctxp := range es.preSign {
@@ -614,19 +613,71 @@ func (s *Server) handleGameEnd(ctx context.Context, game *ponggame.GameInstance,
 			s.log.Warnf("finalize: no presign context for branch %d; have branches=%v", winnerBranch, branches)
 			return
 		}
-		// Derive gamma using the same branch-bound domain separation used during presign.
-		const pocServerPrivHex = "11ee22dd33cc44bb55aa66ff77ee88dd99cc00bbaa11223344556677889900aa"
-		branchTag := fmt.Sprintf("branch-%d", chosen.Branch)
-		gammaHex, _ := pongbisonrelay.DeriveAdaptorGamma("", branchTag, chosen.Branch, branchTag, pocServerPrivHex)
-		if gb, err := hex.DecodeString(gammaHex); err == nil && len(gb) == 32 {
-			if w := s.gameManager.PlayerSessions.GetPlayer(*winner); w != nil && w.NotifierStream != nil {
-				_ = s.notify(w, &pong.NtfnStreamResponse{
-					NotificationType: pong.NotificationType_MESSAGE,
-					Message:          fmt.Sprintf("Gamma received; finalizing… (%x)\nResult draft tx hex: %s", gb, chosen.DraftHex),
-				})
+
+		// Build inputs/presigs for the chosen draft from stored contexts.
+		inputs := make([]*pong.NeedPreSigs_PerInput, 0, len(es.preSign))
+		presigs := make(map[string]*pong.PreSig)
+		for id, ctxp := range es.preSign {
+			if ctxp.Branch != winnerBranch || ctxp.DraftHex != chosen.DraftHex {
+				continue
 			}
-		} else if err != nil {
-			s.log.Warnf("failed to decode gamma hex: %v", err)
+			inputs = append(inputs, &pong.NeedPreSigs_PerInput{InputId: id, RedeemScriptHex: ctxp.RedeemScriptHex})
+			presigs[id] = &pong.PreSig{InputId: id, RLineCompressed: append([]byte(nil), ctxp.RLineCompressed...), SLine32: append([]byte(nil), ctxp.SLine32...)}
+		}
+		if len(inputs) == 0 || len(presigs) == 0 {
+			s.log.Warnf("finalize: missing presigs/inputs for winner branch %d", winnerBranch)
+			return
+		}
+
+		// Derive gamma using the configured adaptor secret (same domain separation as presign).
+		serverSecret := s.adaptorSecret
+		if serverSecret == "" {
+			s.log.Warnf("finalize: server adaptor secret not configured; cannot finalize")
+			return
+		}
+		branchTag := fmt.Sprintf("branch-%d", winnerBranch)
+		gammaHex, _ := pongbisonrelay.DeriveAdaptorGamma("", branchTag, winnerBranch, branchTag, serverSecret)
+
+		// Finalize winner transaction.
+		hexTx, err := pongbisonrelay.FinalizeWinner(gammaHex, chosen.DraftHex, inputs, presigs)
+		if err != nil {
+			s.log.Warnf("finalize: failed to finalize tx: %v", err)
+			if w := s.gameManager.PlayerSessions.GetPlayer(*winner); w != nil && w.NotifierStream != nil {
+				_ = s.notify(w, &pong.NtfnStreamResponse{NotificationType: pong.NotificationType_MESSAGE, Message: "Settlement failed to finalize; please contact support."})
+			}
+			return
+		}
+
+		// Broadcast the transaction via dcrd.
+		raw, err := hex.DecodeString(hexTx)
+		if err != nil {
+			s.log.Warnf("finalize: bad hex for tx: %v", err)
+			return
+		}
+		var tx wire.MsgTx
+		if err := tx.Deserialize(bytes.NewReader(raw)); err != nil {
+			s.log.Warnf("finalize: deserialize tx failed: %v", err)
+			return
+		}
+		ctxBroadcast, cancel := context.WithTimeout(ctx, 20*time.Second)
+		defer cancel()
+		h, err := s.dcrd.SendRawTransaction(ctxBroadcast, &tx, false)
+		if err != nil {
+			s.log.Warnf("broadcast failed: %v", err)
+			// Include hex for manual broadcast/debugging.
+			if w := s.gameManager.PlayerSessions.GetPlayer(*winner); w != nil && w.NotifierStream != nil {
+				_ = s.notify(w, &pong.NtfnStreamResponse{NotificationType: pong.NotificationType_MESSAGE, Message: fmt.Sprintf("Settlement broadcast failed: %v. You may broadcast manually with this hex: %s", err, hexTx)})
+			}
+			return
+		}
+		txid := h.String()
+
+		// Notify both players of settlement broadcast.
+		for _, p := range players {
+			_ = s.notify(p, &pong.NtfnStreamResponse{
+				NotificationType: pong.NotificationType_MESSAGE,
+				Message:          fmt.Sprintf("Settlement broadcasted. txid=%s", txid),
+			})
 		}
 	}
 }
