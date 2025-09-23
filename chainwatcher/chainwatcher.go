@@ -34,15 +34,20 @@ type ChainWatcher struct {
 	tip  int64
 	subs map[string]map[chan DepositUpdate]struct{} // pkScriptHex -> set(chan)
 
-	quit chan struct{}
+	quit        chan struct{}
+	lastScanned int64
+
+	pkBytes map[string][]byte
 }
 
 func NewChainWatcher(log slog.Logger, c *rpcclient.Client) *ChainWatcher {
 	return &ChainWatcher{
-		log:  log,
-		dcrd: c,
-		subs: make(map[string]map[chan DepositUpdate]struct{}),
-		quit: make(chan struct{}),
+		log:         log,
+		dcrd:        c,
+		subs:        make(map[string]map[chan DepositUpdate]struct{}),
+		quit:        make(chan struct{}),
+		lastScanned: -1,
+		pkBytes:     make(map[string][]byte),
 	}
 }
 
@@ -88,44 +93,46 @@ func (w *ChainWatcher) pollOnce(ctx context.Context) {
 		keys = append(keys, k)
 	}
 	w.mu.RUnlock()
-	w.log.Debugf("watcher: poll tick; tip=%d, subs=%d", w.currentTip(), subsCount)
+	tip := w.currentTip()
+	w.log.Debugf("watcher: poll tick; tip=%d, subs=%d", tip, subsCount)
 
 	// Scan each subscribed pkScript.
 	for _, pkHex := range keys {
 		w.log.Debugf("watcher: scanning pk=%s", pkHex)
+
+		w.mu.RLock()
+		pkb := w.pkBytes[pkHex]
+		w.mu.RUnlock()
+
 		var utxos []*pong.EscrowUTXO
 		var confs uint32
 		found := false
 
-		// Lookback over recent blocks (bounded).
-		if h := w.currentTip(); h >= 0 {
-			const lookback = int64(1024)
+		// ----- New blocks only -----
+		if tip >= 0 {
+			start := w.lastScanned + 1
+			// First run or reorg/unknown -> just scan the current tip only (no big backfill).
+			if w.lastScanned == -1 || start < 0 || start > tip {
+				start = tip
+			}
+
 			latestMatch := int64(-1)
-			best := h
-			for i := int64(0); i < lookback && best-i >= 0; i++ {
-				bh := best - i
+			for bh := start; bh <= tip; bh++ {
 				hash, err := w.dcrd.GetBlockHash(ctx, bh)
 				if err != nil {
 					continue
 				}
-				bv, err := w.dcrd.GetBlockVerbose(ctx, hash, true)
-				if err != nil {
+				msg, err := w.dcrd.GetBlock(ctx, hash)
+				if err != nil || msg == nil {
 					continue
 				}
-				for _, tx := range bv.RawTx {
-					for voutIdx, vout := range tx.Vout {
-						match := false
-						if spkBytes, err := hex.DecodeString(vout.ScriptPubKey.Hex); err == nil {
-							if pkBytes, err := hex.DecodeString(pkHex); err == nil {
-								match = bytes.Equal(spkBytes, pkBytes)
-							}
-						}
-						if match {
-							atoms := uint64(vout.Value * 1e8)
+				for _, mtx := range msg.Transactions {
+					for voutIdx, o := range mtx.TxOut {
+						if pkb != nil && bytes.Equal(o.PkScript, pkb) {
 							utxos = append(utxos, &pong.EscrowUTXO{
-								Txid:        tx.Txid,
+								Txid:        mtx.TxHash().String(),
 								Vout:        uint32(voutIdx),
-								Value:       atoms,
+								Value:       uint64(o.Value), // atoms already
 								PkScriptHex: pkHex,
 							})
 							if bh > latestMatch {
@@ -135,29 +142,36 @@ func (w *ChainWatcher) pollOnce(ctx context.Context) {
 					}
 				}
 			}
+
 			if len(utxos) > 0 && latestMatch >= 0 {
-				confs = uint32((best - latestMatch) + 1)
+				confs = uint32((tip - latestMatch) + 1)
 				found = true
-				w.log.Debugf("watcher: pk=%s found in blocks; utxos=%d confs=%d", pkHex, len(utxos), confs)
+				w.log.Debugf("watcher: pk=%s found in new blocks; utxos=%d confs=%d (scanned %d..%d)",
+					pkHex, len(utxos), confs, start, tip)
 			}
+
+			// Advance lastScanned to the tip processed this tick.
+			w.lastScanned = tip
 		}
 
-		// If not in recent blocks, check mempool (0-conf).
+		// ----- Mempool (0-conf) as fallback -----
 		if !found {
 			if txids, err := w.dcrd.GetRawMempool(ctx, "all"); err == nil {
 				for _, th := range txids {
 					v, err := w.dcrd.GetRawTransactionVerbose(ctx, th)
-					if err != nil {
+					if err != nil || v == nil {
 						continue
 					}
 					for voutIdx, vout := range v.Vout {
-						match := false
-						if spkBytes, err := hex.DecodeString(vout.ScriptPubKey.Hex); err == nil {
-							if pkBytes, err := hex.DecodeString(pkHex); err == nil {
-								match = bytes.Equal(spkBytes, pkBytes)
-							}
+						// Compare mempool vout script (hex) to cached pkb.
+						if pkb == nil {
+							continue
 						}
-						if match {
+						spkBytes, err := hex.DecodeString(vout.ScriptPubKey.Hex)
+						if err != nil {
+							continue
+						}
+						if bytes.Equal(spkBytes, pkb) {
 							atoms := uint64(vout.Value * 1e8)
 							utxos = append(utxos, &pong.EscrowUTXO{
 								Txid:        v.Txid,
@@ -178,10 +192,10 @@ func (w *ChainWatcher) pollOnce(ctx context.Context) {
 			}
 		}
 
-		// Filter to only include currently unspent outputs and compute min confirmations.
+		// ----- Filter to unspent & compute min confirmations -----
 		if len(utxos) > 0 {
 			filtered := make([]*pong.EscrowUTXO, 0, len(utxos))
-			minConfs := int64(^uint32(0)) // start large; res.Confirmations is int64
+			minConfs := int64(^uint32(0)) // large; GetTxOut.Confirmations is int64
 			for _, u := range utxos {
 				var h chainhash.Hash
 				if err := chainhash.Decode(&h, u.Txid); err != nil {
@@ -189,7 +203,7 @@ func (w *ChainWatcher) pollOnce(ctx context.Context) {
 				}
 				res, err := w.dcrd.GetTxOut(ctx, &h, u.Vout, 0, true)
 				if err != nil || res == nil {
-					// Spent or not found
+					// Spent or not found.
 					continue
 				}
 				filtered = append(filtered, u)
@@ -200,11 +214,12 @@ func (w *ChainWatcher) pollOnce(ctx context.Context) {
 			utxos = filtered
 			if len(utxos) > 0 {
 				found = true
-				if minConfs < 0 {
+				switch {
+				case minConfs < 0:
 					confs = 0
-				} else if minConfs > int64(^uint32(0)) {
+				case minConfs > int64(^uint32(0)):
 					confs = ^uint32(0)
-				} else {
+				default:
 					confs = uint32(minConfs)
 				}
 				w.log.Debugf("watcher: pk=%s unspent utxos=%d confs(min)=%d", pkHex, len(utxos), confs)
@@ -214,7 +229,7 @@ func (w *ChainWatcher) pollOnce(ctx context.Context) {
 			}
 		}
 
-		// Push an update every tick (simple, stateless).
+		// ----- Broadcast snapshot -----
 		w.broadcastUpdate(pkHex, DepositUpdate{
 			PkScriptHex: pkHex,
 			Confs:       confs,
@@ -236,6 +251,12 @@ func (w *ChainWatcher) currentTip() int64 {
 // No initial snapshot is sent; first data arrives on next tick.
 func (w *ChainWatcher) Subscribe(pkScriptHex string) (<-chan DepositUpdate, func()) {
 	k := strings.ToLower(pkScriptHex)
+	// cache decoded bytes (ignore error if bad hex; just don’t store)
+	if b, err := hex.DecodeString(k); err == nil {
+		w.mu.Lock()
+		w.pkBytes[k] = b
+		w.mu.Unlock()
+	}
 
 	ch := make(chan DepositUpdate, 8)
 
