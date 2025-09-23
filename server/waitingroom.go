@@ -87,7 +87,51 @@ func (s *Server) CreateWaitingRoom(ctx context.Context, req *pong.CreateWaitingR
 
 	s.log.Debugf("creating waiting room. Host ID: %s", hostID)
 
-	// Require funded escrow (0-conf OK).
+	// F2P mode: allow creating a waiting room without an escrow.
+	if s.isF2P {
+		// In F2P use the requested bet amount (may be zero for truly free games).
+		wr, err := ponggame.NewWaitingRoom(hostPlayer, req.BetAmt)
+		if err != nil {
+			return nil, fmt.Errorf("failed to create waiting room: %v", err)
+		}
+		hostPlayer.WR = wr
+
+		// Add to list of rooms.
+		totalRooms := s.gameManager.AppendWaitingRoom(wr)
+
+		s.log.Debugf("waiting room created (F2P). Total rooms: %d", totalRooms)
+
+		// Signal creation (non-blocking).
+		select {
+		case s.waitingRoomCreated <- struct{}{}:
+		default:
+		}
+
+		pongWR := wr.Marshal()
+
+		// Notify all users.
+		s.usersMu.RLock()
+		usersSnap := make([]*ponggame.Player, 0, len(s.users))
+		for _, u := range s.users {
+			usersSnap = append(usersSnap, u)
+		}
+		s.usersMu.RUnlock()
+
+		for _, user := range usersSnap {
+			if user.NotifierStream == nil {
+				s.log.Errorf("user %s without NotifierStream", user.ID)
+				continue
+			}
+			_ = s.notify(user, &pong.NtfnStreamResponse{
+				Wr:               pongWR,
+				NotificationType: pong.NotificationType_ON_WR_CREATED,
+			})
+		}
+
+		return &pong.CreateWaitingRoomResponse{Wr: pongWR}, nil
+	}
+
+	// Non-F2P: require funded escrow (0-conf OK).
 	es, err := s.resolveFundedEscrow(hostID.String(), req.EscrowId)
 	if err != nil {
 		return nil, fmt.Errorf("require funded escrow to create room (0-conf ok): %w", err)
@@ -165,7 +209,37 @@ func (s *Server) JoinWaitingRoom(ctx context.Context, req *pong.JoinWaitingRoomR
 		}
 	}
 
-	// Require funded escrow (0-conf OK).
+	// F2P mode: allow join without escrow.
+	if s.isF2P {
+		// Locate room.
+		wr := s.gameManager.GetWaitingRoom(req.RoomId)
+		if wr == nil {
+			return nil, fmt.Errorf("waiting room not found: %s", req.RoomId)
+		}
+
+		// Add player without escrow binding.
+		wr.AddPlayer(player)
+		player.WR = wr
+
+		pwr := wr.Marshal()
+		for _, p := range wr.Players {
+			if p.NotifierStream == nil {
+				s.log.Errorf("player %s has nil NotifierStream", p.ID.String())
+				continue
+			}
+			_ = s.notify(p, &pong.NtfnStreamResponse{
+				NotificationType: pong.NotificationType_PLAYER_JOINED_WR,
+				Message:          fmt.Sprintf("New player joined Waiting Room: %s", player.Nick),
+				PlayerId:         p.ID.String(),
+				RoomId:           wr.ID,
+				Wr:               pwr,
+			})
+		}
+
+		return &pong.JoinWaitingRoomResponse{Wr: pwr}, nil
+	}
+
+	// Non-F2P: require funded escrow (0-conf OK).
 	es, err := s.resolveFundedEscrow(uid.String(), req.EscrowId)
 	if err != nil {
 		return nil, fmt.Errorf("require funded escrow to join room (0-conf ok): %w", err)

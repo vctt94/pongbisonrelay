@@ -99,6 +99,30 @@ type escrowSession struct {
 	preSign map[string]*PreSignCtx // presign artifacts by input_id "txid:vout"
 }
 
+// preSignSnapshot returns a consistent snapshot of the presign state while
+// holding a read lock only once. It includes the bound input id, the list of
+// input ids present in presign contexts, whether all contexts agree on the
+// same branch, and the count of presign contexts.
+func (es *escrowSession) preSignSnapshot() (bound string, inputs []string, consistent bool) {
+	es.mu.RLock()
+	defer es.mu.RUnlock()
+
+	bound = es.boundInputID
+	consistent = true
+	var haveBranch bool
+	var branch int32
+	for _, ctx := range es.preSign {
+		if !haveBranch {
+			branch = ctx.Branch
+			haveBranch = true
+		} else if ctx.Branch != branch {
+			consistent = false
+		}
+		inputs = append(inputs, ctx.InputID)
+	}
+	return
+}
+
 type Server struct {
 	pong.UnimplementedPongGameServer
 	pong.UnimplementedPongWaitingRoomServer
@@ -177,6 +201,13 @@ func NewServer(id *zkidentity.ShortID, cfg ServerConfig) (*Server, error) {
 			PlayerGameMap:  make(map[zkidentity.ShortID]*ponggame.GameInstance),
 		},
 		adaptorSecret: cfg.AdaptorSecret,
+	}
+
+	// Log F2P status as early as possible.
+	if cfg.IsF2P {
+		s.log.Infof("Free-to-Play mode ENABLED (no escrow required)")
+	} else {
+		s.log.Infof("Free-to-Play mode DISABLED (escrow required)")
 	}
 	if cfg.DcrdHostPort == "" || cfg.DcrdRPCUser == "" || cfg.DcrdRPCPass == "" || cfg.DcrdRPCCertPath == "" {
 		return nil, fmt.Errorf("incomplete dcrd config: host=%q user=%q pass_set=%t cert=%q", cfg.DcrdHostPort, cfg.DcrdRPCUser, cfg.DcrdRPCPass != "", cfg.DcrdRPCCertPath)
@@ -521,8 +552,8 @@ func (s *Server) handleGameEnd(ctx context.Context, game *ponggame.GameInstance,
 		s.gameManager.RemovePlayerGame(*player.ID)
 	}
 
-	// POC: deliver gamma to winner via NtfnStream for finalization
-	if winner != nil {
+	// POC: deliver gamma to winner via NtfnStream for finalization (skip in F2P)
+	if winner != nil && !s.isF2P {
 		// Determine branch index anchored to room host: branch 0 pays host (a), 1 pays non-host (b).
 		winnerBranch := int32(0)
 		var hostUID string
@@ -617,63 +648,51 @@ func (s *Server) manageWaitingRoom(ctx context.Context, wr *ponggame.WaitingRoom
 				continue
 			}
 
-			allBound := true
+			// F2P: start immediately once both players are ready.
+			if s.isF2P {
+				s.log.Infof("Game starting with players: %s and %s", players[0].ID, players[1].ID)
+				go s.handleGameLifecycle(ctx, players, wr.ReservedTips)
+				return nil
+			}
+
+			// Non-F2P: require escrow bound and funded for both players.
+			escrowOK := true
 			for _, p := range players {
-				// Resolve the exact escrow tied to this room for this player.
 				es := s.escrowForRoomPlayer(wr.ID, p.ID.String())
 				if es == nil {
-					allBound = false
+					escrowOK = false
 					s.notify(p, &pong.NtfnStreamResponse{NotificationType: pong.NotificationType_MESSAGE, Message: "No escrow bound to this room for you. Bind a funded escrow first."})
 					continue
 				}
-
-				// Enforce identity: must have a single, canonical bound input.
 				if err := s.ensureBoundFunding(es); err != nil {
-					allBound = false
+					escrowOK = false
 					s.notify(p, &pong.NtfnStreamResponse{NotificationType: pong.NotificationType_MESSAGE, Message: fmt.Sprintf("Waiting for exact funding input: %v", err)})
 					continue
 				}
 			}
-
-			if !allBound {
+			if !escrowOK {
 				continue
 			}
 
-			// Require both players to have completed presign handshakes for the
-			// branch where they win: winner's escrow must hold presigs for BOTH
-			// inputs (their own and opponent's) and all contexts must share the
-			// same Branch value.
+			// Require both players to have completed presign handshakes for the same branch.
 			esA := s.escrowForRoomPlayer(wr.ID, players[0].ID.String())
 			esB := s.escrowForRoomPlayer(wr.ID, players[1].ID.String())
 			isComplete := func(winES, loseES *escrowSession) bool {
 				if winES == nil || loseES == nil {
 					return false
 				}
-				winES.mu.RLock()
-				defer winES.mu.RUnlock()
-				loseES.mu.RLock()
-				loseBound := loseES.boundInputID
-				loseES.mu.RUnlock()
-				if len(winES.preSign) < 2 {
+				winBound, winInputs, winConsistent := winES.preSignSnapshot()
+				loseBound, _, _ := loseES.preSignSnapshot()
+				if len(winInputs) < 2 || winBound == "" || loseBound == "" || !winConsistent {
 					return false
 				}
-				winBound := winES.boundInputID
-				if winBound == "" || loseBound == "" {
-					return false
-				}
-				var branch *int32
 				haveWin := false
 				haveLose := false
-				for _, ctx := range winES.preSign {
-					if branch == nil {
-						b := ctx.Branch
-						branch = &b
-					} else if ctx.Branch != *branch {
-						return false // mixed branches; not acceptable
-					}
-					if ctx.InputID == winBound {
+				for _, in := range winInputs {
+					if in == winBound {
 						haveWin = true
-					} else if ctx.InputID == loseBound {
+					}
+					if in == loseBound {
 						haveLose = true
 					}
 				}
@@ -690,7 +709,7 @@ func (s *Server) manageWaitingRoom(ctx context.Context, wr *ponggame.WaitingRoom
 				continue
 			}
 
-			// At this point: both players ready, both have a canonical bound UTXO,
+			// At this point: both players have completed escrow & presign checks.
 			// and both have completed presigning. Start the game.
 
 			s.log.Infof("Game starting with players: %s and %s", players[0].ID, players[1].ID)

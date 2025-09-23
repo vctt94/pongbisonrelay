@@ -44,13 +44,8 @@ func (s *Server) StartNtfnStream(req *pong.StartNtfnStreamRequest, stream pong.P
 			u := es.latest
 			es.mu.Unlock()
 			if u.OK && u.UTXOCount > 0 {
-				if u.Confs == 0 && len(u.UTXOs) > 0 {
-					s.log.Debugf("rebinding escrow: owner=%s pk=%s has mempool funding; nudging", es.ownerUID, u.PkScriptHex)
-					s.notify(player, &pong.NtfnStreamResponse{NotificationType: pong.NotificationType_MESSAGE, Message: "Deposit seen in mempool. Waiting confirmations."})
-				} else {
-					s.log.Debugf("rebinding escrow: owner=%s pk=%s has %d confs; nudging", es.ownerUID, u.PkScriptHex, u.Confs)
-					s.notify(player, &pong.NtfnStreamResponse{NotificationType: pong.NotificationType_MESSAGE, Message: "Deposit confirmed. You can presign now ([P])."})
-				}
+				// Send only structured bet updates; clients derive UX from confs.
+				_ = s.notify(player, &pong.NtfnStreamResponse{NotificationType: pong.NotificationType_BET_AMOUNT_UPDATE, PlayerId: es.ownerUID, BetAmt: int64(es.betAtoms), Confs: u.Confs})
 			}
 		}
 	}
@@ -89,20 +84,23 @@ func (s *Server) StartGameStream(req *pong.StartGameStreamRequest, stream pong.P
 	if player.WR == nil {
 		return fmt.Errorf("not in a waiting room")
 	}
-	var escrowID string
-	s.roomEscrowsMu.RLock()
-	if m, ok := s.roomEscrows[player.WR.ID]; ok {
-		escrowID = m[player.ID.String()]
-	}
-	var es *escrowSession
-	if escrowID != "" {
-		s.escrowsMu.RLock()
-		es = s.escrows[escrowID]
-		s.escrowsMu.RUnlock()
-	}
-	s.roomEscrowsMu.RUnlock()
-	if es == nil {
-		return fmt.Errorf("no escrow bound to waiting room for player")
+	// if not F2P, require escrow bound to waiting room
+	if !s.isF2P {
+		var escrowID string
+		s.roomEscrowsMu.RLock()
+		if m, ok := s.roomEscrows[player.WR.ID]; ok {
+			escrowID = m[player.ID.String()]
+		}
+		var es *escrowSession
+		if escrowID != "" {
+			s.escrowsMu.RLock()
+			es = s.escrows[escrowID]
+			s.escrowsMu.RUnlock()
+		}
+		s.roomEscrowsMu.RUnlock()
+		if es == nil {
+			return fmt.Errorf("no escrow bound to waiting room for player")
+		}
 	}
 	player.GameStream = stream
 	player.Ready = true

@@ -41,10 +41,14 @@ func LoadPongBotConfig(dataDir, configFile string) (*PongBotConfig, error) {
 	if err != nil {
 		return nil, fmt.Errorf("failed to parse minbetamt: %w", err)
 	}
+	isf2p, err := strconv.ParseBool(baseConfig.ExtraConfig["isf2p"])
+	if err != nil {
+		isf2p = false
+	}
 	// Create the combined config
 	cfg := &PongBotConfig{
 		BotConfig:     baseConfig,
-		IsF2P:         false,
+		IsF2P:         isf2p,
 		MinBetAmt:     minBetAmt,
 		GRPCHost:      baseConfig.ExtraConfig["grpchost"],
 		GRPCPort:      baseConfig.ExtraConfig["grpcport"],

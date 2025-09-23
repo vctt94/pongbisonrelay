@@ -71,21 +71,10 @@ func (s *Server) trackEscrow(ctx context.Context, es *escrowSession, ch <-chan c
 			}
 			es.mu.Unlock()
 
-			// Optional UX nudges. Notify on first funding sighting and on confirmation.
-			if es.ownerUID != "" {
-				// First time we see any UTXO for this escrow.
-				if prev.UTXOCount == 0 && u.UTXOCount > 0 {
-					if u.Confs == 0 {
-						s.log.Debugf("trackEscrow: mempool seen for owner=%s pk=%s utxos=%d", es.ownerUID, u.PkScriptHex, u.UTXOCount)
-						s.notify(es.player, &pong.NtfnStreamResponse{NotificationType: pong.NotificationType_BET_AMOUNT_UPDATE, PlayerId: es.ownerUID, BetAmt: int64(es.betAtoms)})
-					} else {
-						s.log.Debugf("trackEscrow: confirmed on first sight for owner=%s pk=%s confs=%d", es.ownerUID, u.PkScriptHex, u.Confs)
-						s.notify(es.player, &pong.NtfnStreamResponse{NotificationType: pong.NotificationType_BET_AMOUNT_UPDATE, PlayerId: es.ownerUID, BetAmt: int64(es.betAtoms)})
-					}
-				} else if prev.Confs < 1 && u.Confs >= 1 && u.UTXOCount > 0 {
-					s.log.Debugf("trackEscrow: transitioned to confirmed for owner=%s pk=%s confs=%d", es.ownerUID, u.PkScriptHex, u.Confs)
-					s.notify(es.player, &pong.NtfnStreamResponse{NotificationType: pong.NotificationType_BET_AMOUNT_UPDATE, PlayerId: es.ownerUID, BetAmt: int64(es.betAtoms)})
-				}
+			// Emit a single structured update when funded and state changed.
+			if es.ownerUID != "" && u.UTXOCount > 0 && (u.UTXOCount != prev.UTXOCount || u.Confs != prev.Confs) {
+				s.log.Debugf("trackEscrow: funding update owner=%s pk=%s utxos=%d confs=%d", es.ownerUID, u.PkScriptHex, u.UTXOCount, u.Confs)
+				_ = s.notify(es.player, &pong.NtfnStreamResponse{NotificationType: pong.NotificationType_BET_AMOUNT_UPDATE, PlayerId: es.ownerUID, BetAmt: int64(es.betAtoms), Confs: u.Confs})
 			}
 		}
 	}
