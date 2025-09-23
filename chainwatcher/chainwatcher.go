@@ -4,6 +4,7 @@ import (
 	"bytes"
 	"context"
 	"encoding/hex"
+	"fmt"
 	"strings"
 	"sync"
 	"time"
@@ -38,6 +39,11 @@ type ChainWatcher struct {
 	lastScanned int64
 
 	pkBytes map[string][]byte
+	// known stores currently known unspent UTXOs per pkScriptHex, keyed by
+	// "txid:vout". This allows persisting deposits discovered in prior ticks
+	// so that subsequent ticks can still report funding even if no new blocks
+	// include outputs for that pk.
+	known map[string]map[string]*pong.EscrowUTXO
 }
 
 func NewChainWatcher(log slog.Logger, c *rpcclient.Client) *ChainWatcher {
@@ -48,6 +54,7 @@ func NewChainWatcher(log slog.Logger, c *rpcclient.Client) *ChainWatcher {
 		quit:        make(chan struct{}),
 		lastScanned: -1,
 		pkBytes:     make(map[string][]byte),
+		known:       make(map[string]map[string]*pong.EscrowUTXO),
 	}
 }
 
@@ -85,95 +92,100 @@ func (w *ChainWatcher) pollOnce(ctx context.Context) {
 	subsCount := len(w.subs)
 	if subsCount == 0 {
 		w.mu.RUnlock()
-		w.log.Debugf("watcher: poll tick; no subscribers (tip=%d)", w.currentTip())
+		// w.log.Debugf("watcher: poll tick; no subscribers (tip=%d)", w.currentTip())
 		return
 	}
 	keys := make([]string, 0, len(w.subs))
 	for k := range w.subs {
 		keys = append(keys, k)
 	}
+	// Snapshot pkBytes and known sizes for decision making without holding locks during RPCs
+	pkbByKey := make(map[string][]byte, len(keys))
+	knownSize := make(map[string]int, len(keys))
+	for _, k := range keys {
+		pkbByKey[k] = w.pkBytes[k]
+		if km := w.known[k]; km != nil {
+			knownSize[k] = len(km)
+		} else {
+			knownSize[k] = 0
+		}
+	}
 	w.mu.RUnlock()
+
 	tip := w.currentTip()
-	w.log.Debugf("watcher: poll tick; tip=%d, subs=%d", tip, subsCount)
+	// w.log.Debugf("watcher: poll tick; tip=%d, subs=%d", tip, subsCount)
 
-	// Scan each subscribed pkScript.
-	for _, pkHex := range keys {
-		w.log.Debugf("watcher: scanning pk=%s", pkHex)
+	// Prepare collectors for discoveries this tick (per-pk)
+	discoveredByPk := make(map[string][]*pong.EscrowUTXO, len(keys))
+	latestMatchByPk := make(map[string]int64, len(keys))
 
-		w.mu.RLock()
-		pkb := w.pkBytes[pkHex]
-		w.mu.RUnlock()
-
-		var utxos []*pong.EscrowUTXO
-		var confs uint32
-		found := false
-
-		// ----- New blocks only -----
-		if tip >= 0 {
-			start := w.lastScanned + 1
-			// First run or reorg/unknown -> just scan the current tip only (no big backfill).
-			if w.lastScanned == -1 || start < 0 || start > tip {
-				start = tip
+	// ----- New blocks (scan once per tick across all pkScripts) -----
+	// Scan when tip changed (forward or backward). On unknown/reorg, just scan current tip.
+	shouldScanBlocks := tip >= 0 && (w.lastScanned == -1 || tip != w.lastScanned)
+	if shouldScanBlocks {
+		start := w.lastScanned + 1
+		if w.lastScanned == -1 || start < 0 || start > tip {
+			// First run or reorg/unknown -> only scan the current tip
+			start = tip
+		}
+		for bh := start; bh <= tip; bh++ {
+			hash, err := w.dcrd.GetBlockHash(ctx, bh)
+			if err != nil {
+				continue
 			}
-
-			latestMatch := int64(-1)
-			for bh := start; bh <= tip; bh++ {
-				hash, err := w.dcrd.GetBlockHash(ctx, bh)
-				if err != nil {
-					continue
-				}
-				msg, err := w.dcrd.GetBlock(ctx, hash)
-				if err != nil || msg == nil {
-					continue
-				}
-				for _, mtx := range msg.Transactions {
-					for voutIdx, o := range mtx.TxOut {
+			msg, err := w.dcrd.GetBlock(ctx, hash)
+			if err != nil || msg == nil {
+				continue
+			}
+			for _, mtx := range msg.Transactions {
+				for voutIdx, o := range mtx.TxOut {
+					// Compare output script with each subscribed pk (byte-equal)
+					for _, pkHex := range keys {
+						pkb := pkbByKey[pkHex]
 						if pkb != nil && bytes.Equal(o.PkScript, pkb) {
-							utxos = append(utxos, &pong.EscrowUTXO{
+							discoveredByPk[pkHex] = append(discoveredByPk[pkHex], &pong.EscrowUTXO{
 								Txid:        mtx.TxHash().String(),
 								Vout:        uint32(voutIdx),
-								Value:       uint64(o.Value), // atoms already
+								Value:       uint64(o.Value),
 								PkScriptHex: pkHex,
 							})
-							if bh > latestMatch {
-								latestMatch = bh
+							if bh > latestMatchByPk[pkHex] {
+								latestMatchByPk[pkHex] = bh
 							}
 						}
 					}
 				}
 			}
-
-			if len(utxos) > 0 && latestMatch >= 0 {
-				confs = uint32((tip - latestMatch) + 1)
-				found = true
-				w.log.Debugf("watcher: pk=%s found in new blocks; utxos=%d confs=%d (scanned %d..%d)",
-					pkHex, len(utxos), confs, start, tip)
-			}
-
-			// Advance lastScanned to the tip processed this tick.
-			w.lastScanned = tip
 		}
+		// Advance lastScanned only once per tick
+		w.lastScanned = tip
+	}
 
-		// ----- Mempool (0-conf) as fallback -----
-		if !found {
-			if txids, err := w.dcrd.GetRawMempool(ctx, "all"); err == nil {
-				for _, th := range txids {
-					v, err := w.dcrd.GetRawTransactionVerbose(ctx, th)
-					if err != nil || v == nil {
+	// ----- Mempool (0-conf) scan once if needed -----
+	needMempool := false
+	for _, pkHex := range keys {
+		if len(discoveredByPk[pkHex]) == 0 && knownSize[pkHex] == 0 {
+			needMempool = true
+			break
+		}
+	}
+	if needMempool {
+		if txids, err := w.dcrd.GetRawMempool(ctx, "all"); err == nil {
+			for _, th := range txids {
+				v, err := w.dcrd.GetRawTransactionVerbose(ctx, th)
+				if err != nil || v == nil {
+					continue
+				}
+				for voutIdx, vout := range v.Vout {
+					spkBytes, err := hex.DecodeString(vout.ScriptPubKey.Hex)
+					if err != nil {
 						continue
 					}
-					for voutIdx, vout := range v.Vout {
-						// Compare mempool vout script (hex) to cached pkb.
-						if pkb == nil {
-							continue
-						}
-						spkBytes, err := hex.DecodeString(vout.ScriptPubKey.Hex)
-						if err != nil {
-							continue
-						}
-						if bytes.Equal(spkBytes, pkb) {
+					for _, pkHex := range keys {
+						pkb := pkbByKey[pkHex]
+						if pkb != nil && bytes.Equal(spkBytes, pkb) {
 							atoms := uint64(vout.Value * 1e8)
-							utxos = append(utxos, &pong.EscrowUTXO{
+							discoveredByPk[pkHex] = append(discoveredByPk[pkHex], &pong.EscrowUTXO{
 								Txid:        v.Txid,
 								Vout:        uint32(voutIdx),
 								Value:       atoms,
@@ -182,61 +194,101 @@ func (w *ChainWatcher) pollOnce(ctx context.Context) {
 						}
 					}
 				}
-				if len(utxos) > 0 {
-					confs = 0
-					found = true
-					w.log.Debugf("watcher: pk=%s found in mempool; utxos=%d", pkHex, len(utxos))
+			}
+		} else {
+			// w.log.Debugf("watcher: GetRawMempool failed; skipping mempool scan for tick")
+		}
+	}
+
+	// ----- Persist discoveries and compute current state per pkScript -----
+	for _, pkHex := range keys {
+		if list := discoveredByPk[pkHex]; len(list) > 0 {
+			// Log only when discovered in new blocks
+			if h := latestMatchByPk[pkHex]; h > 0 {
+				confs := uint32((tip - h) + 1)
+				w.log.Debugf("watcher: pk=%s found in new blocks; utxos=%d confs=%d (scanned %d..%d)",
+					pkHex, len(list), confs, func() int64 {
+						if w.lastScanned == -1 {
+							return tip
+						} else {
+							return w.lastScanned
+						}
+					}(), tip)
+			}
+			w.mu.Lock()
+			km := w.known[pkHex]
+			if km == nil {
+				km = make(map[string]*pong.EscrowUTXO)
+				w.known[pkHex] = km
+			}
+			for _, u := range list {
+				id := u.Txid + ":" + fmt.Sprintf("%d", u.Vout)
+				km[id] = u
+			}
+			w.mu.Unlock()
+		}
+
+		// Build a list from the currently known entries (if any) and check if they remain unspent.
+		w.mu.RLock()
+		km := w.known[pkHex]
+		ids := make([]string, 0, len(km))
+		for id := range km {
+			ids = append(ids, id)
+		}
+		w.mu.RUnlock()
+
+		current := make([]*pong.EscrowUTXO, 0, len(ids))
+		minConfs := int64(^uint32(0))
+		for _, id := range ids {
+			u := km[id]
+			if u == nil {
+				continue
+			}
+			var h chainhash.Hash
+			if err := chainhash.Decode(&h, u.Txid); err != nil {
+				continue
+			}
+			res, err := w.dcrd.GetTxOut(ctx, &h, u.Vout, 0, true)
+			if err != nil || res == nil {
+				w.mu.Lock()
+				if set := w.known[pkHex]; set != nil {
+					delete(set, id)
+					if len(set) == 0 {
+						delete(w.known, pkHex)
+					}
 				}
-			} else {
-				w.log.Debugf("watcher: GetRawMempool failed; skipping mempool scan for %s", pkHex)
+				w.mu.Unlock()
+				continue
+			}
+			current = append(current, u)
+			if res.Confirmations < minConfs {
+				minConfs = res.Confirmations
 			}
 		}
 
-		// ----- Filter to unspent & compute min confirmations -----
-		if len(utxos) > 0 {
-			filtered := make([]*pong.EscrowUTXO, 0, len(utxos))
-			minConfs := int64(^uint32(0)) // large; GetTxOut.Confirmations is int64
-			for _, u := range utxos {
-				var h chainhash.Hash
-				if err := chainhash.Decode(&h, u.Txid); err != nil {
-					continue
-				}
-				res, err := w.dcrd.GetTxOut(ctx, &h, u.Vout, 0, true)
-				if err != nil || res == nil {
-					// Spent or not found.
-					continue
-				}
-				filtered = append(filtered, u)
-				if res.Confirmations < minConfs {
-					minConfs = res.Confirmations
-				}
-			}
-			utxos = filtered
-			if len(utxos) > 0 {
-				found = true
-				switch {
-				case minConfs < 0:
-					confs = 0
-				case minConfs > int64(^uint32(0)):
-					confs = ^uint32(0)
-				default:
-					confs = uint32(minConfs)
-				}
-				w.log.Debugf("watcher: pk=%s unspent utxos=%d confs(min)=%d", pkHex, len(utxos), confs)
-			} else {
-				found = false
+		var confs uint32
+		ok := false
+		if len(current) > 0 {
+			ok = true
+			switch {
+			case minConfs < 0:
 				confs = 0
+			case minConfs > int64(^uint32(0)):
+				confs = ^uint32(0)
+			default:
+				confs = uint32(minConfs)
 			}
+		} else {
+			confs = 0
 		}
 
-		// ----- Broadcast snapshot -----
 		w.broadcastUpdate(pkHex, DepositUpdate{
 			PkScriptHex: pkHex,
 			Confs:       confs,
-			UTXOCount:   len(utxos),
-			OK:          found,
+			UTXOCount:   len(current),
+			OK:          ok,
 			At:          time.Now(),
-			UTXOs:       utxos,
+			UTXOs:       current,
 		})
 	}
 }
@@ -275,6 +327,8 @@ func (w *ChainWatcher) Subscribe(pkScriptHex string) (<-chan DepositUpdate, func
 			delete(set, ch)
 			if len(set) == 0 {
 				delete(w.subs, k)
+				// If no more subscribers for this pk, clear known cache to free memory.
+				delete(w.known, k)
 			}
 		}
 		remaining := 0
@@ -297,7 +351,7 @@ func (w *ChainWatcher) broadcastUpdate(pk string, u DepositUpdate) {
 		chs = append(chs, ch)
 	}
 	w.mu.RUnlock()
-	w.log.Debugf("watcher: broadcast pk=%s to %d listeners; ok=%t utxos=%d confs=%d", pk, len(chs), u.OK, u.UTXOCount, u.Confs)
+	// w.log.Debugf("watcher: broadcast pk=%s to %d listeners; ok=%t utxos=%d confs=%d", pk, len(chs), u.OK, u.UTXOCount, u.Confs)
 
 	for _, ch := range chs {
 		select {
