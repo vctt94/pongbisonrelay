@@ -16,8 +16,7 @@ func (pc *PongClient) RefGetWaitingRoom(roomID string) (*pong.WaitingRoom, error
 	return res.Wr, nil
 }
 
-func (pc *PongClient) RefGetWaitingRooms() ([]*pong.WaitingRoom, error) {
-	ctx := context.Background()
+func (pc *PongClient) RefGetWaitingRooms(ctx context.Context) ([]*pong.WaitingRoom, error) {
 
 	res, err := pc.wr.GetWaitingRooms(ctx, &pong.WaitingRoomsRequest{})
 	if err != nil {

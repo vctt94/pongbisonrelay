@@ -7,7 +7,6 @@ import (
 	"encoding/json"
 	"fmt"
 	"io"
-	"log"
 	"os"
 	"path/filepath"
 	"strings"
@@ -70,25 +69,23 @@ func NewPongClient(clientID string, cfg *PongClientCfg) (*PongClient, error) {
 	if cfg.AppCfg == nil {
 		return nil, fmt.Errorf("client must have AppCfg")
 	}
-	// Load the credentials from the certificate file
+
 	creds, err := credentials.NewClientTLSFromFile(cfg.AppCfg.GRPCCertPath, "")
 	if err != nil {
-		log.Fatalf("Failed to load credentials: %v", err)
+		return nil, fmt.Errorf("load TLS cert: %w", err)
 	}
 
-	// Add connection options with healthchecking to detect disconnection faster
 	dialOpts := []grpc.DialOption{
 		grpc.WithTransportCredentials(creds),
 		grpc.WithKeepaliveParams(keepalive.ClientParameters{
-			Time:    30 * time.Second, // Send pings every 60 seconds instead of 10
-			Timeout: 10 * time.Second, // Wait 20 seconds for ping ack
+			Time:    30 * time.Second,
+			Timeout: 10 * time.Second,
 		}),
 	}
 
-	// Dial the gRPC server with TLS credentials
-	pongConn, err := grpc.Dial(cfg.AppCfg.ServerAddr, dialOpts...)
+	conn, err := grpc.NewClient(cfg.AppCfg.ServerAddr, dialOpts...)
 	if err != nil {
-		log.Fatalf("Failed to connect to server: %v", err)
+		return nil, fmt.Errorf("dial server: %w", err)
 	}
 
 	ntfns := cfg.Notifications
@@ -96,15 +93,14 @@ func NewPongClient(clientID string, cfg *PongClientCfg) (*PongClient, error) {
 		ntfns = NewNotificationManager()
 	}
 
-	// Initialize the pongClient instance
 	ctx, cancel := context.WithCancel(context.Background())
 	pc := &PongClient{
 		ID:        clientID,
-		conn:      pongConn,
+		conn:      conn,
 		appCfg:    cfg.AppCfg,
-		gc:        pong.NewPongGameClient(pongConn),
-		wr:        pong.NewPongWaitingRoomClient(pongConn),
-		rc:        pong.NewPongRefereeClient(pongConn),
+		gc:        pong.NewPongGameClient(conn),
+		wr:        pong.NewPongWaitingRoomClient(conn),
+		rc:        pong.NewPongRefereeClient(conn),
 		UpdatesCh: make(chan tea.Msg, 64),
 		ErrorsCh:  make(chan error, 4),
 		log:       cfg.Log,
@@ -113,22 +109,17 @@ func NewPongClient(clientID string, cfg *PongClientCfg) (*PongClient, error) {
 		cancel:    cancel,
 	}
 
-	// Quick gRPC sanity check (fail fast on bad addr/cert)
-	if _, err := pc.RefGetWaitingRooms(); err != nil {
-		_ = pongConn.Close()
+	// quick check (fail fast on bad addr/cert), with timeout.
+	if func() error {
+		cctx, ccancel := context.WithTimeout(ctx, 5*time.Second)
+		defer ccancel()
+		_, err := pc.RefGetWaitingRooms(cctx) // or your existing method with ctx
+		return err
+	}() != nil {
 		cancel()
-		return nil, fmt.Errorf("gRPC server connection failed: %w", err)
+		_ = conn.Close()
+		return nil, fmt.Errorf("gRPC server connection failed")
 	}
-
-	// Start notifier stream in background tied to client lifecycle
-	go func() {
-		if err := pc.RefStartNtfnStream(pc.ctx); err != nil {
-			select {
-			case pc.ErrorsCh <- fmt.Errorf("ntfn stream error: %w", err):
-			default:
-			}
-		}
-	}()
 
 	return pc, nil
 }

@@ -55,101 +55,93 @@ func (pc *PongClient) RefUnreadyGameStream() error {
 	return nil
 }
 
+// RefStartNtfnStream starts the server->client notification stream.
+// gRPC handles reconnects under the hood (when configured), so we just
+// read until ctx is canceled or the stream returns a terminal error.
 func (pc *PongClient) RefStartNtfnStream(ctx context.Context) error {
-	// Creates game start stream so we can notify when the game starts
-	gameStartedStream, err := pc.gc.StartNtfnStream(ctx, &pong.StartNtfnStreamRequest{
+	stream, err := pc.gc.StartNtfnStream(ctx, &pong.StartNtfnStreamRequest{
 		ClientId: pc.ID,
 	})
 	if err != nil {
-		return fmt.Errorf("error creating notifier stream: %w", err)
+		return fmt.Errorf("start ntfn stream: %w", err)
 	}
-	pc.notifier = gameStartedStream
+	pc.notifier = stream
 
-	go func() {
-		for {
+	go pc.runNtfnRecv(ctx, stream)
+	return nil
+}
+
+func (pc *PongClient) runNtfnRecv(ctx context.Context, stream pong.PongGame_StartNtfnStreamClient) {
+	pc.log.Infof("ntfn stream started")
+	defer pc.log.Infof("ntfn stream stopped")
+
+	for {
+		ntfn, err := stream.Recv()
+		if err != nil {
+			// If our ctx is done, it's a graceful stop.
 			select {
 			case <-ctx.Done():
-				pc.log.Infof("ntfn stream closed")
 				return
 			default:
-				ntfn, err := pc.notifier.Recv()
-				if err != nil {
-					if errors.Is(err, io.EOF) || strings.Contains(err.Error(), "transport is closing") ||
-						strings.Contains(err.Error(), "connection is being forcefully terminated") {
-
-						// Recreate notifier stream with backoff and continue
-						backoff := 500 * time.Millisecond
-						maxBackoff := 30 * time.Second
-						for {
-							select {
-							case <-ctx.Done():
-								pc.log.Infof("ntfn stream restart canceled")
-								return
-							case <-time.After(backoff):
-								ns, nerr := pc.gc.StartNtfnStream(ctx, &pong.StartNtfnStreamRequest{ClientId: pc.ID})
-								if nerr == nil {
-									pc.notifier = ns
-									pc.log.Infof("ntfn stream restarted")
-									// Successfully restarted; continue outer loop
-									continue
-								}
-								if backoff < maxBackoff {
-									backoff *= 2
-									if backoff > maxBackoff {
-										backoff = maxBackoff
-									}
-								}
-							}
-						}
-					}
-
-					pc.ErrorsCh <- fmt.Errorf("notifier stream error: %v", err)
-					return
-				}
-
-				// Handle notifications based on NotificationType
-				switch ntfn.NotificationType {
-				case pong.NotificationType_ON_WR_CREATED:
-					pc.ntfns.notifyOnWRCreated(ntfn.Wr, time.Now())
-				case pong.NotificationType_MESSAGE:
-					pc.UpdatesCh <- ntfn
-				case pong.NotificationType_PLAYER_JOINED_WR:
-					pc.ntfns.notifyPlayerJoinedWR(ntfn.Wr, time.Now())
-				case pong.NotificationType_PLAYER_LEFT_WR:
-					pc.ntfns.notifyPlayerLeftWR(ntfn.Wr, ntfn.PlayerId, time.Now())
-				case pong.NotificationType_GAME_START:
-					if ntfn.Started {
-						pc.ntfns.notifyGameStarted(ntfn.GameId, time.Now())
-					}
-				case pong.NotificationType_GAME_END:
-					pc.ntfns.notifyGameEnded(ntfn.GameId, ntfn.Message, time.Now())
-					pc.log.Infof("%s", ntfn.Message)
-				case pong.NotificationType_OPPONENT_DISCONNECTED:
-				case pong.NotificationType_BET_AMOUNT_UPDATE:
-					if ntfn.PlayerId == pc.ID {
-						pc.BetAmt = ntfn.BetAmt
-						pc.ntfns.notifyBetAmtChanged(ntfn.PlayerId, ntfn.BetAmt, time.Now())
-					}
-				case pong.NotificationType_ON_PLAYER_READY:
-					if ntfn.PlayerId == pc.ID {
-						pc.IsReady = ntfn.Ready
-						pc.UpdatesCh <- true
-					}
-					// Forward notification to UI for any player ready event
-					pc.UpdatesCh <- ntfn
-				case pong.NotificationType_COUNTDOWN_UPDATE:
-					// Forward countdown updates to UI
-					pc.UpdatesCh <- ntfn
-				case pong.NotificationType_GAME_READY_TO_PLAY:
-					// Forward game ready to play notifications to UI
-					pc.UpdatesCh <- ntfn
-				default:
-				}
 			}
+			// Propagate the error once and exit. If gRPC reconnects, the call
+			// that created this stream should be re-run by the caller.
+			pc.ErrorsCh <- fmt.Errorf("ntfn stream recv: %w", err)
+			return
 		}
-	}()
+		pc.handleNtfn(ntfn)
+	}
+}
 
-	return nil
+func (pc *PongClient) handleNtfn(ntfn *pong.NtfnStreamResponse) {
+	switch ntfn.NotificationType {
+	case pong.NotificationType_ON_WR_CREATED:
+		pc.ntfns.notifyOnWRCreated(ntfn.Wr, time.Now())
+
+	case pong.NotificationType_MESSAGE:
+		pc.UpdatesCh <- ntfn
+
+	case pong.NotificationType_PLAYER_JOINED_WR:
+		pc.ntfns.notifyPlayerJoinedWR(ntfn.Wr, time.Now())
+
+	case pong.NotificationType_PLAYER_LEFT_WR:
+		pc.ntfns.notifyPlayerLeftWR(ntfn.Wr, ntfn.PlayerId, time.Now())
+
+	case pong.NotificationType_GAME_START:
+		if ntfn.Started {
+			pc.ntfns.notifyGameStarted(ntfn.GameId, time.Now())
+		}
+
+	case pong.NotificationType_GAME_END:
+		pc.ntfns.notifyGameEnded(ntfn.GameId, ntfn.Message, time.Now())
+		pc.log.Infof("%s", ntfn.Message)
+
+	case pong.NotificationType_OPPONENT_DISCONNECTED:
+		pc.UpdatesCh <- ntfn
+
+	case pong.NotificationType_BET_AMOUNT_UPDATE:
+		if ntfn.PlayerId == pc.ID {
+			// If pc.BetAmt is read elsewhere concurrently, guard with a mutex.
+			pc.BetAmt = ntfn.BetAmt
+			pc.ntfns.notifyBetAmtChanged(ntfn.PlayerId, ntfn.BetAmt, time.Now())
+		}
+		// Forward for UI if you want:
+		pc.UpdatesCh <- ntfn
+
+	case pong.NotificationType_ON_PLAYER_READY:
+		if ntfn.PlayerId == pc.ID {
+			pc.IsReady = ntfn.Ready // guard with a mutex if needed
+			pc.UpdatesCh <- true    // preserves your existing UI signal
+		}
+		pc.UpdatesCh <- ntfn
+
+	case pong.NotificationType_COUNTDOWN_UPDATE,
+		pong.NotificationType_GAME_READY_TO_PLAY:
+		pc.UpdatesCh <- ntfn
+
+	default:
+		// no-op
+	}
 }
 
 func (pc *PongClient) RefStartGameStream() error {

@@ -20,10 +20,11 @@ func (s *Server) SendInput(ctx context.Context, req *pong.PlayerInput) (*pong.Ga
 func (s *Server) StartNtfnStream(req *pong.StartNtfnStreamRequest, stream pong.PongGame_StartNtfnStreamServer) error {
 	ctx, cancel := context.WithCancel(stream.Context())
 	defer cancel()
-	defer s.activeNtfnStreams.Delete(req.ClientId)
 
 	var clientID zkidentity.ShortID
 	clientID.FromString(req.ClientId)
+	// Ensure we delete using the correct key type
+	defer s.activeNtfnStreams.Delete(clientID)
 	s.log.Debugf("StartNtfnStream called by client %s", clientID)
 
 	// Add to active streams
@@ -32,6 +33,12 @@ func (s *Server) StartNtfnStream(req *pong.StartNtfnStreamRequest, stream pong.P
 	// Create player session
 	player := s.gameManager.PlayerSessions.CreateSession(clientID)
 	player.NotifierStream = stream
+
+	// Track connected user so broadcast notifications (e.g. ON_WR_CREATED)
+	// are delivered to all clients with active notifier streams.
+	s.usersMu.Lock()
+	s.users[clientID] = player
+	s.usersMu.Unlock()
 
 	// Bind any existing escrow sessions for this owner to this player so
 	// watcher notifications reach the active notifier stream.
@@ -54,8 +61,7 @@ func (s *Server) StartNtfnStream(req *pong.StartNtfnStreamRequest, stream pong.P
 	// Escrow-first: remove legacy tips-based bet sync
 	// Wait for disconnection
 	<-ctx.Done()
-	s.log.Debugf("Client %s disconnected", clientID)
-	s.handleDisconnect(clientID)
+	s.log.Debugf("Notifier stream ended for client %s", clientID)
 	return ctx.Err()
 }
 

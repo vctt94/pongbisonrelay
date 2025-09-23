@@ -6,6 +6,7 @@ import (
 	"encoding/hex"
 	"fmt"
 	"sort"
+	"time"
 
 	"github.com/decred/dcrd/crypto/blake256"
 	"github.com/decred/dcrd/dcrec/secp256k1/v4"
@@ -254,13 +255,14 @@ func (pc *PongClient) RefStartSettlementHandshake(ctx context.Context, matchID s
 	// Open stream to referee.
 	stream, err := pc.RefStartSettlementStream(ctx)
 	if err != nil {
-		return err
+		return fmt.Errorf("settlement stream open failed: %w", err)
 	}
 
 	// HELLO — publish session pubkey X (= xG) in compressed form (33B).
 	// Server will later verify s'G ?= R' - eX - T using this X.
 	pubBytes, _ := hex.DecodeString(pubHex)
-	_ = stream.Send(&pong.ClientMsg{
+	sendStart := time.Now()
+	if err := stream.Send(&pong.ClientMsg{
 		MatchId: matchID,
 		Kind: &pong.ClientMsg_Hello{
 			Hello: &pong.Hello{
@@ -269,14 +271,17 @@ func (pc *PongClient) RefStartSettlementHandshake(ctx context.Context, matchID s
 				ClientVersion: "poc",
 			},
 		},
-	})
+	}); err != nil {
+		_ = stream.CloseSend()
+		return fmt.Errorf("send HELLO failed: %w", err)
+	}
 
 	// Drive REQ → VERIFY_OK → OK.
 	for {
 		in, err := stream.Recv()
 		if err != nil {
 			_ = stream.CloseSend()
-			return err
+			return fmt.Errorf("recv failed after %.3fs: %w", time.Since(sendStart).Seconds(), err)
 		}
 
 		// On REQ: build adaptor pre-sigs bound to the server’s challenge.
@@ -292,14 +297,17 @@ func (pc *PongClient) RefStartSettlementHandshake(ctx context.Context, matchID s
 			verify, err := BuildVerifyOk(priv, req)
 			if err != nil {
 				_ = stream.CloseSend()
-				return err
+				return fmt.Errorf("BuildVerifyOk failed: %w", err)
 			}
-			_ = stream.Send(&pong.ClientMsg{
+			if err := stream.Send(&pong.ClientMsg{
 				MatchId: matchID,
 				Kind: &pong.ClientMsg_VerifyOk{
 					VerifyOk: verify, // {ack, presigs_i=(R'_i, s'_i)}
 				},
-			})
+			}); err != nil {
+				_ = stream.CloseSend()
+				return fmt.Errorf("send VERIFY_OK failed: %w", err)
+			}
 			continue
 		}
 
@@ -317,6 +325,11 @@ func (pc *PongClient) GetEscrowUTXO(escrowID string) (*pong.EscrowUTXO, error) {
 	if escrowID == "" {
 		return nil, fmt.Errorf("escrowID required")
 	}
-	// TODO: Implement this
-	return nil, nil
+	// The notifier stream should already be running from init; do not start another here.
+	if pc.notifier == nil {
+		return nil, fmt.Errorf("notification stream not started")
+	}
+	// Server does not expose a direct unary query for the exact UTXO yet.
+	// Caller should listen to the existing ntfn stream or add a dedicated RPC.
+	return nil, fmt.Errorf("GetEscrowUTXO unsupported: server does not expose UTXO query")
 }

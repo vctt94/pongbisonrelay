@@ -245,7 +245,7 @@ func (m *appstate) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 					m.notification = "No active escrow to refund"
 					return m, nil
 				}
-				payoutBytes, err := m.payoutPubkeyFromConfHex()
+				payoutBytes, err := m.resolvePayoutKey()
 				if err != nil || len(payoutBytes) != 33 {
 					m.notification = "Invalid payout address for refund"
 					return m, nil
@@ -325,7 +325,7 @@ func (m *appstate) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 				if m.settle.csvBlocks == 0 {
 					m.settle.csvBlocks = 64
 				}
-				payoutBytes, perr := m.payoutPubkeyFromConfHex()
+				payoutBytes, perr := m.resolvePayoutKey()
 				if perr != nil {
 					m.notification = "address error: " + perr.Error()
 					m.msgCh <- client.UpdatedMsg{}
@@ -470,7 +470,7 @@ func (m *appstate) waitForMsg() tea.Cmd {
 }
 
 func (m *appstate) listWaitingRooms() error {
-	wr, err := m.pc.RefGetWaitingRooms()
+	wr, err := m.pc.RefGetWaitingRooms(m.ctx)
 	if err != nil {
 		m.log.Errorf("Failed to get waiting rooms: %v", err)
 		return err

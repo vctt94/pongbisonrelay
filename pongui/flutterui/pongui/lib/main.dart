@@ -71,12 +71,8 @@ Future<void> runMainApp(Config cfg) async {
         ChangeNotifierProvider(create: (context) => NotificationModel()),
         ChangeNotifierProxyProvider<NotificationModel, PongModel>(
           create: (context) => PongModel(cfg, context.read<NotificationModel>()),
-          update: (context, notificationModel, previous) {
-            if (previous == null || previous.notificationModel != notificationModel) {
-              return PongModel(cfg, notificationModel);
-            }
-            return previous;
-          },
+          update: (context, notificationModel, previous) =>
+              previous ?? PongModel(cfg, notificationModel),
         ),
       ],
       child: MyApp(cfg),

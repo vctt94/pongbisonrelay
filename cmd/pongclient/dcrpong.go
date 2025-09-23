@@ -112,12 +112,12 @@ type appstate struct {
 	fundingCancel context.CancelFunc
 }
 
-// payoutPubkeyFromConfHex delegates to client package helper
-func (m *appstate) payoutPubkeyFromConfHex() ([]byte, error) {
+// resolvePayoutKey resolves the payout key from the -address flag
+func (m *appstate) resolvePayoutKey() ([]byte, error) {
 	if addressFlag == nil || *addressFlag == "" {
 		return nil, fmt.Errorf("missing -address flag")
 	}
-	return pongbisonrelay.PayoutPubkeyFromConfHex(*addressFlag)
+	return pongbisonrelay.ResolvePayoutKey(*addressFlag)
 }
 
 func (m *appstate) startSettlement() {
@@ -146,7 +146,7 @@ func (m *appstate) startSettlement() {
 	}
 
 	// Inputs
-	payoutBytes, perr := m.payoutPubkeyFromConfHex()
+	payoutBytes, perr := m.resolvePayoutKey()
 	if perr != nil {
 		m.notification = "address error: " + perr.Error()
 		m.msgCh <- client.UpdatedMsg{}
@@ -228,8 +228,8 @@ func realMain() error {
 	if strings.TrimSpace(addrValue) == "" {
 		return fmt.Errorf("missing payout address: pass -address flag or set address= in %s", filepath.Join(appCfg.DataDir, "pongclient.conf"))
 	}
-	if _, err := pongbisonrelay.PayoutPubkeyFromConfHex(addrValue); err != nil {
-		return fmt.Errorf("invalid payout address: %v", err)
+	if _, err := pongbisonrelay.ResolvePayoutKey(addrValue); err != nil {
+		return fmt.Errorf("invalid payout key: %v", err)
 	}
 	*addressFlag = addrValue
 

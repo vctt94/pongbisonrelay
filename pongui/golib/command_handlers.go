@@ -251,7 +251,7 @@ func handleClientCmd(cc *clientCtx, cmd *cmd) (interface{}, error) {
 		// Not supported via client API; return empty for now
 		return []*player{}, nil
 	case CTGetWaitingRooms:
-		rooms, err := cc.c.RefGetWaitingRooms()
+		rooms, err := cc.c.RefGetWaitingRooms(cc.ctx)
 		if err != nil {
 			return nil, err
 		}
@@ -361,7 +361,6 @@ func handleClientCmd(cc *clientCtx, cmd *cmd) (interface{}, error) {
 		if err != nil {
 			return nil, fmt.Errorf("payout key parse failed: %v", err)
 		}
-		fmt.Printf("payoutPK33: %x\n", payoutPK33)
 		// If an xpub was provided, also log the derived pubkey address at m/0/0 for clarity.
 		if strings.HasPrefix(strings.TrimSpace(req.Payout), "tpub") || strings.HasPrefix(strings.TrimSpace(req.Payout), "dpub") {
 			if addr, derr := pongbisonrelay.PubKeyAddressFromXPub(strings.TrimSpace(req.Payout), 0); derr == nil {
