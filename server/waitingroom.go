@@ -109,25 +109,6 @@ func (s *Server) CreateWaitingRoom(ctx context.Context, req *pong.CreateWaitingR
 
 		pongWR := wr.Marshal()
 
-		// Notify all users.
-		s.usersMu.RLock()
-		usersSnap := make([]*ponggame.Player, 0, len(s.users))
-		for _, u := range s.users {
-			usersSnap = append(usersSnap, u)
-		}
-		s.usersMu.RUnlock()
-
-		for _, user := range usersSnap {
-			if user.NotifierStream == nil {
-				s.log.Errorf("user %s without NotifierStream", user.ID)
-				continue
-			}
-			_ = s.notify(user, &pong.NtfnStreamResponse{
-				Wr:               pongWR,
-				NotificationType: pong.NotificationType_ON_WR_CREATED,
-			})
-		}
-
 		return &pong.CreateWaitingRoomResponse{Wr: pongWR}, nil
 	}
 
@@ -168,24 +149,10 @@ func (s *Server) CreateWaitingRoom(ctx context.Context, req *pong.CreateWaitingR
 
 	pongWR := wr.Marshal()
 
-	// Notify all users.
-	s.usersMu.RLock()
-	usersSnap := make([]*ponggame.Player, 0, len(s.users))
-	for _, u := range s.users {
-		usersSnap = append(usersSnap, u)
-	}
-	s.usersMu.RUnlock()
-
-	for _, user := range usersSnap {
-		if user.NotifierStream == nil {
-			s.log.Errorf("user %s without NotifierStream", user.ID)
-			continue
-		}
-		_ = s.notify(user, &pong.NtfnStreamResponse{
-			Wr:               pongWR,
-			NotificationType: pong.NotificationType_ON_WR_CREATED,
-		})
-	}
+	s.notifyallusers(&pong.NtfnStreamResponse{
+		NotificationType: pong.NotificationType_ON_WR_CREATED,
+		Wr:               pongWR,
+	})
 
 	return &pong.CreateWaitingRoomResponse{Wr: pongWR}, nil
 }

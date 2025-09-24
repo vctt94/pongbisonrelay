@@ -12,7 +12,6 @@ import (
 
 	"os"
 
-	"github.com/companyzero/bisonrelay/clientrpc/types"
 	"github.com/companyzero/bisonrelay/zkidentity"
 	"github.com/decred/dcrd/chaincfg/chainhash"
 	"github.com/decred/dcrd/dcrutil/v4"
@@ -428,6 +427,24 @@ func (s *Server) notify(p *ponggame.Player, resp *pong.NtfnStreamResponse) error
 	return nil
 }
 
+func (s *Server) notifyallusers(resp *pong.NtfnStreamResponse) {
+	// Notify all users.
+	s.usersMu.RLock()
+	usersSnap := make([]*ponggame.Player, 0, len(s.users))
+	for _, u := range s.users {
+		usersSnap = append(usersSnap, u)
+	}
+	s.usersMu.RUnlock()
+
+	for _, user := range usersSnap {
+		if user.NotifierStream == nil {
+			s.log.Errorf("user %s without NotifierStream", user.ID)
+			continue
+		}
+		_ = s.notify(user, resp)
+	}
+}
+
 func (s *Server) Run(ctx context.Context) error {
 	for {
 		select {
@@ -509,51 +526,8 @@ func (s *Server) Shutdown(ctx context.Context) error {
 	return nil
 }
 
-func (s *Server) handleGameLifecycle(ctx context.Context, players []*ponggame.Player, tips []*types.ReceivedTip) {
-	game, err := s.gameManager.StartGame(ctx, players)
-	if err != nil {
-		s.log.Errorf("Failed to start game: %v", err)
-		return
-	}
-
-	defer func() {
-		// reset player status
-		for _, player := range game.Players {
-			player.ResetPlayer()
-		}
-		// remove game from gameManager after it ended
-		s.gameManager.DeleteGame(game.Id)
-		s.log.Debugf("Game %s cleaned up", game.Id)
-	}()
-
-	game.Run()
-
-	var wg sync.WaitGroup
-	for _, player := range players {
-		wg.Add(1)
-		go func(player *ponggame.Player) {
-			defer wg.Done()
-			if player.NotifierStream != nil {
-				err := s.notify(player, &pong.NtfnStreamResponse{
-					NotificationType: pong.NotificationType_GAME_START,
-					Message:          "Game started with ID: " + game.Id,
-					Started:          true,
-					GameId:           game.Id,
-				})
-				if err != nil {
-					s.log.Warnf("Failed to notify player %s: %v", player.ID, err)
-				}
-			}
-			s.sendGameUpdates(ctx, player, game)
-		}(player)
-	}
-
-	wg.Wait() // Wait for both players' streams to finish
-
-	s.handleGameEnd(ctx, game, players, tips)
-}
-
-func (s *Server) handleGameEnd(ctx context.Context, game *ponggame.GameInstance, players []*ponggame.Player, tips []*types.ReceivedTip) {
+func (s *Server) handleGameEnd(ctx context.Context, game *ponggame.GameInstance, wr *ponggame.WaitingRoom) {
+	players := wr.ReadyPlayers()
 	winner := game.Winner
 	var winnerID string
 	if winner != nil {
@@ -696,6 +670,30 @@ func (s *Server) handleGameEnd(ctx context.Context, game *ponggame.GameInstance,
 			}
 			return
 		}
+		// After game finishes, and tx was successfully broadcasted,
+		// remove the associated waiting room  and escrows.
+		if wr != nil {
+			// Cancel room context to stop any related goroutines.
+			if wr.Cancel != nil {
+				wr.Cancel()
+			}
+			// Remove from game manager's waiting rooms list.
+			s.gameManager.RemoveWaitingRoom(wr.ID)
+			// Clean up any escrow bookkeeping for this room to avoid leaks.
+			s.roomEscrowsMu.Lock()
+			if s.roomEscrows != nil {
+				delete(s.roomEscrows, wr.ID)
+			}
+			s.roomEscrowsMu.Unlock()
+
+			s.notifyallusers(&pong.NtfnStreamResponse{
+				NotificationType: pong.NotificationType_ON_WR_REMOVED,
+				Message:          "Waiting room has been removed",
+				RoomId:           wrID,
+			})
+
+			s.log.Debugf("Waiting room %s removed after game end", wr.ID)
+		}
 		txid := h.String()
 
 		// Notify both players of settlement broadcast.
@@ -728,7 +726,7 @@ func (s *Server) manageWaitingRoom(ctx context.Context, wr *ponggame.WaitingRoom
 			// F2P: start immediately once both players are ready.
 			if s.isF2P {
 				s.log.Infof("Game starting with players: %s and %s", players[0].ID, players[1].ID)
-				go s.handleGameLifecycle(ctx, players, wr.ReservedTips)
+				go s.handleGameLifecycle(ctx, wr)
 				return nil
 			}
 
@@ -791,8 +789,53 @@ func (s *Server) manageWaitingRoom(ctx context.Context, wr *ponggame.WaitingRoom
 
 			s.log.Infof("Game starting with players: %s and %s", players[0].ID, players[1].ID)
 
-			go s.handleGameLifecycle(ctx, players, wr.ReservedTips)
+			go s.handleGameLifecycle(ctx, wr)
 			return nil
 		}
 	}
+}
+
+func (s *Server) handleGameLifecycle(ctx context.Context, wr *ponggame.WaitingRoom) {
+	players := wr.ReadyPlayers()[:2]
+	game, err := s.gameManager.StartGame(ctx, players)
+	if err != nil {
+		s.log.Errorf("Failed to start game: %v", err)
+		return
+	}
+
+	defer func() {
+		// reset player status
+		for _, player := range game.Players {
+			player.ResetPlayer()
+		}
+		// remove game from gameManager after it ended
+		s.gameManager.DeleteGame(game.Id)
+		s.log.Debugf("Game %s cleaned up", game.Id)
+	}()
+
+	game.Run()
+
+	var wg sync.WaitGroup
+	for _, player := range players {
+		wg.Add(1)
+		go func(player *ponggame.Player) {
+			defer wg.Done()
+			if player.NotifierStream != nil {
+				err := s.notify(player, &pong.NtfnStreamResponse{
+					NotificationType: pong.NotificationType_GAME_START,
+					Message:          "Game started with ID: " + game.Id,
+					Started:          true,
+					GameId:           game.Id,
+				})
+				if err != nil {
+					s.log.Warnf("Failed to notify player %s: %v", player.ID, err)
+				}
+			}
+			s.sendGameUpdates(ctx, player, game)
+		}(player)
+	}
+
+	wg.Wait() // Wait for both players' streams to finish
+
+	s.handleGameEnd(ctx, game, wr)
 }
