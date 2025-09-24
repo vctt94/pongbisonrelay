@@ -231,12 +231,20 @@ func NewServer(id *zkidentity.ShortID, cfg ServerConfig) (*Server, error) {
 	}
 	// Enable event-driven notifications from dcrd for fast 0-conf updates.
 	ntfnHandlers := &rpcclient.NotificationHandlers{
-		OnTxAccepted: func(hash *chainhash.Hash, amount dcrutil.Amount) {
+		OnTxAccepted: func(hash *chainhash.Hash, _ dcrutil.Amount) {
 			if s.watcher != nil && hash != nil {
-				go s.watcher.ProcessTxAccepted(context.Background(), hash)
+				ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+				go func() { defer cancel(); s.watcher.ProcessTxAcceptedHash(ctx, hash) }()
+			}
+		},
+		OnBlockConnected: func(_ []byte, _ [][]byte) {
+			if s.watcher != nil {
+				ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+				go func() { defer cancel(); s.watcher.ProcessBlockConnected(ctx) }()
 			}
 		},
 	}
+
 	c, err := rpcclient.New(connCfg, ntfnHandlers)
 	if err != nil {
 		return nil, fmt.Errorf("failed to create dcrd rpc client (host=%s user=%s cert=%s): %w", cfg.DcrdHostPort, cfg.DcrdRPCUser, cfg.DcrdRPCCertPath, err)
@@ -246,7 +254,6 @@ func NewServer(id *zkidentity.ShortID, cfg ServerConfig) (*Server, error) {
 
 	// Start chain watcher to keep tip and mempool for watched scripts
 	s.watcher = chainwatcher.NewChainWatcher(s.log, s.dcrd)
-	go s.watcher.Run(context.Background())
 
 	// Subscribe to dcrd notifications for tx/mempool.
 	// Non-verbose is sufficient; we also hooked verbose variant above.
