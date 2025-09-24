@@ -14,6 +14,8 @@ import (
 
 	"github.com/companyzero/bisonrelay/clientrpc/types"
 	"github.com/companyzero/bisonrelay/zkidentity"
+	"github.com/decred/dcrd/chaincfg/chainhash"
+	"github.com/decred/dcrd/dcrutil/v4"
 	"github.com/decred/dcrd/rpcclient/v8"
 	"github.com/decred/dcrd/wire"
 	"github.com/decred/slog"
@@ -227,7 +229,15 @@ func NewServer(id *zkidentity.ShortID, cfg ServerConfig) (*Server, error) {
 		Endpoint:     "ws",
 		Certificates: b,
 	}
-	c, err := rpcclient.New(connCfg, nil)
+	// Enable event-driven notifications from dcrd for fast 0-conf updates.
+	ntfnHandlers := &rpcclient.NotificationHandlers{
+		OnTxAccepted: func(hash *chainhash.Hash, amount dcrutil.Amount) {
+			if s.watcher != nil && hash != nil {
+				go s.watcher.ProcessTxAccepted(context.Background(), hash)
+			}
+		},
+	}
+	c, err := rpcclient.New(connCfg, ntfnHandlers)
 	if err != nil {
 		return nil, fmt.Errorf("failed to create dcrd rpc client (host=%s user=%s cert=%s): %w", cfg.DcrdHostPort, cfg.DcrdRPCUser, cfg.DcrdRPCCertPath, err)
 	}
@@ -237,6 +247,15 @@ func NewServer(id *zkidentity.ShortID, cfg ServerConfig) (*Server, error) {
 	// Start chain watcher to keep tip and mempool for watched scripts
 	s.watcher = chainwatcher.NewChainWatcher(s.log, s.dcrd)
 	go s.watcher.Run(context.Background())
+
+	// Subscribe to dcrd notifications for tx/mempool.
+	// Non-verbose is sufficient; we also hooked verbose variant above.
+	if err := s.dcrd.NotifyNewTransactions(context.Background(), false); err != nil {
+		s.log.Warnf("dcrd: NotifyNewTransactions failed: %v", err)
+	}
+	if err := s.dcrd.NotifyBlocks(context.Background()); err != nil {
+		s.log.Warnf("dcrd: NotifyBlocks failed: %v", err)
+	}
 
 	return s, nil
 }

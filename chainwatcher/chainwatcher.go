@@ -40,9 +40,8 @@ type ChainWatcher struct {
 
 	pkBytes map[string][]byte
 	// known stores currently known unspent UTXOs per pkScriptHex, keyed by
-	// "txid:vout". This allows persisting deposits discovered in prior ticks
-	// so that subsequent ticks can still report funding even if no new blocks
-	// include outputs for that pk.
+	// "txid:vout". This allows persisting deposits across ticks without
+	// requiring an address index.
 	known map[string]map[string]*pong.EscrowUTXO
 }
 
@@ -99,16 +98,10 @@ func (w *ChainWatcher) pollOnce(ctx context.Context) {
 	for k := range w.subs {
 		keys = append(keys, k)
 	}
-	// Snapshot pkBytes and known sizes for decision making without holding locks during RPCs
+	// Snapshot pkBytes without holding locks during RPCs
 	pkbByKey := make(map[string][]byte, len(keys))
-	knownSize := make(map[string]int, len(keys))
 	for _, k := range keys {
 		pkbByKey[k] = w.pkBytes[k]
-		if km := w.known[k]; km != nil {
-			knownSize[k] = len(km)
-		} else {
-			knownSize[k] = 0
-		}
 	}
 	w.mu.RUnlock()
 
@@ -159,45 +152,6 @@ func (w *ChainWatcher) pollOnce(ctx context.Context) {
 		}
 		// Advance lastScanned only once per tick
 		w.lastScanned = tip
-	}
-
-	// ----- Mempool (0-conf) scan once if needed -----
-	needMempool := false
-	for _, pkHex := range keys {
-		if len(discoveredByPk[pkHex]) == 0 && knownSize[pkHex] == 0 {
-			needMempool = true
-			break
-		}
-	}
-	if needMempool {
-		if txids, err := w.dcrd.GetRawMempool(ctx, "all"); err == nil {
-			for _, th := range txids {
-				v, err := w.dcrd.GetRawTransactionVerbose(ctx, th)
-				if err != nil || v == nil {
-					continue
-				}
-				for voutIdx, vout := range v.Vout {
-					spkBytes, err := hex.DecodeString(vout.ScriptPubKey.Hex)
-					if err != nil {
-						continue
-					}
-					for _, pkHex := range keys {
-						pkb := pkbByKey[pkHex]
-						if pkb != nil && bytes.Equal(spkBytes, pkb) {
-							atoms := uint64(vout.Value * 1e8)
-							discoveredByPk[pkHex] = append(discoveredByPk[pkHex], &pong.EscrowUTXO{
-								Txid:        v.Txid,
-								Vout:        uint32(voutIdx),
-								Value:       atoms,
-								PkScriptHex: pkHex,
-							})
-						}
-					}
-				}
-			}
-		} else {
-			// w.log.Debugf("watcher: GetRawMempool failed; skipping mempool scan for tick")
-		}
 	}
 
 	// ----- Persist discoveries and compute current state per pkScript -----
@@ -359,5 +313,93 @@ func (w *ChainWatcher) broadcastUpdate(pk string, u DepositUpdate) {
 		default:
 			// Drop if receiver is slow.
 		}
+	}
+}
+
+// ProcessTxAccepted is an event-driven fast path to record mempool UTXOs for
+// subscribed pkScripts and broadcast a 0-conf update immediately.
+func (w *ChainWatcher) ProcessTxAccepted(ctx context.Context, hash *chainhash.Hash) {
+	if hash == nil {
+		return
+	}
+	// Snapshot subscribed pk scripts and their decoded bytes.
+	w.mu.RLock()
+	if len(w.subs) == 0 {
+		w.mu.RUnlock()
+		return
+	}
+	keys := make([]string, 0, len(w.subs))
+	for k := range w.subs {
+		keys = append(keys, k)
+	}
+	pkbByKey := make(map[string][]byte, len(keys))
+	for _, k := range keys {
+		pkbByKey[k] = w.pkBytes[k]
+	}
+	w.mu.RUnlock()
+
+	v, err := w.dcrd.GetRawTransactionVerbose(ctx, hash)
+	if err != nil || v == nil {
+		return
+	}
+
+	// Collect matches per pk.
+	discoveredByPk := make(map[string][]*pong.EscrowUTXO)
+	for voutIdx, vout := range v.Vout {
+		spkBytes, err := hex.DecodeString(vout.ScriptPubKey.Hex)
+		if err != nil {
+			continue
+		}
+		for _, pkHex := range keys {
+			pkb := pkbByKey[pkHex]
+			if pkb != nil && bytes.Equal(spkBytes, pkb) {
+				atoms := uint64(vout.Value * 1e8)
+				discoveredByPk[pkHex] = append(discoveredByPk[pkHex], &pong.EscrowUTXO{
+					Txid:        v.Txid,
+					Vout:        uint32(voutIdx),
+					Value:       atoms,
+					PkScriptHex: pkHex,
+				})
+			}
+		}
+	}
+
+	if len(discoveredByPk) == 0 {
+		return
+	}
+
+	// Persist and broadcast a 0-conf update per pk with current known entries.
+	now := time.Now()
+	for pkHex, list := range discoveredByPk {
+		if len(list) == 0 {
+			continue
+		}
+		w.mu.Lock()
+		km := w.known[pkHex]
+		if km == nil {
+			km = make(map[string]*pong.EscrowUTXO)
+			w.known[pkHex] = km
+		}
+		for _, u := range list {
+			id := u.Txid + ":" + fmt.Sprintf("%d", u.Vout)
+			km[id] = u
+		}
+		// Build current slice from known map.
+		current := make([]*pong.EscrowUTXO, 0, len(km))
+		for _, u := range km {
+			if u != nil {
+				current = append(current, u)
+			}
+		}
+		w.mu.Unlock()
+
+		w.broadcastUpdate(pkHex, DepositUpdate{
+			PkScriptHex: pkHex,
+			Confs:       0,
+			UTXOCount:   len(current),
+			OK:          len(current) > 0,
+			At:          now,
+			UTXOs:       current,
+		})
 	}
 }
