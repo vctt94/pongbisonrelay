@@ -69,6 +69,7 @@ flutter:
     - assets/certs/rpc-client.cert
     - assets/certs/rpc-client.key
     - assets/certs/rpc.cert
+    - assets/images/dcrlogo.png
 
   # To add assets to your application, add an assets section, like this:
   # assets:

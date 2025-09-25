@@ -5,6 +5,39 @@ import 'package:flutter/services.dart';
 import 'package:pongui/grpc/grpc_client.dart';
 import 'package:golib_plugin/grpc/generated/pong.pb.dart';
 
+class BackgroundLogo extends StatelessWidget {
+  const BackgroundLogo({super.key, this.frac = 0.70}); // 70% of min(w,h)
+  final double frac;
+
+  @override
+  Widget build(BuildContext context) {
+    return IgnorePointer(
+      child: LayoutBuilder(
+        builder: (context, constraints) {
+          final shortest = constraints.biggest.shortestSide;
+          final size = (shortest.isFinite && shortest > 0)
+              ? shortest * frac
+              : 300.0;
+
+          return Center(
+            child: Image.asset(
+              'assets/images/dcrlogo.png',
+              width: size,
+              height: size,
+              fit: BoxFit.contain,
+              opacity: const AlwaysStoppedAnimation(0.50),
+              errorBuilder: (_, err, __) {
+                debugPrint('BackgroundLogo: failed to load -> $err');
+                return const SizedBox.shrink();
+              },
+            ),
+          );
+        },
+      ),
+    );
+  }
+}
+
 class PongGame {
   final GrpcPongClient grpcClient; // gRPC client instance
   final String clientId;
@@ -48,19 +81,28 @@ class PongGame {
 
               return Center(
                 child: SizedBox(
-                  width: constraints.maxWidth,             // take available width
-                  child: AspectRatio(                      // preserve game aspect
+                  width: constraints.maxWidth,
+                  child: AspectRatio(
                     aspectRatio: gw / gh,
-                    child: RepaintBoundary(                // isolate canvas repaints
+                    child: RepaintBoundary(
                       child: Stack(
                         fit: StackFit.expand,
                         children: [
-                          // Single game canvas
+                          // Black backdrop (static)
+                          const ColoredBox(color: Colors.black),
+
+                          // Game canvas (repaints)
                           CustomPaint(
                             painter: PongPainter(gameState),
+                            // Hints to the engine:
+                            isComplex: true,
+                            willChange: true,
                           ),
 
-                          // Score overlay (does not intercept input)
+                          // Static logo layer (no repaints) - moved after game canvas
+                          const BackgroundLogo(),
+
+                          // Score overlay (no pointer intercept)
                           IgnorePointer(
                             child: Stack(
                               fit: StackFit.expand,
@@ -170,7 +212,7 @@ class PongGame {
                       width: 10,
                       height: 60,
                       decoration: BoxDecoration(
-                        color: Colors.white,
+                        color: Colors.blue,
                         borderRadius: BorderRadius.circular(5),
                       ),
                     ),
@@ -188,7 +230,7 @@ class PongGame {
                       width: 10,
                       height: 60,
                       decoration: BoxDecoration(
-                        color: Colors.white,
+                        color: Colors.green,
                         borderRadius: BorderRadius.circular(5),
                       ),
                     ),
@@ -389,77 +431,44 @@ class PongGame {
 
 class PongPainter extends CustomPainter {
   final GameUpdate gameState;
-
   PongPainter(this.gameState);
 
   @override
   void paint(Canvas canvas, Size size) {
-    double gameWidth = gameState.gameWidth;
-    double gameHeight = gameState.gameHeight;
+    final gw = (gameState.gameWidth > 0) ? gameState.gameWidth : 800.0;
+    final gh = (gameState.gameHeight > 0) ? gameState.gameHeight : 600.0;
+    final sx = size.width / gw;
+    final sy = size.height / gh;
 
-    double scaleX = size.width / gameWidth;
-    double scaleY = size.height / gameHeight;
+    // Paints
+    final ballPaint = Paint()..color = Colors.white..isAntiAlias = true;
+    final paddle1Paint = Paint()..color = Colors.blue..isAntiAlias = true;
+    final paddle2Paint = Paint()..color = Colors.green..isAntiAlias = true;
 
-    var paint = Paint()
-      ..color = Colors.white
-      ..style = PaintingStyle.fill
-      ..isAntiAlias = true;
+    // P1
+    final p1x = gameState.p1X * sx;
+    final p1y = gameState.p1Y * sy;
+    final p1w = gameState.p1Width * sx;
+    final p1h = gameState.p1Height * sy;
+    canvas.drawRect(Rect.fromLTWH(p1x, p1y, p1w, p1h), paddle1Paint);
 
-    canvas.drawRect(
-      Rect.fromLTWH(0.0, 0.0, size.width, size.height),
-      Paint()..color = Colors.black,
-    );
+    // P2
+    final p2x = gameState.p2X * sx;
+    final p2y = gameState.p2Y * sy;
+    final p2w = gameState.p2Width * sx;
+    final p2h = gameState.p2Height * sy;
+    canvas.drawRect(Rect.fromLTWH(p2x, p2y, p2w, p2h), paddle2Paint);
 
-    double paddle1X = gameState.p1X;
-    double paddle1Y = gameState.p1Y;
-    double paddle1Width = gameState.p1Width;
-    double paddle1Height = gameState.p1Height;
-
-    paddle1X *= scaleX;
-    paddle1Y *= scaleY;
-    paddle1Width *= scaleX;
-    paddle1Height *= scaleY;
-
-    double paddle2X = gameState.p2X;
-    double paddle2Y = gameState.p2Y;
-    double paddle2Width = gameState.p2Width;
-    double paddle2Height = gameState.p2Height;
-
-    paddle2X *= scaleX;
-    paddle2Y *= scaleY;
-    paddle2Width *= scaleX;
-    paddle2Height *= scaleY;
-
-    double ballX = gameState.ballX;
-    double ballY = gameState.ballY;
-    double ballWidth = gameState.ballWidth;
-    double ballHeight = gameState.ballHeight;
-
-    ballX *= scaleX;
-    ballY *= scaleY;
-    ballWidth *= scaleX;
-    ballHeight *= scaleY;
-
-    canvas.drawRect(
-      Rect.fromLTWH(paddle1X, paddle1Y, paddle1Width, paddle1Height),
-      paint,
-    );
-
-    canvas.drawRect(
-      Rect.fromLTWH(paddle2X, paddle2Y, paddle2Width, paddle2Height),
-      paint,
-    );
-
-    double radius = (ballWidth + ballHeight) / 4;
-    canvas.drawCircle(
-      Offset(ballX + ballWidth / 2, ballY + ballHeight / 2),
-      radius,
-      paint,
-    );
-
-
+    // Ball
+    final bx = gameState.ballX * sx;
+    final by = gameState.ballY * sy;
+    final bw = gameState.ballWidth * sx;
+    final bh = gameState.ballHeight * sy;
+    final r = (bw + bh) / 4;
+    canvas.drawCircle(Offset(bx + bw / 2, by + bh / 2), r, ballPaint);
   }
 
+  // Only repaint when the instance (or relevant fields) change.
   @override
-  bool shouldRepaint(covariant PongPainter old) => true;
+  bool shouldRepaint(covariant PongPainter old) => old.gameState != gameState;
 }
