@@ -29,12 +29,12 @@ import (
 // SettleInput is the only thing the presign needs from funding.
 // It binds identity (escrowID, ownerUID) + the exact outpoint and script.
 type SettleInput struct {
-	EscrowID        string           // for storage of presigs
-	OwnerUID        string           // for deterministic (a,b) ordering
-	InputID         string           // "txid:vout" (must be the BOUND outpoint)
-	UTXO            *pong.EscrowUTXO // must include Txid, Vout, AmountAtoms
-	RedeemScriptHex string           // exact redeem used to spend UTXO
-	PayoutPubkey    []byte           // 33-byte compressed pubkey for payout path
+	EscrowID        string             // for storage of presigs
+	OwnerUID        zkidentity.ShortID // for deterministic (a,b) ordering
+	InputID         string             // "txid:vout" (must be the BOUND outpoint)
+	UTXO            *pong.EscrowUTXO   // must include Txid, Vout, AmountAtoms
+	RedeemScriptHex string             // exact redeem used to spend UTXO
+	PayoutPubkey    []byte             // 33-byte compressed pubkey for payout path
 }
 
 // twoBranchDrafts holds the fully serialized drafts for A-wins and B-wins,
@@ -72,9 +72,9 @@ func (s *Server) trackEscrow(ctx context.Context, es *escrowSession, ch <-chan c
 			es.mu.Unlock()
 
 			// Emit a single structured update when funded and state changed.
-			if es.ownerUID != "" && u.UTXOCount > 0 && (u.UTXOCount != prev.UTXOCount || u.Confs != prev.Confs) {
+			if es.ownerUID.String() != "" && u.UTXOCount > 0 && (u.UTXOCount != prev.UTXOCount || u.Confs != prev.Confs) {
 				s.log.Debugf("trackEscrow: funding update owner=%s pk=%s utxos=%d confs=%d", es.ownerUID, u.PkScriptHex, u.UTXOCount, u.Confs)
-				_ = s.notify(es.player, &pong.NtfnStreamResponse{NotificationType: pong.NotificationType_BET_AMOUNT_UPDATE, PlayerId: es.ownerUID, BetAmt: int64(es.betAtoms), Confs: u.Confs})
+				_ = s.notify(es.player, &pong.NtfnStreamResponse{NotificationType: pong.NotificationType_BET_AMOUNT_UPDATE, PlayerId: es.ownerUID.String(), BetAmt: int64(es.betAtoms), Confs: u.Confs})
 			}
 		}
 	}
@@ -152,9 +152,11 @@ func (s *Server) OpenEscrow(ctx context.Context, req *pong.OpenEscrowRequest) (*
 	}
 	eid := "e" + hex.EncodeToString(rnd[:])
 
+	var ownerUID zkidentity.ShortID
+	ownerUID.FromString(req.OwnerUid)
 	es := &escrowSession{
 		escrowID:        eid,
-		ownerUID:        req.OwnerUid,
+		ownerUID:        ownerUID,
 		compPubkey:      append([]byte(nil), comp...),
 		payoutPubkey:    append([]byte(nil), payoutPubkey...),
 		betAtoms:        req.BetAtoms,
@@ -347,7 +349,7 @@ func (s *Server) settlementStreamForRoom(
 	}
 
 	// Anchor a/b ordering to host; pass host uid string
-	return s.settlementStreamTwoInputs(stream, X, myEscrow, oppEscrow, myIn.UTXO, oppIn.UTXO, host.String())
+	return s.settlementStreamTwoInputs(stream, X, myEscrow, oppEscrow, myIn.UTXO, oppIn.UTXO, host)
 }
 
 // buildP2PKScript builds a standard ECDSA P2PK payout script that pays to a
@@ -546,7 +548,7 @@ func (s *Server) settlementStreamTwoInputs(
 	X *secp256k1.PublicKey,
 	myEscrow, oppEscrow *escrowSession,
 	myUTXO, oppUTXO *pong.EscrowUTXO,
-	hostUID string,
+	hostUID zkidentity.ShortID,
 ) error {
 	// 0) Enforce identity: the UTXOs passed in MUST be the bound inputs.
 	if err := s.ensureBoundFunding(myEscrow); err != nil {

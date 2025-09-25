@@ -36,7 +36,7 @@ func (s *Server) GetWaitingRooms(ctx context.Context, req *pong.WaitingRoomsRequ
 //   - escrow exists and is owned by ownerUID
 //   - funding is bound to a specific outpoint (txid:vout)
 //   - that exact outpoint is present and is the *only* deposit
-func (s *Server) resolveFundedEscrow(ownerUID, escrowID string) (*escrowSession, error) {
+func (s *Server) resolveFundedEscrow(ownerUID zkidentity.ShortID, escrowID string) (*escrowSession, error) {
 	if escrowID == "" {
 		return nil, fmt.Errorf("escrow ID is required")
 	}
@@ -113,7 +113,7 @@ func (s *Server) CreateWaitingRoom(ctx context.Context, req *pong.CreateWaitingR
 	}
 
 	// Non-F2P: require funded escrow (0-conf OK).
-	es, err := s.resolveFundedEscrow(hostID.String(), req.EscrowId)
+	es, err := s.resolveFundedEscrow(hostID, req.EscrowId)
 	if err != nil {
 		return nil, fmt.Errorf("require funded escrow to create room (0-conf ok): %w", err)
 	}
@@ -207,7 +207,7 @@ func (s *Server) JoinWaitingRoom(ctx context.Context, req *pong.JoinWaitingRoomR
 	}
 
 	// Non-F2P: require funded escrow (0-conf OK).
-	es, err := s.resolveFundedEscrow(uid.String(), req.EscrowId)
+	es, err := s.resolveFundedEscrow(uid, req.EscrowId)
 	if err != nil {
 		return nil, fmt.Errorf("require funded escrow to join room (0-conf ok): %w", err)
 	}
@@ -282,12 +282,19 @@ func (s *Server) LeaveWaitingRoom(ctx context.Context, req *pong.LeaveWaitingRoo
 	}
 
 	wr.RLock()
-	hostID := wr.HostID.String()
+	hostID := wr.HostID
+	players := wr.Players
 	wr.RUnlock()
 
-	// If the leaving player is the host, close the room entirely.
-	if hostID == clientID.String() {
+	// clean up presign artifacts for all players in the room
+	for _, p := range players {
+		if es := s.escrowForRoomPlayer(*p.ID, wr.ID); es != nil {
+			es.clearPreSigns()
+		}
+	}
 
+	// If the leaving player is the host, close the room entirely.
+	if *hostID == clientID {
 		// Cancel the room context if present and remove from manager.
 		if wr.Cancel != nil {
 			wr.Cancel()

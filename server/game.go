@@ -44,7 +44,7 @@ func (s *Server) StartNtfnStream(req *pong.StartNtfnStreamRequest, stream pong.P
 	// watcher notifications reach the active notifier stream.
 	s.escrowsMu.RLock()
 	for _, es := range s.escrows {
-		if es != nil && es.ownerUID == clientID.String() {
+		if es != nil && es.ownerUID == clientID {
 			// Replace player binding
 			es.mu.Lock()
 			es.player = player
@@ -52,7 +52,7 @@ func (s *Server) StartNtfnStream(req *pong.StartNtfnStreamRequest, stream pong.P
 			es.mu.Unlock()
 			if u.OK && u.UTXOCount > 0 {
 				// Send only structured bet updates; clients derive UX from confs.
-				_ = s.notify(player, &pong.NtfnStreamResponse{NotificationType: pong.NotificationType_BET_AMOUNT_UPDATE, PlayerId: es.ownerUID, BetAmt: int64(es.betAtoms), Confs: u.Confs})
+				_ = s.notify(player, &pong.NtfnStreamResponse{NotificationType: pong.NotificationType_BET_AMOUNT_UPDATE, PlayerId: es.ownerUID.String(), BetAmt: int64(es.betAtoms), Confs: u.Confs})
 			}
 		}
 	}

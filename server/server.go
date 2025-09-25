@@ -66,13 +66,13 @@ type ServerConfig struct {
 type PreSignCtx struct {
 	InputID         string // "txid:vout"
 	RedeemScriptHex string
-	DraftHex        string // exact serialized tx used at presign
-	MHex            string // 32-byte sighash for (DraftHex, RedeemScriptHex, idx, SIGHASH_ALL)
-	RLineCompressed []byte // 33 bytes, even-Y (0x02)
-	SLine32         []byte // 32 bytes
-	TCompressed     []byte // 33 bytes (if used in adaptor domain)
-	WinnerUID       string // tie to player/session (owner uid)
-	Branch          int32  // 0 = A-wins, 1 = B-wins (payout branch)
+	DraftHex        string             // exact serialized tx used at presign
+	MHex            string             // 32-byte sighash for (DraftHex, RedeemScriptHex, idx, SIGHASH_ALL)
+	RLineCompressed []byte             // 33 bytes, even-Y (0x02)
+	SLine32         []byte             // 32 bytes
+	TCompressed     []byte             // 33 bytes (if used in adaptor domain)
+	WinnerUID       zkidentity.ShortID // tie to player/session (owner uid)
+	Branch          int32              // 0 = A-wins, 1 = B-wins (payout branch)
 }
 
 // escrowSession represents a pre-match funding session for a single player.
@@ -81,7 +81,7 @@ type escrowSession struct {
 	boundInputID    string
 	boundInput      *pong.EscrowUTXO
 	escrowID        string
-	ownerUID        string
+	ownerUID        zkidentity.ShortID
 	compPubkey      []byte // 33 bytes
 	payoutPubkey    []byte // 33 bytes
 	betAtoms        uint64
@@ -124,6 +124,17 @@ func (es *escrowSession) preSignSnapshot() (bound string, inputs []string, consi
 		inputs = append(inputs, ctx.InputID)
 	}
 	return
+}
+
+// clearPreSigns removes all presign artifacts from the escrow session.
+// This should be called when a player leaves to prevent memory leaks and stale data.
+func (es *escrowSession) clearPreSigns() {
+	es.mu.Lock()
+	defer es.mu.Unlock()
+
+	if es.preSign != nil {
+		es.preSign = make(map[string]*PreSignCtx)
+	}
 }
 
 type Server struct {
@@ -288,6 +299,18 @@ func (s *Server) handleDisconnect(clientID zkidentity.ShortID) {
 	if playerSession != nil {
 		s.gameManager.PlayerSessions.RemovePlayer(clientID)
 	}
+
+	// Clean up presign artifacts for all escrow sessions owned by this player
+	s.escrowsMu.RLock()
+	for _, es := range s.escrows {
+		// clean up escrow session
+		// XXX This should be kept in a long term storage?
+		// after csv can refund
+		if es != nil && es.ownerUID == clientID {
+			delete(s.roomEscrows, clientID)
+		}
+	}
+	s.escrowsMu.RUnlock()
 
 	s.gameManager.HandleWaitingRoomDisconnection(clientID, s.log)
 	s.gameManager.HandleGameDisconnection(clientID, s.log)
