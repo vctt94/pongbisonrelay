@@ -21,7 +21,8 @@ enum GameState {
   gameInitialized, // Game has started but not ready to play
   readyToPlay, // Signaled ready to play but waiting for opponent
   countdown, // Countdown in progress
-  playing // Active gameplay
+  playing, // Active gameplay
+  gameEnded // Game has finished
 }
 
 class PongModel extends ChangeNotifier {
@@ -57,6 +58,7 @@ class PongModel extends ChangeNotifier {
   GameState _currentGameState = GameState.idle;
   String currentGameId = '';
   String countdownMessage = '';
+  String gameEndingMessage = '';
 
   // Track last settlement match id used for presign so we can archive the
   // session key safely after game completion.
@@ -251,10 +253,13 @@ class PongModel extends ChangeNotifier {
           break;
 
         case NotificationType.GAME_END:
+          // Store the ending message and transition to game ended state
+          gameEndingMessage = ntfn.message;
+          _currentGameState = GameState.gameEnded;
           notificationModel.showNotification(ntfn.message);
-          // Reset gameplay state and clear escrow so the user can start fresh.
-          resetGameState();
-          clearEscrowState();
+          // Stop the game stream and render loop
+          _stopGameStreamAndRenderLoop();
+          notifyListeners();
           break;
 
         case NotificationType.ON_WR_REMOVED:
@@ -341,6 +346,8 @@ class PongModel extends ChangeNotifier {
     betAmt = 0;
     currentGameId = '';
     countdownMessage = '';
+    gameEndingMessage = '';
+    clearEscrowState();
     _stopGameStreamAndRenderLoop();
     notifyListeners();
   }
