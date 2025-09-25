@@ -108,7 +108,15 @@ class MyApp extends StatelessWidget {
         '/': (context) => const HomeScreen(),
         '/settings': (context) => NewConfigScreen(
               model: NewConfigModel.fromConfig(cfg),
-              onConfigSaved: () => runMainApp(cfg),
+              onConfigSaved: () async {
+                try {
+                  // Reload the config from disk to get the updated values
+                  Config updatedCfg = await configFromArgs([]);
+                  runMainApp(updatedCfg);
+                } catch (e) {
+                  rethrow;
+                }
+              },
             ),
         '/logs': (context) => const LogsScreen(),
       },
