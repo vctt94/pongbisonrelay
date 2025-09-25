@@ -4,7 +4,13 @@ A fast, privacy-friendly Pong with self custodial bets, built on the Bison Relay
 
 **Self‑custodial** with **Schnorr adaptor signatures**. You fund your own escrow pkscript, bet and play.
 
+### Home
 ![Game screenshot](images/pongui.png)
+
+---
+
+### Pong Game View
+![Game UI](images/ponggame.png)
 
 ---
 
