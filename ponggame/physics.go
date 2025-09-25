@@ -14,8 +14,8 @@ const (
 
 	canvas_border_correction = 1
 
-	initial_ball_x_vel = 0.1
-	initial_ball_y_vel = 0.1
+	initial_ball_x_vel = 0.15
+	initial_ball_y_vel = 0.15
 
 	y_vel_ratio = 1
 )
@@ -83,31 +83,29 @@ func (e *CanvasEngine) tick() {
 	// Apply paddle movement based on current velocity
 	dt := 1.0 / e.FPS
 
-	// Calculate new positions outside the lock
-	e.mu.RLock()
-	newP1Pos := e.P1Pos.Add(e.P1Vel.Scale(dt))
-	newP2Pos := e.P2Pos.Add(e.P2Vel.Scale(dt))
-	velocityIncrease := e.VelocityIncrease
-	collision := e.detectColl()
-	e.mu.RUnlock()
-
-	// Update positions with shorter lock
 	e.mu.Lock()
-	e.P1Pos = newP1Pos
-	e.P2Pos = newP2Pos
 
-	// Detect collision inside the lock
+	// Update positions directly (avoid extra vector allocations)
+	e.P1Pos.X += e.P1Vel.X * dt
+	e.P1Pos.Y += e.P1Vel.Y * dt
+	e.P2Pos.X += e.P2Vel.X * dt
+	e.P2Pos.Y += e.P2Vel.Y * dt
 
 	// Update velocity multiplier
-	if velocityIncrease > 0 {
-		e.VelocityMultiplier += velocityIncrease
+	if e.VelocityIncrease > 0 {
+		e.VelocityMultiplier += e.VelocityIncrease
 	} else {
 		e.VelocityMultiplier += DEFAULT_VEL_INCR
 	}
 
 	// Apply the velocity multiplier to the ball movement
-	velocityThisTick := e.BallVel.Scale(e.VelocityMultiplier * dt)
-	e.BallPos = e.BallPos.Add(velocityThisTick)
+	velocityMultiplier := e.VelocityMultiplier * dt
+	e.BallPos.X += e.BallVel.X * velocityMultiplier
+	e.BallPos.Y += e.BallVel.Y * velocityMultiplier
+
+	// Detect collision with cached calculations
+	collision := e.detectColl()
+
 	e.mu.Unlock()
 
 	// Process collision result (outside of lock)
@@ -160,17 +158,28 @@ func (e *CanvasEngine) tick() {
 
 // detectColl detects and returns a possible collision
 func (e *CanvasEngine) detectColl() engine.Collision {
-	br := e.ballRect()
-	p1r := e.p1Rect()
-	p2r := e.p2Rect()
-	topr := e.topRect()
-	bottomr := e.bottomRect()
+	// Ball center and dimensions (inline calculation)
+	ballCx := e.BallPos.X + e.Game.Ball.Width*0.5
+	ballCy := e.BallPos.Y + e.Game.Ball.Height*0.5
+	ballHalfW := e.Game.Ball.Width * 0.5
+	ballHalfH := e.Game.Ball.Height * 0.5
 
-	// Check paddle collisions first
-	if intersects(br, p1r) {
-		// Determine if it's a top/bottom collision by comparing centers
-		if math.Abs(br.Cy-p1r.Cy) > p1r.HalfH*0.8 { // Using 0.8 as threshold
-			if br.Cy < p1r.Cy {
+	// P1 paddle center and dimensions
+	p1Cx := e.P1Pos.X + e.Game.P1.Width*0.5
+	p1Cy := e.P1Pos.Y + e.Game.P1.Height*0.5
+	p1HalfW := e.Game.P1.Width * 0.5
+	p1HalfH := e.Game.P1.Height * 0.5
+
+	// P2 paddle center and dimensions
+	p2Cx := e.P2Pos.X + e.Game.P2.Width*0.5
+	p2Cy := e.P2Pos.Y + e.Game.P2.Height*0.5
+	p2HalfW := e.Game.P2.Width * 0.5
+	p2HalfH := e.Game.P2.Height * 0.5
+
+	// Check P1 paddle collision (inline AABB test)
+	if math.Abs(ballCx-p1Cx) <= (ballHalfW+p1HalfW) && math.Abs(ballCy-p1Cy) <= (ballHalfH+p1HalfH) {
+		if math.Abs(ballCy-p1Cy) > p1HalfH*0.8 {
+			if ballCy < p1Cy {
 				return engine.CollP1Top
 			}
 			return engine.CollP1Bottom
@@ -178,10 +187,10 @@ func (e *CanvasEngine) detectColl() engine.Collision {
 		return engine.CollP1
 	}
 
-	if intersects(br, p2r) {
-		// Similar top/bottom check for P2
-		if math.Abs(br.Cy-p2r.Cy) > p2r.HalfH*0.8 {
-			if br.Cy < p2r.Cy {
+	// Check P2 paddle collision (inline AABB test)
+	if math.Abs(ballCx-p2Cx) <= (ballHalfW+p2HalfW) && math.Abs(ballCy-p2Cy) <= (ballHalfH+p2HalfH) {
+		if math.Abs(ballCy-p2Cy) > p2HalfH*0.8 {
+			if ballCy < p2Cy {
 				return engine.CollP2Top
 			}
 			return engine.CollP2Bottom
@@ -189,32 +198,34 @@ func (e *CanvasEngine) detectColl() engine.Collision {
 		return engine.CollP2
 	}
 
-	// Check wall collisions
-	if intersects(br, topr) {
-		if br.Cx <= p1r.Cx+p1r.HalfW {
+	// Check top wall collision
+	if ballCy-ballHalfH <= canvas_border_correction*0.5 {
+		if ballCx <= p1Cx+p1HalfW {
 			return engine.CollTopLeft
 		}
-		if br.Cx >= p2r.Cx-p2r.HalfW {
+		if ballCx >= p2Cx-p2HalfW {
 			return engine.CollTopRight
 		}
 		return engine.CollTop
 	}
 
-	if intersects(br, bottomr) {
-		if br.Cx <= p1r.Cx+p1r.HalfW {
+	// Check bottom wall collision
+	bottomWallY := e.Game.Height - canvas_border_correction*0.5
+	if ballCy+ballHalfH >= bottomWallY {
+		if ballCx <= p1Cx+p1HalfW {
 			return engine.CollBottomLeft
 		}
-		if br.Cx >= p2r.Cx-p2r.HalfW {
+		if ballCx >= p2Cx-p2HalfW {
 			return engine.CollBottomRight
 		}
 		return engine.CollBottom
 	}
 
-	// Check side walls (scoring)
-	if br.Cx-br.HalfW <= 0 {
+	// Check side walls (scoring) - fast early exit tests
+	if ballCx-ballHalfW <= 0 {
 		return engine.CollLeft
 	}
-	if br.Cx+br.HalfW >= e.Game.Width {
+	if ballCx+ballHalfW >= e.Game.Width {
 		return engine.CollRight
 	}
 
