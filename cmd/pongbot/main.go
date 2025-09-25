@@ -2,7 +2,7 @@ package main
 
 import (
 	"context"
-	"encoding/hex"
+	"crypto/rand"
 	"flag"
 	"fmt"
 	"net"
@@ -14,11 +14,10 @@ import (
 
 	"github.com/companyzero/bisonrelay/clientrpc/types"
 	"github.com/companyzero/bisonrelay/zkidentity"
-	"github.com/vctt94/bisonbotkit"
 	"github.com/vctt94/bisonbotkit/logging"
 	"github.com/vctt94/bisonbotkit/utils"
-	"github.com/vctt94/pong-bisonrelay/pongrpc/grpc/pong"
-	"github.com/vctt94/pong-bisonrelay/server"
+	"github.com/vctt94/pongbisonrelay/pongrpc/grpc/pong"
+	"github.com/vctt94/pongbisonrelay/server"
 	"golang.org/x/sync/errgroup"
 	"google.golang.org/grpc"
 	"google.golang.org/grpc/credentials"
@@ -32,13 +31,18 @@ var (
 	flagRPCURL         = flag.String("rpcurl", "", "URL of the RPC server")
 	flagGRPCHost       = flag.String("grpchost", "", "Host for gRPC server")
 	flagGRPCPort       = flag.String("grpcport", "", "Port for gRPC server")
-	flagHttpPort       = flag.String("httpport", "", "Port for HTTP server")
 	flagServerCertPath = flag.String("servercert", "", "Path to server certificate")
 	flagClientCertPath = flag.String("clientcert", "", "Path to client certificate")
 	flagClientKeyPath  = flag.String("clientkey", "", "Path to client key")
 	flagRPCUser        = flag.String("rpcuser", "", "RPC user")
 	flagRPCPass        = flag.String("rpcpass", "", "RPC password")
 	flagDebug          = flag.String("debug", "", "Debug level")
+
+	// dcrd connectivity (optional)
+	flagDcrdHost = flag.String("dcrdhost", "", "dcrd host:port (e.g. 127.0.0.1:19109)")
+	flagDcrdCert = flag.String("dcrdcert", "", "Path to dcrd rpc.cert")
+	flagDcrdUser = flag.String("dcrduser", "", "dcrd RPC user (default: rpcuser)")
+	flagDcrdPass = flag.String("dcrdpass", "", "dcrd RPC password (default: rpcpass)")
 )
 
 func realMain() error {
@@ -95,9 +99,6 @@ func realMain() error {
 	if *flagGRPCPort != "" {
 		cfg.GRPCPort = *flagGRPCPort
 	}
-	if *flagHttpPort != "" {
-		cfg.HttpPort = *flagHttpPort
-	}
 	if *flagServerCertPath != "" {
 		cfg.ServerCertPath = utils.CleanAndExpandPath(*flagServerCertPath)
 	}
@@ -117,6 +118,20 @@ func realMain() error {
 		cfg.Debug = *flagDebug
 	}
 
+	// dcrd flags override config when provided (keep prior behavior)
+	if *flagDcrdHost != "" {
+		cfg.DcrdHost = *flagDcrdHost
+	}
+	if *flagDcrdCert != "" {
+		cfg.DcrdCert = utils.CleanAndExpandPath(*flagDcrdCert)
+	}
+	if *flagDcrdUser != "" {
+		cfg.DcrdUser = *flagDcrdUser
+	}
+	if *flagDcrdPass != "" {
+		cfg.DcrdPass = *flagDcrdPass
+	}
+
 	ctx, cancel := context.WithCancel(context.Background())
 	defer cancel()
 
@@ -131,10 +146,10 @@ func realMain() error {
 		return fmt.Errorf("failed to listen on gRPC port: %v", err)
 	}
 
-	bot, err := bisonbotkit.NewBot(cfg.BotConfig, logBackend)
-	if err != nil {
-		return fmt.Errorf("failed to create JSON-RPC client: %w", err)
-	}
+	// bot, err := bisonbotkit.NewBot(cfg.BotConfig)
+	// if err != nil {
+	// 	return fmt.Errorf("failed to create JSON-RPC client: %w", err)
+	// }
 
 	sigChan := make(chan os.Signal, 1)
 	signal.Notify(sigChan, os.Interrupt, syscall.SIGTERM)
@@ -144,55 +159,30 @@ func realMain() error {
 		cancel()
 	}()
 
-	req := &types.PublicIdentityReq{}
-	var publicIdentity types.PublicIdentity
-	if err := bot.UserPublicIdentity(ctx, req, &publicIdentity); err != nil {
-		return fmt.Errorf("failed to get public identity: %w", err)
+	// Generate a random server ShortID (avoid BR dependency for now).
+	var rnd [32]byte
+	if _, err := rand.Read(rnd[:]); err != nil {
+		return fmt.Errorf("failed to generate server id: %w", err)
 	}
-
-	clientID := hex.EncodeToString(publicIdentity.Identity[:])
 	var zkShortID zkidentity.ShortID
-	copy(zkShortID[:], clientID)
+	zkShortID.FromBytes(rnd[:])
 
 	srv, err := server.NewServer(&zkShortID, server.ServerConfig{
-		Bot:        bot,
-		ServerDir:  cfg.DataDir,
-		IsF2P:      cfg.IsF2P,
-		MinBetAmt:  cfg.MinBetAmt,
-		HTTPPort:   cfg.HttpPort,
-		LogBackend: logBackend,
+		ServerDir:       cfg.DataDir,
+		IsF2P:           cfg.IsF2P,
+		MinBetAmt:       cfg.MinBetAmt,
+		LogBackend:      logBackend,
+		DcrdHostPort:    cfg.DcrdHost,
+		DcrdRPCCertPath: cfg.DcrdCert,
+		DcrdRPCUser:     cfg.DcrdUser,
+		DcrdRPCPass:     cfg.DcrdPass,
+		AdaptorSecret:   cfg.AdaptorSecret,
 	})
 	if err != nil {
 		return fmt.Errorf("failed to create server: %w", err)
 	}
 
 	g.Go(func() error { return srv.Run(gctx) })
-
-	g.Go(func() error {
-		for {
-			select {
-			case tip := <-tipChan:
-				if err := srv.HandleReceiveTip(ctx, &tip); err != nil {
-					log.Errorf("Error processing received tip: %v", err)
-				}
-			case <-gctx.Done():
-				return nil
-			}
-		}
-	})
-
-	g.Go(func() error {
-		for {
-			select {
-			case tip := <-tipProgressChan:
-				if err := srv.HandleTipProgress(ctx, &tip); err != nil {
-					log.Errorf("Error processing tip progress: %v", err)
-				}
-			case <-gctx.Done():
-				return nil
-			}
-		}
-	})
 
 	certPath := filepath.Join(cfg.DataDir, "server.cert")
 	keyPath := filepath.Join(cfg.DataDir, "server.key")
@@ -220,6 +210,9 @@ func realMain() error {
 	)
 
 	pong.RegisterPongGameServer(grpcServer, srv)
+	pong.RegisterPongRefereeServer(grpcServer, srv)
+	// Register waiting room service (required by clients calling GetWaitingRooms, etc.)
+	pong.RegisterPongWaitingRoomServer(grpcServer, srv)
 
 	g.Go(func() error {
 		<-gctx.Done()
@@ -240,8 +233,7 @@ func realMain() error {
 	<-gctx.Done()
 	log.Info("Shutting down servers...")
 
-	// Make sure to call bot.Close() during shutdown
-	bot.Close()
+	// bot.Close()
 	log.Info("Server shutdown complete")
 	select {
 	case <-ctx.Done():

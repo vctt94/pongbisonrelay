@@ -41,26 +41,6 @@ class PongGameClient extends $grpc.Client {
       '/pong.PongGame/SignalReadyToPlay',
       ($0.SignalReadyToPlayRequest value) => value.writeToBuffer(),
       ($core.List<$core.int> value) => $0.SignalReadyToPlayResponse.fromBuffer(value));
-  static final _$getWaitingRoom = $grpc.ClientMethod<$0.WaitingRoomRequest, $0.WaitingRoomResponse>(
-      '/pong.PongGame/GetWaitingRoom',
-      ($0.WaitingRoomRequest value) => value.writeToBuffer(),
-      ($core.List<$core.int> value) => $0.WaitingRoomResponse.fromBuffer(value));
-  static final _$getWaitingRooms = $grpc.ClientMethod<$0.WaitingRoomsRequest, $0.WaitingRoomsResponse>(
-      '/pong.PongGame/GetWaitingRooms',
-      ($0.WaitingRoomsRequest value) => value.writeToBuffer(),
-      ($core.List<$core.int> value) => $0.WaitingRoomsResponse.fromBuffer(value));
-  static final _$createWaitingRoom = $grpc.ClientMethod<$0.CreateWaitingRoomRequest, $0.CreateWaitingRoomResponse>(
-      '/pong.PongGame/CreateWaitingRoom',
-      ($0.CreateWaitingRoomRequest value) => value.writeToBuffer(),
-      ($core.List<$core.int> value) => $0.CreateWaitingRoomResponse.fromBuffer(value));
-  static final _$joinWaitingRoom = $grpc.ClientMethod<$0.JoinWaitingRoomRequest, $0.JoinWaitingRoomResponse>(
-      '/pong.PongGame/JoinWaitingRoom',
-      ($0.JoinWaitingRoomRequest value) => value.writeToBuffer(),
-      ($core.List<$core.int> value) => $0.JoinWaitingRoomResponse.fromBuffer(value));
-  static final _$leaveWaitingRoom = $grpc.ClientMethod<$0.LeaveWaitingRoomRequest, $0.LeaveWaitingRoomResponse>(
-      '/pong.PongGame/LeaveWaitingRoom',
-      ($0.LeaveWaitingRoomRequest value) => value.writeToBuffer(),
-      ($core.List<$core.int> value) => $0.LeaveWaitingRoomResponse.fromBuffer(value));
 
   PongGameClient($grpc.ClientChannel channel,
       {$grpc.CallOptions? options,
@@ -86,26 +66,6 @@ class PongGameClient extends $grpc.Client {
 
   $grpc.ResponseFuture<$0.SignalReadyToPlayResponse> signalReadyToPlay($0.SignalReadyToPlayRequest request, {$grpc.CallOptions? options}) {
     return $createUnaryCall(_$signalReadyToPlay, request, options: options);
-  }
-
-  $grpc.ResponseFuture<$0.WaitingRoomResponse> getWaitingRoom($0.WaitingRoomRequest request, {$grpc.CallOptions? options}) {
-    return $createUnaryCall(_$getWaitingRoom, request, options: options);
-  }
-
-  $grpc.ResponseFuture<$0.WaitingRoomsResponse> getWaitingRooms($0.WaitingRoomsRequest request, {$grpc.CallOptions? options}) {
-    return $createUnaryCall(_$getWaitingRooms, request, options: options);
-  }
-
-  $grpc.ResponseFuture<$0.CreateWaitingRoomResponse> createWaitingRoom($0.CreateWaitingRoomRequest request, {$grpc.CallOptions? options}) {
-    return $createUnaryCall(_$createWaitingRoom, request, options: options);
-  }
-
-  $grpc.ResponseFuture<$0.JoinWaitingRoomResponse> joinWaitingRoom($0.JoinWaitingRoomRequest request, {$grpc.CallOptions? options}) {
-    return $createUnaryCall(_$joinWaitingRoom, request, options: options);
-  }
-
-  $grpc.ResponseFuture<$0.LeaveWaitingRoomResponse> leaveWaitingRoom($0.LeaveWaitingRoomRequest request, {$grpc.CallOptions? options}) {
-    return $createUnaryCall(_$leaveWaitingRoom, request, options: options);
   }
 }
 
@@ -149,6 +109,89 @@ abstract class PongGameServiceBase extends $grpc.Service {
         false,
         ($core.List<$core.int> value) => $0.SignalReadyToPlayRequest.fromBuffer(value),
         ($0.SignalReadyToPlayResponse value) => value.writeToBuffer()));
+  }
+
+  $async.Future<$0.GameUpdate> sendInput_Pre($grpc.ServiceCall call, $async.Future<$0.PlayerInput> request) async {
+    return sendInput(call, await request);
+  }
+
+  $async.Stream<$0.GameUpdateBytes> startGameStream_Pre($grpc.ServiceCall call, $async.Future<$0.StartGameStreamRequest> request) async* {
+    yield* startGameStream(call, await request);
+  }
+
+  $async.Stream<$0.NtfnStreamResponse> startNtfnStream_Pre($grpc.ServiceCall call, $async.Future<$0.StartNtfnStreamRequest> request) async* {
+    yield* startNtfnStream(call, await request);
+  }
+
+  $async.Future<$0.UnreadyGameStreamResponse> unreadyGameStream_Pre($grpc.ServiceCall call, $async.Future<$0.UnreadyGameStreamRequest> request) async {
+    return unreadyGameStream(call, await request);
+  }
+
+  $async.Future<$0.SignalReadyToPlayResponse> signalReadyToPlay_Pre($grpc.ServiceCall call, $async.Future<$0.SignalReadyToPlayRequest> request) async {
+    return signalReadyToPlay(call, await request);
+  }
+
+  $async.Future<$0.GameUpdate> sendInput($grpc.ServiceCall call, $0.PlayerInput request);
+  $async.Stream<$0.GameUpdateBytes> startGameStream($grpc.ServiceCall call, $0.StartGameStreamRequest request);
+  $async.Stream<$0.NtfnStreamResponse> startNtfnStream($grpc.ServiceCall call, $0.StartNtfnStreamRequest request);
+  $async.Future<$0.UnreadyGameStreamResponse> unreadyGameStream($grpc.ServiceCall call, $0.UnreadyGameStreamRequest request);
+  $async.Future<$0.SignalReadyToPlayResponse> signalReadyToPlay($grpc.ServiceCall call, $0.SignalReadyToPlayRequest request);
+}
+@$pb.GrpcServiceName('pong.PongWaitingRoom')
+class PongWaitingRoomClient extends $grpc.Client {
+  static final _$getWaitingRoom = $grpc.ClientMethod<$0.WaitingRoomRequest, $0.WaitingRoomResponse>(
+      '/pong.PongWaitingRoom/GetWaitingRoom',
+      ($0.WaitingRoomRequest value) => value.writeToBuffer(),
+      ($core.List<$core.int> value) => $0.WaitingRoomResponse.fromBuffer(value));
+  static final _$getWaitingRooms = $grpc.ClientMethod<$0.WaitingRoomsRequest, $0.WaitingRoomsResponse>(
+      '/pong.PongWaitingRoom/GetWaitingRooms',
+      ($0.WaitingRoomsRequest value) => value.writeToBuffer(),
+      ($core.List<$core.int> value) => $0.WaitingRoomsResponse.fromBuffer(value));
+  static final _$createWaitingRoom = $grpc.ClientMethod<$0.CreateWaitingRoomRequest, $0.CreateWaitingRoomResponse>(
+      '/pong.PongWaitingRoom/CreateWaitingRoom',
+      ($0.CreateWaitingRoomRequest value) => value.writeToBuffer(),
+      ($core.List<$core.int> value) => $0.CreateWaitingRoomResponse.fromBuffer(value));
+  static final _$joinWaitingRoom = $grpc.ClientMethod<$0.JoinWaitingRoomRequest, $0.JoinWaitingRoomResponse>(
+      '/pong.PongWaitingRoom/JoinWaitingRoom',
+      ($0.JoinWaitingRoomRequest value) => value.writeToBuffer(),
+      ($core.List<$core.int> value) => $0.JoinWaitingRoomResponse.fromBuffer(value));
+  static final _$leaveWaitingRoom = $grpc.ClientMethod<$0.LeaveWaitingRoomRequest, $0.LeaveWaitingRoomResponse>(
+      '/pong.PongWaitingRoom/LeaveWaitingRoom',
+      ($0.LeaveWaitingRoomRequest value) => value.writeToBuffer(),
+      ($core.List<$core.int> value) => $0.LeaveWaitingRoomResponse.fromBuffer(value));
+
+  PongWaitingRoomClient($grpc.ClientChannel channel,
+      {$grpc.CallOptions? options,
+      $core.Iterable<$grpc.ClientInterceptor>? interceptors})
+      : super(channel, options: options,
+        interceptors: interceptors);
+
+  $grpc.ResponseFuture<$0.WaitingRoomResponse> getWaitingRoom($0.WaitingRoomRequest request, {$grpc.CallOptions? options}) {
+    return $createUnaryCall(_$getWaitingRoom, request, options: options);
+  }
+
+  $grpc.ResponseFuture<$0.WaitingRoomsResponse> getWaitingRooms($0.WaitingRoomsRequest request, {$grpc.CallOptions? options}) {
+    return $createUnaryCall(_$getWaitingRooms, request, options: options);
+  }
+
+  $grpc.ResponseFuture<$0.CreateWaitingRoomResponse> createWaitingRoom($0.CreateWaitingRoomRequest request, {$grpc.CallOptions? options}) {
+    return $createUnaryCall(_$createWaitingRoom, request, options: options);
+  }
+
+  $grpc.ResponseFuture<$0.JoinWaitingRoomResponse> joinWaitingRoom($0.JoinWaitingRoomRequest request, {$grpc.CallOptions? options}) {
+    return $createUnaryCall(_$joinWaitingRoom, request, options: options);
+  }
+
+  $grpc.ResponseFuture<$0.LeaveWaitingRoomResponse> leaveWaitingRoom($0.LeaveWaitingRoomRequest request, {$grpc.CallOptions? options}) {
+    return $createUnaryCall(_$leaveWaitingRoom, request, options: options);
+  }
+}
+
+@$pb.GrpcServiceName('pong.PongWaitingRoom')
+abstract class PongWaitingRoomServiceBase extends $grpc.Service {
+  $core.String get $name => 'pong.PongWaitingRoom';
+
+  PongWaitingRoomServiceBase() {
     $addMethod($grpc.ServiceMethod<$0.WaitingRoomRequest, $0.WaitingRoomResponse>(
         'GetWaitingRoom',
         getWaitingRoom_Pre,
@@ -186,26 +229,6 @@ abstract class PongGameServiceBase extends $grpc.Service {
         ($0.LeaveWaitingRoomResponse value) => value.writeToBuffer()));
   }
 
-  $async.Future<$0.GameUpdate> sendInput_Pre($grpc.ServiceCall call, $async.Future<$0.PlayerInput> request) async {
-    return sendInput(call, await request);
-  }
-
-  $async.Stream<$0.GameUpdateBytes> startGameStream_Pre($grpc.ServiceCall call, $async.Future<$0.StartGameStreamRequest> request) async* {
-    yield* startGameStream(call, await request);
-  }
-
-  $async.Stream<$0.NtfnStreamResponse> startNtfnStream_Pre($grpc.ServiceCall call, $async.Future<$0.StartNtfnStreamRequest> request) async* {
-    yield* startNtfnStream(call, await request);
-  }
-
-  $async.Future<$0.UnreadyGameStreamResponse> unreadyGameStream_Pre($grpc.ServiceCall call, $async.Future<$0.UnreadyGameStreamRequest> request) async {
-    return unreadyGameStream(call, await request);
-  }
-
-  $async.Future<$0.SignalReadyToPlayResponse> signalReadyToPlay_Pre($grpc.ServiceCall call, $async.Future<$0.SignalReadyToPlayRequest> request) async {
-    return signalReadyToPlay(call, await request);
-  }
-
   $async.Future<$0.WaitingRoomResponse> getWaitingRoom_Pre($grpc.ServiceCall call, $async.Future<$0.WaitingRoomRequest> request) async {
     return getWaitingRoom(call, await request);
   }
@@ -226,14 +249,83 @@ abstract class PongGameServiceBase extends $grpc.Service {
     return leaveWaitingRoom(call, await request);
   }
 
-  $async.Future<$0.GameUpdate> sendInput($grpc.ServiceCall call, $0.PlayerInput request);
-  $async.Stream<$0.GameUpdateBytes> startGameStream($grpc.ServiceCall call, $0.StartGameStreamRequest request);
-  $async.Stream<$0.NtfnStreamResponse> startNtfnStream($grpc.ServiceCall call, $0.StartNtfnStreamRequest request);
-  $async.Future<$0.UnreadyGameStreamResponse> unreadyGameStream($grpc.ServiceCall call, $0.UnreadyGameStreamRequest request);
-  $async.Future<$0.SignalReadyToPlayResponse> signalReadyToPlay($grpc.ServiceCall call, $0.SignalReadyToPlayRequest request);
   $async.Future<$0.WaitingRoomResponse> getWaitingRoom($grpc.ServiceCall call, $0.WaitingRoomRequest request);
   $async.Future<$0.WaitingRoomsResponse> getWaitingRooms($grpc.ServiceCall call, $0.WaitingRoomsRequest request);
   $async.Future<$0.CreateWaitingRoomResponse> createWaitingRoom($grpc.ServiceCall call, $0.CreateWaitingRoomRequest request);
   $async.Future<$0.JoinWaitingRoomResponse> joinWaitingRoom($grpc.ServiceCall call, $0.JoinWaitingRoomRequest request);
   $async.Future<$0.LeaveWaitingRoomResponse> leaveWaitingRoom($grpc.ServiceCall call, $0.LeaveWaitingRoomRequest request);
+}
+@$pb.GrpcServiceName('pong.PongReferee')
+class PongRefereeClient extends $grpc.Client {
+  static final _$openEscrow = $grpc.ClientMethod<$0.OpenEscrowRequest, $0.OpenEscrowResponse>(
+      '/pong.PongReferee/OpenEscrow',
+      ($0.OpenEscrowRequest value) => value.writeToBuffer(),
+      ($core.List<$core.int> value) => $0.OpenEscrowResponse.fromBuffer(value));
+  static final _$settlementStream = $grpc.ClientMethod<$0.ClientMsg, $0.ServerMsg>(
+      '/pong.PongReferee/SettlementStream',
+      ($0.ClientMsg value) => value.writeToBuffer(),
+      ($core.List<$core.int> value) => $0.ServerMsg.fromBuffer(value));
+  static final _$getFinalizeBundle = $grpc.ClientMethod<$0.GetFinalizeBundleRequest, $0.GetFinalizeBundleResponse>(
+      '/pong.PongReferee/GetFinalizeBundle',
+      ($0.GetFinalizeBundleRequest value) => value.writeToBuffer(),
+      ($core.List<$core.int> value) => $0.GetFinalizeBundleResponse.fromBuffer(value));
+
+  PongRefereeClient($grpc.ClientChannel channel,
+      {$grpc.CallOptions? options,
+      $core.Iterable<$grpc.ClientInterceptor>? interceptors})
+      : super(channel, options: options,
+        interceptors: interceptors);
+
+  $grpc.ResponseFuture<$0.OpenEscrowResponse> openEscrow($0.OpenEscrowRequest request, {$grpc.CallOptions? options}) {
+    return $createUnaryCall(_$openEscrow, request, options: options);
+  }
+
+  $grpc.ResponseStream<$0.ServerMsg> settlementStream($async.Stream<$0.ClientMsg> request, {$grpc.CallOptions? options}) {
+    return $createStreamingCall(_$settlementStream, request, options: options);
+  }
+
+  $grpc.ResponseFuture<$0.GetFinalizeBundleResponse> getFinalizeBundle($0.GetFinalizeBundleRequest request, {$grpc.CallOptions? options}) {
+    return $createUnaryCall(_$getFinalizeBundle, request, options: options);
+  }
+}
+
+@$pb.GrpcServiceName('pong.PongReferee')
+abstract class PongRefereeServiceBase extends $grpc.Service {
+  $core.String get $name => 'pong.PongReferee';
+
+  PongRefereeServiceBase() {
+    $addMethod($grpc.ServiceMethod<$0.OpenEscrowRequest, $0.OpenEscrowResponse>(
+        'OpenEscrow',
+        openEscrow_Pre,
+        false,
+        false,
+        ($core.List<$core.int> value) => $0.OpenEscrowRequest.fromBuffer(value),
+        ($0.OpenEscrowResponse value) => value.writeToBuffer()));
+    $addMethod($grpc.ServiceMethod<$0.ClientMsg, $0.ServerMsg>(
+        'SettlementStream',
+        settlementStream,
+        true,
+        true,
+        ($core.List<$core.int> value) => $0.ClientMsg.fromBuffer(value),
+        ($0.ServerMsg value) => value.writeToBuffer()));
+    $addMethod($grpc.ServiceMethod<$0.GetFinalizeBundleRequest, $0.GetFinalizeBundleResponse>(
+        'GetFinalizeBundle',
+        getFinalizeBundle_Pre,
+        false,
+        false,
+        ($core.List<$core.int> value) => $0.GetFinalizeBundleRequest.fromBuffer(value),
+        ($0.GetFinalizeBundleResponse value) => value.writeToBuffer()));
+  }
+
+  $async.Future<$0.OpenEscrowResponse> openEscrow_Pre($grpc.ServiceCall call, $async.Future<$0.OpenEscrowRequest> request) async {
+    return openEscrow(call, await request);
+  }
+
+  $async.Future<$0.GetFinalizeBundleResponse> getFinalizeBundle_Pre($grpc.ServiceCall call, $async.Future<$0.GetFinalizeBundleRequest> request) async {
+    return getFinalizeBundle(call, await request);
+  }
+
+  $async.Future<$0.OpenEscrowResponse> openEscrow($grpc.ServiceCall call, $0.OpenEscrowRequest request);
+  $async.Stream<$0.ServerMsg> settlementStream($grpc.ServiceCall call, $async.Stream<$0.ClientMsg> request);
+  $async.Future<$0.GetFinalizeBundleResponse> getFinalizeBundle($grpc.ServiceCall call, $0.GetFinalizeBundleRequest request);
 }

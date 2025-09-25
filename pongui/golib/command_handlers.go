@@ -3,6 +3,7 @@ package golib
 import (
 	"bytes"
 	"context"
+	"crypto/rand"
 	"encoding/json"
 	"fmt"
 	"net/http"
@@ -19,10 +20,9 @@ import (
 	"github.com/companyzero/bisonrelay/rates"
 	"github.com/companyzero/bisonrelay/zkidentity"
 	"github.com/decred/slog"
-	"github.com/vctt94/bisonbotkit/botclient"
-	"github.com/vctt94/bisonbotkit/config"
 	"github.com/vctt94/bisonbotkit/logging"
-	"github.com/vctt94/pong-bisonrelay/client"
+	"github.com/vctt94/pongbisonrelay"
+	"github.com/vctt94/pongbisonrelay/client"
 	"golang.org/x/sync/errgroup"
 )
 
@@ -101,34 +101,61 @@ func handleInitClient(handle uint32, args initClient) (*localInfo, error) {
 	}
 
 	// Load configuration using botclient config
-	cfg, err := config.LoadClientConfig(args.DataDir, "pongui.conf")
-	if err != nil {
-		return nil, fmt.Errorf("failed to load config: %v", err)
-	}
+	// cfg, err := config.LoadClientConfig(args.DataDir, "pongui.conf")
+	// if err != nil {
+	// 	return nil, fmt.Errorf("failed to load config: %v", err)
+	// }
 
-	// Apply overrides from args
-	if args.RPCWebsocketURL != "" {
-		cfg.RPCURL = args.RPCWebsocketURL
-	}
-	if args.RPCCertPath != "" {
-		cfg.ServerCertPath = args.RPCCertPath
-	}
-	if args.RPCCLientCertPath != "" {
-		cfg.ClientCertPath = args.RPCCLientCertPath
-	}
-	if args.RPCCLientKeyPath != "" {
-		cfg.ClientKeyPath = args.RPCCLientKeyPath
-	}
-	if args.RPCUser != "" {
-		cfg.RPCUser = args.RPCUser
-	}
-	if args.RPCPass != "" {
-		cfg.RPCPass = args.RPCPass
-	}
+	// // Apply overrides from args when available
+	// if args.RPCWebsocketURL != "" {
+	// 	cfg.RPCURL = args.RPCWebsocketURL
+	// }
+	// if args.RPCCertPath != "" {
+	// 	cfg.BRClientCert = args.RPCCertPath
+	// }
+	// if args.RPCCLientCertPath != "" {
+	// 	cfg.BRClientRPCCert = args.RPCCLientCertPath
+	// }
+	// if args.RPCCLientKeyPath != "" {
+	// 	cfg.BRClientRPCKey = args.RPCCLientKeyPath
+	// }
+	// if args.RPCUser != "" {
+	// 	cfg.RPCUser = args.RPCUser
+	// }
+	// if args.RPCPass != "" {
+	// 	cfg.RPCPass = args.RPCPass
+	// }
+	// if args.DebugLevel != "" {
+	// 	cfg.Debug = args.DebugLevel
+	// }
+
+	// // Validate required BR RPC fields.
+	// var missing []string
+	// if strings.TrimSpace(cfg.RPCURL) == "" {
+	// 	missing = append(missing, "brrpcurl")
+	// }
+	// if strings.TrimSpace(cfg.BRClientCert) == "" {
+	// 	missing = append(missing, "brclientcert")
+	// }
+	// if strings.TrimSpace(cfg.BRClientRPCCert) == "" {
+	// 	missing = append(missing, "brclientrpccert")
+	// }
+	// if strings.TrimSpace(cfg.BRClientRPCKey) == "" {
+	// 	missing = append(missing, "brclientrpckey")
+	// }
+	// if strings.TrimSpace(cfg.RPCUser) == "" {
+	// 	missing = append(missing, "rpcuser")
+	// }
+	// if strings.TrimSpace(cfg.RPCPass) == "" {
+	// 	missing = append(missing, "rpcpass")
+	// }
+	// if len(missing) > 0 {
+	// 	return nil, fmt.Errorf("missing required fields in client config: %s", strings.Join(missing, ", "))
+	// }
 
 	logBackend, err := logging.NewLogBackend(logging.LogConfig{
 		LogFile:        filepath.Join(args.DataDir, "logs", "pongui.log"),
-		DebugLevel:     cfg.Debug,
+		DebugLevel:     args.DebugLevel,
 		MaxLogFiles:    10,
 		MaxBufferLines: 1000,
 	})
@@ -138,37 +165,38 @@ func handleInitClient(handle uint32, args initClient) (*localInfo, error) {
 	log := logBackend.Logger("pongui")
 
 	ctx, cancel := context.WithCancel(context.Background())
-	g, gctx := errgroup.WithContext(ctx)
+	g, _ := errgroup.WithContext(ctx)
 
-	// Use botclient instead of manual JSON-RPC client
-	c, err := botclient.NewClient(cfg, logBackend)
-	if err != nil {
-		cancel()
-		return nil, fmt.Errorf("failed to create bot client: %v", err)
-	}
+	// Start a BR RPC client
+	// c, err := botclient.NewClient(cfg)
+	// if err != nil {
+	// 	cancel()
+	// 	return nil, fmt.Errorf("failed to create bot client: %v", err)
+	// }
 
 	// Start the bot client
-	g.Go(func() error { return c.RPCClient.Run(gctx) })
+	// g.Go(func() error { return c.RPCClient.Run(gctx) })
 
-	// Initialize clientID using botclient
-	var publicIdentity types.PublicIdentity
-	err = c.Chat.UserPublicIdentity(gctx, &types.PublicIdentityReq{}, &publicIdentity)
-	if err != nil {
+	// Initialize clientID using a random 32-byte value (avoid BR dependency for ID).
+	var rnd [32]byte
+	if _, err := rand.Read(rnd[:]); err != nil {
 		cancel()
-		return nil, fmt.Errorf("failed to get user public identity: %v", err)
+		return nil, fmt.Errorf("failed to generate random id: %v", err)
 	}
 	var id zkidentity.ShortID
-	id.FromBytes(publicIdentity.Identity[:])
-	localInfo := &localInfo{
-		ID:   id,
-		Nick: publicIdentity.Nick,
-	}
+	id.FromBytes(rnd[:])
+	localInfo := &localInfo{ID: id, Nick: "anon"}
 
-	pc, err := client.NewPongClient(localInfo.ID.String(), &client.PongClientCfg{
+	// Build consolidated AppConfig for the pong client (without BR auth)
+	appCfg := &client.AppConfig{
+		DataDir:      args.DataDir,
+		BR:           nil,
 		ServerAddr:   args.ServerAddr,
-		ChatClient:   c.Chat,
-		Log:          logBackend.Logger("client"),
 		GRPCCertPath: args.GRPCCertPath,
+	}
+	pc, err := client.NewPongClient(localInfo.ID.String(), &client.PongClientCfg{
+		AppCfg: appCfg,
+		Log:    logBackend.Logger("client"),
 	})
 	if err != nil {
 		cancel()
@@ -177,9 +205,8 @@ func handleInitClient(handle uint32, args initClient) (*localInfo, error) {
 
 	cctx := &clientCtx{
 		ID:     localInfo,
-		ctx:    gctx,
+		ctx:    ctx,
 		c:      pc,
-		chat:   c.Chat,
 		cancel: cancel,
 		log:    log,
 	}
@@ -221,20 +248,10 @@ func handleClientCmd(cc *clientCtx, cmd *cmd) (interface{}, error) {
 		}
 		return resp.Nick, nil
 	case CTGetWRPlayers:
-		wrp, err := cc.c.GetWRPlayers()
-		if err != nil {
-			return nil, err
-		}
-		res := make([]*player, len(wrp))
-		for i, p := range wrp {
-			res[i], err = playerFromServer(p)
-			if err != nil {
-				return nil, err
-			}
-		}
-		return res, nil
+		// Not supported via client API; return empty for now
+		return []*player{}, nil
 	case CTGetWaitingRooms:
-		rooms, err := cc.c.GetWaitingRooms()
+		rooms, err := cc.c.RefGetWaitingRooms(cc.ctx)
 		if err != nil {
 			return nil, err
 		}
@@ -262,8 +279,23 @@ func handleClientCmd(cc *clientCtx, cmd *cmd) (interface{}, error) {
 		}
 		return res, nil
 	case CTJoinWaitingRoom:
-		id := string(bytes.Trim(cmd.Payload, "\""))
-		res, err := cc.c.JoinWaitingRoom(id)
+		// Accept either raw string room_id or JSON with escrow_id
+		var roomID string
+		var req joinWaitingRoom
+		if err := json.Unmarshal(cmd.Payload, &req); err == nil && req.RoomID != "" {
+			roomID = req.RoomID
+			res, err := cc.c.RefJoinWaitingRoom(roomID, req.EscrowId)
+			if err != nil {
+				return nil, err
+			}
+			return &waitingRoom{
+				ID:     res.Wr.Id,
+				HostID: res.Wr.HostId,
+				BetAmt: res.Wr.BetAmt,
+			}, nil
+		}
+		roomID = string(bytes.Trim(cmd.Payload, "\""))
+		res, err := cc.c.RefJoinWaitingRoom(roomID, "")
 		if err != nil {
 			return nil, err
 		}
@@ -282,7 +314,8 @@ func handleClientCmd(cc *clientCtx, cmd *cmd) (interface{}, error) {
 			return nil, fmt.Errorf("invalid create waiting room payload: %v", err)
 		}
 
-		res, err := cc.c.CreateWaitingRoom(req.ClientID, req.BetAmt)
+		// EscrowId is optional; empty string lets server auto-pick
+		res, err := cc.c.RefCreateWaitingRoom(req.ClientID, req.BetAmt, req.EscrowId)
 		if err != nil {
 			return nil, fmt.Errorf("failed to create waiting room: %v", err)
 		}
@@ -308,8 +341,66 @@ func handleClientCmd(cc *clientCtx, cmd *cmd) (interface{}, error) {
 	case CTLeaveWaitingRoom:
 		id := strings.Trim(string(cmd.Payload), `"`)
 		fmt.Printf("Leaving waiting room: %s\n", id)
-		err := cc.c.LeaveWaitingRoom(id)
+		err := cc.c.RefLeaveWaitingRoom(id)
 		return nil, err
+
+	// Settlement-related commands
+	case CTGenerateSessionKey:
+		priv, pub, err := cc.c.GenerateNewSettlementSessionKey()
+		if err != nil {
+			return nil, err
+		}
+		return map[string]string{"priv": priv, "pub": pub}, nil
+	case CTOpenEscrow:
+		var req openEscrowReq
+		if err := json.Unmarshal(cmd.Payload, &req); err != nil {
+			return nil, fmt.Errorf("bad open escrow payload: %v", err)
+		}
+		// Accept 33/65B hex pubkey, Decred P2PK address, or xpub (tpub/dpub).
+		payoutPK33, err := pongbisonrelay.ResolvePayoutKey(req.Payout)
+		if err != nil {
+			return nil, fmt.Errorf("payout key parse failed: %v", err)
+		}
+		// If an xpub was provided, also log the derived pubkey address at m/0/0 for clarity.
+		if strings.HasPrefix(strings.TrimSpace(req.Payout), "tpub") || strings.HasPrefix(strings.TrimSpace(req.Payout), "dpub") {
+			if addr, derr := pongbisonrelay.PubKeyAddressFromXPub(strings.TrimSpace(req.Payout), 0); derr == nil {
+				fmt.Printf("derived payout pubkey address (m/0/0): %s\n", addr)
+			}
+		}
+
+		res, err := cc.c.OpenEscrowWithSession(cc.ctx, payoutPK33, req.BetAtoms, req.CSVBlocks)
+		if err != nil {
+			return nil, err
+		}
+		return map[string]any{
+			"escrow_id":       res.EscrowId,
+			"deposit_address": res.DepositAddress,
+			"pk_script_hex":   res.PkScriptHex,
+		}, nil
+
+	case CTStartPreSign:
+		var req preSignReq
+		if err := json.Unmarshal(cmd.Payload, &req); err != nil {
+			return nil, fmt.Errorf("bad presign payload: %v", err)
+		}
+		fmt.Printf("start presign: match_id=%q\n", req.MatchID)
+		if err := cc.c.RefStartSettlementHandshake(cc.ctx, req.MatchID); err != nil {
+			fmt.Printf("presign failed: %v\n", err)
+			return nil, err
+		}
+		return map[string]string{"status": "ok"}, nil
+
+	case CTArchiveSessionKey:
+		var req struct {
+			MatchID string `json:"match_id"`
+		}
+		if err := json.Unmarshal(cmd.Payload, &req); err != nil {
+			return nil, fmt.Errorf("bad archive payload: %v", err)
+		}
+		if err := cc.c.ArchiveSettlementSessionKey(req.MatchID); err != nil {
+			return nil, err
+		}
+		return map[string]string{"status": "archived"}, nil
 	}
 	return nil, nil
 }

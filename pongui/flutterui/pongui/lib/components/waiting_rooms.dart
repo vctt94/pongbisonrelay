@@ -23,6 +23,8 @@ class WaitingRoomList extends StatelessWidget {
         child: ListView.builder(
           itemCount: waitingRooms.length,
           padding: const EdgeInsets.all(12),
+          shrinkWrap: true,
+          physics: const NeverScrollableScrollPhysics(),
           itemBuilder: (context, index) {
             final wr = waitingRooms[index];
             final bool isCurrentRoom = currentRoomId == wr.id;
@@ -65,7 +67,7 @@ class WaitingRoomList extends StatelessWidget {
                             size: 16, color: Colors.amber),
                         const SizedBox(width: 4),
                         Text(
-                          'Bet: ${wr.betAmt / 1e11} DCR',
+                          'Bet: ${wr.betAmt / 1e8} DCR',
                           style: const TextStyle(color: Colors.white70),
                         ),
                       ],

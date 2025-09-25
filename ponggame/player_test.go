@@ -5,8 +5,7 @@ import (
 
 	"github.com/companyzero/bisonrelay/zkidentity"
 	"github.com/stretchr/testify/assert"
-	"github.com/stretchr/testify/require"
-	"github.com/vctt94/pong-bisonrelay/pongrpc/grpc/pong"
+	"github.com/vctt94/pongbisonrelay/pongrpc/grpc/pong"
 )
 
 func TestPlayer_Marshal(t *testing.T) {
@@ -83,78 +82,14 @@ func TestPlayer_Marshal(t *testing.T) {
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			got, err := tt.player.Marshal()
-			if tt.wantErr {
-				assert.Error(t, err)
-				assert.Nil(t, got)
-				return
-			}
+			got := tt.player.Marshal()
 
-			require.NoError(t, err)
 			assert.Equal(t, tt.want.Nick, got.Nick)
 			assert.Equal(t, tt.want.BetAmt, got.BetAmt)
 			assert.Equal(t, tt.want.Number, got.Number)
 			assert.Equal(t, tt.want.Score, got.Score)
 			assert.Equal(t, tt.want.Ready, got.Ready)
 			assert.NotEmpty(t, got.Uid) // UID should be set from the player ID
-		})
-	}
-}
-
-func TestPlayer_Unmarshal(t *testing.T) {
-	tests := []struct {
-		name      string
-		proto     *pong.Player
-		wantErr   bool
-		wantNick  string
-		wantBet   int64
-		wantNum   int32
-		wantScore int
-		wantReady bool
-	}{
-		{
-			name: "valid proto with dummy UID",
-			proto: &pong.Player{
-				Uid:    "dummy-uid-for-testing",
-				Nick:   "TestPlayer",
-				BetAmt: 150,
-				Number: 2,
-				Score:  7,
-				Ready:  true,
-			},
-			wantErr: true, // Will fail due to invalid UID format
-		},
-		{
-			name: "empty UID",
-			proto: &pong.Player{
-				Uid:    "",
-				Nick:   "TestPlayer",
-				BetAmt: 150,
-				Number: 2,
-				Score:  7,
-				Ready:  true,
-			},
-			wantErr: true,
-		},
-	}
-
-	for _, tt := range tests {
-		t.Run(tt.name, func(t *testing.T) {
-			player := &Player{}
-			err := player.Unmarshal(tt.proto)
-
-			if tt.wantErr {
-				assert.Error(t, err)
-				return
-			}
-
-			require.NoError(t, err)
-			assert.Equal(t, tt.wantNick, player.Nick)
-			assert.Equal(t, tt.wantBet, player.BetAmt)
-			assert.Equal(t, tt.wantNum, player.PlayerNumber)
-			assert.Equal(t, tt.wantScore, player.Score)
-			assert.Equal(t, tt.wantReady, player.Ready)
-			assert.NotNil(t, player.ID)
 		})
 	}
 }

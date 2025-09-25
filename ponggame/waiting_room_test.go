@@ -7,7 +7,6 @@ import (
 	"github.com/companyzero/bisonrelay/client/clientintf"
 	"github.com/companyzero/bisonrelay/zkidentity"
 	"github.com/stretchr/testify/assert"
-	"github.com/stretchr/testify/require"
 )
 
 func createTestWaitingRoom() *WaitingRoom {
@@ -88,8 +87,7 @@ func TestWaitingRoom_Marshal(t *testing.T) {
 	players := createTestPlayers()
 
 	// Test marshaling empty waiting room
-	pongWR, err := wr.Marshal()
-	require.NoError(t, err)
+	pongWR := wr.Marshal()
 	assert.Equal(t, wr.ID, pongWR.Id)
 	assert.Equal(t, wr.BetAmount, pongWR.BetAmt)
 	assert.Equal(t, 0, len(pongWR.Players))
@@ -98,8 +96,7 @@ func TestWaitingRoom_Marshal(t *testing.T) {
 	wr.AddPlayer(players[0])
 	wr.AddPlayer(players[1])
 
-	pongWR, err = wr.Marshal()
-	require.NoError(t, err)
+	pongWR = wr.Marshal()
 	assert.Equal(t, wr.ID, pongWR.Id)
 	assert.Equal(t, wr.BetAmount, pongWR.BetAmt)
 	assert.Equal(t, 2, len(pongWR.Players))
@@ -117,13 +114,15 @@ func TestWaitingRoom_ReadyPlayers(t *testing.T) {
 	players := createTestPlayers()
 
 	// Test with no players
-	readyPlayers, canStart := wr.ReadyPlayers()
+	readyPlayers := wr.ReadyPlayers()
+	canStart := len(readyPlayers) == 0
 	assert.Nil(t, readyPlayers)
 	assert.False(t, canStart)
 
 	// Test with one player
 	wr.AddPlayer(players[0])
-	readyPlayers, canStart = wr.ReadyPlayers()
+	readyPlayers = wr.ReadyPlayers()
+	canStart = len(readyPlayers) == 1
 	assert.Nil(t, readyPlayers)
 	assert.False(t, canStart)
 
@@ -131,14 +130,16 @@ func TestWaitingRoom_ReadyPlayers(t *testing.T) {
 	players[0].Ready = false
 	players[1].Ready = false
 	wr.AddPlayer(players[1])
-	readyPlayers, canStart = wr.ReadyPlayers()
+	readyPlayers = wr.ReadyPlayers()
+	canStart = len(readyPlayers) == 0
 	assert.Nil(t, readyPlayers)
 	assert.False(t, canStart)
 
 	// Test with two ready players
 	players[0].Ready = true
 	players[1].Ready = true
-	readyPlayers, canStart = wr.ReadyPlayers()
+	readyPlayers = wr.ReadyPlayers()
+	canStart = len(readyPlayers) == 2
 	assert.NotNil(t, readyPlayers)
 	assert.True(t, canStart)
 	assert.Equal(t, 2, len(readyPlayers))
@@ -298,8 +299,7 @@ func TestWaitingRoom_StateConsistency(t *testing.T) {
 	wr.AddPlayer(players[1])
 
 	// Marshal and verify consistency
-	pongWR, err := wr.Marshal()
-	require.NoError(t, err)
+	pongWR := wr.Marshal()
 	assert.Equal(t, wr.ID, pongWR.Id)
 	assert.Equal(t, len(wr.Players), len(pongWR.Players))
 

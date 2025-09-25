@@ -1,22 +1,29 @@
 package server
 
 import (
+	"bytes"
 	"context"
+	"encoding/hex"
 	"fmt"
 	"net/http"
 	"path/filepath"
 	"sync"
 	"time"
 
-	"github.com/companyzero/bisonrelay/clientrpc/types"
+	"os"
+
 	"github.com/companyzero/bisonrelay/zkidentity"
+	"github.com/decred/dcrd/chaincfg/chainhash"
 	"github.com/decred/dcrd/dcrutil/v4"
+	"github.com/decred/dcrd/rpcclient/v8"
+	"github.com/decred/dcrd/wire"
 	"github.com/decred/slog"
-	"github.com/vctt94/bisonbotkit"
 	"github.com/vctt94/bisonbotkit/logging"
-	"github.com/vctt94/pong-bisonrelay/ponggame"
-	"github.com/vctt94/pong-bisonrelay/pongrpc/grpc/pong"
-	"github.com/vctt94/pong-bisonrelay/server/serverdb"
+	pongbisonrelay "github.com/vctt94/pongbisonrelay"
+	"github.com/vctt94/pongbisonrelay/chainwatcher"
+	"github.com/vctt94/pongbisonrelay/ponggame"
+	"github.com/vctt94/pongbisonrelay/pongrpc/grpc/pong"
+	"github.com/vctt94/pongbisonrelay/server/serverdb"
 )
 
 const (
@@ -24,40 +31,114 @@ const (
 	version = "v0.0.0"
 )
 
-// BotInterface defines the methods needed by the server
-type BotInterface interface {
-	Run(ctx context.Context) error
-	AckTipProgress(ctx context.Context, sequenceId uint64) error
-	AckTipReceived(ctx context.Context, sequenceId uint64) error
-	PayTip(ctx context.Context, recipient zkidentity.ShortID, amount dcrutil.Amount, priority int32) error
-}
-
 type ServerConfig struct {
 	ServerDir string
-
-	Bot *bisonbotkit.Bot
 
 	MinBetAmt             float64
 	IsF2P                 bool
 	DebugLevel            string
 	DebugGameManagerLevel string
-	PaymentClient         types.PaymentsServiceClient
-	ChatClient            types.ChatServiceClient
-	HTTPPort              string
 	LogBackend            *logging.LogBackend
+
+	// dcrd RPC connectivity
+	DcrdHostPort    string // e.g. 127.0.0.1:19109
+	DcrdRPCCertPath string // path to rpc.cert
+	DcrdRPCUser     string
+	DcrdRPCPass     string
+
+	// Adaptor secret seed (hex, 32 bytes recommended). Used to deterministically
+	// derive per-branch adaptor secrets bound to match/input/sighash.
+	// For POC, if empty, a built-in default will be used.
+	AdaptorSecret string
+}
+
+// PreSignCtx stores all artifacts needed to finalize using the exact same
+// draft and message digest that were used during the presign phase.
+//
+// It binds the presign to:
+// - the specific input (txid:vout)
+// - the redeem script and its version (implicitly v0 here)
+// - the exact serialized draft transaction
+// - the sighash digest used to compute s'
+// - the adaptor point used during presign
+//
+// The winner can then finalize with s = s' + gamma (mod n) using the same m.
+type PreSignCtx struct {
+	InputID         string // "txid:vout"
+	RedeemScriptHex string
+	DraftHex        string // exact serialized tx used at presign
+	MHex            string // 32-byte sighash for (DraftHex, RedeemScriptHex, idx, SIGHASH_ALL)
+	RLineCompressed []byte // 33 bytes, even-Y (0x02)
+	SLine32         []byte // 32 bytes
+	TCompressed     []byte // 33 bytes (if used in adaptor domain)
+	WinnerUID       string // tie to player/session (owner uid)
+	Branch          int32  // 0 = A-wins, 1 = B-wins (payout branch)
+}
+
+// escrowSession represents a pre-match funding session for a single player.
+type escrowSession struct {
+	// ----------------- immutable identity & params -----------------
+	boundInputID    string
+	boundInput      *pong.EscrowUTXO
+	escrowID        string
+	ownerUID        string
+	compPubkey      []byte // 33 bytes
+	payoutPubkey    []byte // 33 bytes
+	betAtoms        uint64
+	csvBlocks       uint32
+	redeemScriptHex string
+	pkScriptHex     string
+
+	// ----------------- runtime state (protected by mu) -------------
+	mu        sync.RWMutex
+	latest    chainwatcher.DepositUpdate // watcher-pushed snapshot (Confs, UTXOCount, OK, At)
+	lastUTXOs []*pong.EscrowUTXO         // optional cache for settlement (first UTXO, etc.)
+	unsubW    func()                     // watcher unsubscribe hook
+	// cancelTrack cancels the background trackEscrow goroutine associated
+	// with this escrow session.
+	cancelTrack context.CancelFunc
+
+	player  *ponggame.Player       // optional: current player binding
+	preSign map[string]*PreSignCtx // presign artifacts by input_id "txid:vout"
+}
+
+// preSignSnapshot returns a consistent snapshot of the presign state while
+// holding a read lock only once. It includes the bound input id, the list of
+// input ids present in presign contexts, whether all contexts agree on the
+// same branch, and the count of presign contexts.
+func (es *escrowSession) preSignSnapshot() (bound string, inputs []string, consistent bool) {
+	es.mu.RLock()
+	defer es.mu.RUnlock()
+
+	bound = es.boundInputID
+	consistent = true
+	var haveBranch bool
+	var branch int32
+	for _, ctx := range es.preSign {
+		if !haveBranch {
+			branch = ctx.Branch
+			haveBranch = true
+		} else if ctx.Branch != branch {
+			consistent = false
+		}
+		inputs = append(inputs, ctx.InputID)
+	}
+	return
 }
 
 type Server struct {
 	pong.UnimplementedPongGameServer
-	sync.RWMutex
+	pong.UnimplementedPongWaitingRoomServer
+	pong.UnimplementedPongRefereeServer
 
-	bot                BotInterface
 	log                slog.Logger
 	isF2P              bool
 	minBetAmt          float64
 	waitingRoomCreated chan struct{}
 
-	users       map[zkidentity.ShortID]*ponggame.Player
+	usersMu sync.RWMutex
+	users   map[zkidentity.ShortID]*ponggame.Player
+
 	gameManager *ponggame.GameManager
 
 	httpServer        *http.Server
@@ -66,10 +147,27 @@ type Server struct {
 	db                serverdb.ServerDB
 
 	appdata string
+
+	// dcrd RPC client
+	dcrd *rpcclient.Client
+
+	// chain watcher for tip + mempool
+	watcher *chainwatcher.ChainWatcher
+
+	// Escrow-first funding state
+	escrowsMu sync.RWMutex
+	escrows   map[string]*escrowSession
+
+	roomEscrowsMu sync.RWMutex
+	roomEscrows   map[string]map[string]string // roomID -> owner_uid -> escrow_id
+	// v0-min defaults
+	pocFeeAtoms uint64
+
+	// Secret seed for adaptor gamma derivation.
+	adaptorSecret string
 }
 
 func NewServer(id *zkidentity.ShortID, cfg ServerConfig) (*Server, error) {
-
 	dbPath := filepath.Join(cfg.ServerDir, "server.db")
 	db, err := serverdb.NewBoltDB(dbPath)
 	if err != nil {
@@ -85,10 +183,12 @@ func NewServer(id *zkidentity.ShortID, cfg ServerConfig) (*Server, error) {
 		MaxLogFiles:    10,
 		MaxBufferLines: 1000,
 	})
+	if err != nil {
+		return nil, fmt.Errorf("failed to initialize game manager logger: %w", err)
+	}
 	logGM := bknd.Logger("GM")
 	s := &Server{
 		appdata:            cfg.ServerDir,
-		bot:                cfg.Bot,
 		log:                cfg.LogBackend.Logger("Server"),
 		db:                 db,
 		isF2P:              cfg.IsF2P,
@@ -103,83 +203,67 @@ func NewServer(id *zkidentity.ShortID, cfg ServerConfig) (*Server, error) {
 			Log:            logGM,
 			PlayerGameMap:  make(map[zkidentity.ShortID]*ponggame.GameInstance),
 		},
+		adaptorSecret: cfg.AdaptorSecret,
 	}
-	s.gameManager.OnWaitingRoomRemoved = s.handleWaitingRoomRemoved
 
-	if cfg.HTTPPort != "" {
-		// Set up HTTP server for db calls
-		mux := http.NewServeMux()
-		mux.HandleFunc("/received", s.handleFetchTipsByClientIDHandler)
-		mux.HandleFunc("/fetchAllUnprocessedTips", s.handleFetchAllUnprocessedTipsHandler)
-		mux.HandleFunc("/tipprogress", s.handleGetSendProgressByWinnerHandler)
-		s.httpServer = &http.Server{
-			Addr:    fmt.Sprintf(":%s", cfg.HTTPPort),
-			Handler: mux,
-		}
+	// Log F2P status as early as possible.
+	if cfg.IsF2P {
+		s.log.Infof("Free-to-Play mode ENABLED (no escrow required)")
+	} else {
+		s.log.Infof("Free-to-Play mode DISABLED (escrow required)")
+	}
+	if cfg.DcrdHostPort == "" || cfg.DcrdRPCUser == "" || cfg.DcrdRPCPass == "" || cfg.DcrdRPCCertPath == "" {
+		return nil, fmt.Errorf("incomplete dcrd config: host=%q user=%q pass_set=%t cert=%q", cfg.DcrdHostPort, cfg.DcrdRPCUser, cfg.DcrdRPCPass != "", cfg.DcrdRPCCertPath)
+	}
 
-		go func() {
-			s.log.Infof("Starting HTTP server on port %s", cfg.HTTPPort)
-			if err := s.httpServer.ListenAndServe(); err != nil && err != http.ErrServerClosed {
-				s.log.Errorf("HTTP server error: %v", err)
+	b, err := os.ReadFile(cfg.DcrdRPCCertPath)
+	if err != nil {
+		return nil, fmt.Errorf("failed to read dcrd rpc cert at %s: %w", cfg.DcrdRPCCertPath, err)
+	}
+	s.log.Infof("Connecting to dcrd host=%s user=%s cert=%s endpoint=ws", cfg.DcrdHostPort, cfg.DcrdRPCUser, cfg.DcrdRPCCertPath)
+	connCfg := &rpcclient.ConnConfig{
+		Host:         cfg.DcrdHostPort,
+		User:         cfg.DcrdRPCUser,
+		Pass:         cfg.DcrdRPCPass,
+		Endpoint:     "ws",
+		Certificates: b,
+	}
+	// Enable event-driven notifications from dcrd for fast 0-conf updates.
+	ntfnHandlers := &rpcclient.NotificationHandlers{
+		OnTxAccepted: func(hash *chainhash.Hash, _ dcrutil.Amount) {
+			if s.watcher != nil && hash != nil {
+				ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+				go func() { defer cancel(); s.watcher.ProcessTxAcceptedHash(ctx, hash) }()
 			}
-		}()
+		},
+		OnBlockConnected: func(_ []byte, _ [][]byte) {
+			if s.watcher != nil {
+				ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+				go func() { defer cancel(); s.watcher.ProcessBlockConnected(ctx) }()
+			}
+		},
+	}
+
+	c, err := rpcclient.New(connCfg, ntfnHandlers)
+	if err != nil {
+		return nil, fmt.Errorf("failed to create dcrd rpc client (host=%s user=%s cert=%s): %w", cfg.DcrdHostPort, cfg.DcrdRPCUser, cfg.DcrdRPCCertPath, err)
+	}
+	s.dcrd = c
+	s.log.Infof("Connected to dcrd at %s", cfg.DcrdHostPort)
+
+	// Start chain watcher to keep tip and mempool for watched scripts
+	s.watcher = chainwatcher.NewChainWatcher(s.log, s.dcrd)
+
+	// Subscribe to dcrd notifications for tx/mempool.
+	// Non-verbose is sufficient; we also hooked verbose variant above.
+	if err := s.dcrd.NotifyNewTransactions(context.Background(), false); err != nil {
+		s.log.Warnf("dcrd: NotifyNewTransactions failed: %v", err)
+	}
+	if err := s.dcrd.NotifyBlocks(context.Background()); err != nil {
+		s.log.Warnf("dcrd: NotifyBlocks failed: %v", err)
 	}
 
 	return s, nil
-}
-
-func (s *Server) StartGameStream(req *pong.StartGameStreamRequest, stream pong.PongGame_StartGameStreamServer) error {
-	ctx, cancel := context.WithCancel(stream.Context())
-	defer cancel()
-
-	var clientID zkidentity.ShortID
-	clientID.FromString(req.ClientId)
-	defer s.activeGameStreams.Delete(clientID)
-
-	// Store the cancel function
-	s.activeGameStreams.Store(clientID, cancel)
-
-	s.log.Debugf("Client %s called StartGameStream", req.ClientId)
-
-	player := s.gameManager.PlayerSessions.GetPlayer(clientID)
-	if player == nil {
-		return fmt.Errorf("player not found for client ID %s", clientID)
-	}
-	if player.NotifierStream == nil {
-		return fmt.Errorf("player notifier nil %s", clientID)
-	}
-	if player.GameStream != nil {
-		return fmt.Errorf("game stream is already set for id %s", clientID)
-	}
-	if !s.isF2P && float64(player.BetAmt)/1e11 < s.minBetAmt {
-		return fmt.Errorf("player needs to place bet higher or equal to: %.8f DCR", s.minBetAmt)
-	}
-
-	player.GameStream = stream
-	player.Ready = true
-
-	// Notify all players in the waiting room that this player is ready
-	if player.WR != nil {
-		// Marshal the waiting room state to include in notifications
-		pwr, err := player.WR.Marshal()
-		if err != nil {
-			return err
-		}
-		for _, p := range player.WR.Players {
-			p.NotifierStream.Send(&pong.NtfnStreamResponse{
-				NotificationType: pong.NotificationType_ON_PLAYER_READY,
-				Message:          fmt.Sprintf("Player %s is ready", player.Nick),
-				PlayerId:         player.ID.String(),
-				Wr:               pwr,
-				Ready:            true,
-			})
-		}
-	}
-
-	// Wait for context to end and handle disconnection
-	<-ctx.Done()
-	s.log.Debugf("Client %s disconnected from game stream", clientID)
-	return nil
 }
 
 func (s *Server) handleDisconnect(clientID zkidentity.ShortID) {
@@ -195,23 +279,14 @@ func (s *Server) handleDisconnect(clientID zkidentity.ShortID) {
 		}
 	}
 
-	s.Lock()
+	s.usersMu.Lock()
 	delete(s.users, clientID)
-	s.Unlock()
+	s.usersMu.Unlock()
 
 	// Only process tips if player exists in sessions AND is not in an active game
 	playerSession := s.gameManager.PlayerSessions.GetPlayer(clientID)
 	if playerSession != nil {
 		s.gameManager.PlayerSessions.RemovePlayer(clientID)
-
-		// Check if player is not currently in any game
-		if s.gameManager.GetPlayerGame(clientID) == nil {
-			ctx, cancel := context.WithTimeout(context.Background(), 3*time.Second)
-			defer cancel()
-			if err := s.handleReturnUnprocessedTips(ctx, clientID); err != nil {
-				s.log.Errorf("Error returning unprocessed tips for client %s: %v", clientID.String(), err)
-			}
-		}
 	}
 
 	// These can safely be called multiple times
@@ -219,75 +294,91 @@ func (s *Server) handleDisconnect(clientID zkidentity.ShortID) {
 	s.gameManager.HandleGameDisconnection(clientID, s.log)
 }
 
-func (s *Server) StartNtfnStream(req *pong.StartNtfnStreamRequest, stream pong.PongGame_StartNtfnStreamServer) error {
-	ctx, cancel := context.WithCancel(stream.Context())
-	defer cancel()
-	defer s.activeNtfnStreams.Delete(req.ClientId)
-
-	var clientID zkidentity.ShortID
-	clientID.FromString(req.ClientId)
-	s.log.Debugf("StartNtfnStream called by client %s", clientID)
-
-	// Add to active streams
-	s.activeNtfnStreams.Store(clientID, cancel)
-
-	// Create player session
-	player := s.gameManager.PlayerSessions.CreateSession(clientID)
-	player.NotifierStream = stream
-
-	s.Lock()
-	s.users[clientID] = player
-	s.Unlock()
-
-	// Fetch unprocessed tips
-	totalDcrAmount, _, err := s.handleFetchTotalUnprocessedTips(ctx, clientID)
-	if err != nil {
-		s.log.Errorf("Failed to fetch unprocessed tips for client %s: %v", clientID, err)
-		return err
+// escrowForRoomPlayer returns the escrow session bound to (wrID, ownerUID)
+// via the roomEscrows mapping. It does not attempt to pick a "newest" escrow.
+func (s *Server) escrowForRoomPlayer(wrID, ownerUID string) *escrowSession {
+	s.roomEscrowsMu.RLock()
+	defer s.roomEscrowsMu.RUnlock()
+	m := s.roomEscrows[wrID]
+	if m == nil {
+		return nil
 	}
-
-	// Update player's bet amount and notify
-	if player.BetAmt != totalDcrAmount {
-		player.BetAmt = totalDcrAmount
-		s.log.Debugf("Pending payments applied to client %s, total amount: %.8f", clientID, float64(totalDcrAmount)/1e11)
-
-		s.users[clientID].NotifierStream.Send(&pong.NtfnStreamResponse{
-			NotificationType: pong.NotificationType_BET_AMOUNT_UPDATE,
-			BetAmt:           player.BetAmt,
-			PlayerId:         player.ID.String(),
-		})
+	escrowID := m[ownerUID]
+	if escrowID == "" {
+		return nil
 	}
-	// Wait for disconnection
-	<-ctx.Done()
-	s.log.Debugf("Client %s disconnected", clientID)
-	s.handleDisconnect(clientID)
-	return ctx.Err()
+	return s.escrows[escrowID]
 }
 
-func (s *Server) SendInput(ctx context.Context, req *pong.PlayerInput) (*pong.GameUpdate, error) {
-	var clientID zkidentity.ShortID
-	clientID.FromString(req.PlayerId)
-	return s.gameManager.HandlePlayerInput(clientID, req)
-}
+// ensureBoundFunding either binds the canonical funding input if not yet bound
+// (requiring exactly one UTXO), or verifies the previously-bound input still
+// exists and that no extra deposits were made.
+func (s *Server) ensureBoundFunding(es *escrowSession) error {
+	es.mu.Lock()
+	defer es.mu.Unlock()
 
-func (s *Server) ManageWaitingRoom(ctx context.Context, wr *ponggame.WaitingRoom) error {
-	for {
-		select {
-		case <-ctx.Done():
-			s.log.Infof("Exited ManageWaitingRoom: %s (context cancelled)", wr.ID)
-			return nil
+	// Must have a watcher snapshot that says "funded".
+	if !es.latest.OK || es.latest.UTXOCount == 0 {
+		return fmt.Errorf("escrow not yet funded")
+	}
 
-		case <-time.After(time.Second):
-			players, ready := wr.ReadyPlayers()
-			if ready {
-				s.log.Infof("Game starting with players: %v and %v", players[0].ID, players[1].ID)
-
-				s.gameManager.RemoveWaitingRoom(wr.ID)
-				go s.handleGameLifecycle(ctx, players, wr.ReservedTips) // Start game lifecycle in a goroutine
-				return nil
-			}
+	// Normalize current UTXO list.
+	var current []*pong.EscrowUTXO
+	for _, u := range es.lastUTXOs {
+		if u != nil && u.Txid != "" {
+			current = append(current, u)
 		}
 	}
+	// If we haven't cached details yet, we can't bind.
+	if len(current) == 0 {
+		return fmt.Errorf("escrow UTXO details not available yet; wait for index")
+	}
+
+	if es.boundInputID == "" {
+		// Not yet bound: require an exact-value funding UTXO matching betAtoms.
+		var matches []*pong.EscrowUTXO
+		for _, u := range current {
+			if u.Value == es.betAtoms {
+				matches = append(matches, u)
+			}
+		}
+		if len(matches) == 0 {
+			return fmt.Errorf("no funding UTXO with exact amount: want %d atoms", es.betAtoms)
+		}
+		// Fail if there are multiple deposits (of any value) — require exactly one UTXO total.
+		if len(current) != 1 || es.latest.UTXOCount != 1 || len(matches) != 1 {
+			return fmt.Errorf("unexpected deposits present (total=%d, exact-matches=%d); require a single exact %d atoms deposit", len(current), len(matches), es.betAtoms)
+		}
+		u := matches[0]
+		boundID := fmt.Sprintf("%s:%d", u.Txid, u.Vout)
+		es.boundInputID = boundID
+		es.boundInput = u
+		s.notify(es.player, &pong.NtfnStreamResponse{NotificationType: pong.NotificationType_MESSAGE, Message: fmt.Sprintf("Escrow bound to %s (exact %d atoms).", boundID, es.betAtoms)})
+		return nil
+	}
+
+	// Already bound: verify the exact input is still present.
+	var found *pong.EscrowUTXO
+	for _, u := range current {
+		if fmt.Sprintf("%s:%d", u.Txid, u.Vout) == es.boundInputID {
+			found = u
+			break
+		}
+	}
+	if found == nil {
+		// The canonical input disappeared (reorg/spent?) -> invalidate.
+		return fmt.Errorf("bound funding UTXO %s not present", es.boundInputID)
+	}
+	es.boundInput = found
+	// Enforce: only the bound input must exist and must match the exact amount.
+	if len(current) != 1 || es.latest.UTXOCount != 1 {
+		return fmt.Errorf("unexpected additional deposits (%d); only the bound %s with %d atoms is allowed", len(current), es.boundInputID, es.betAtoms)
+	}
+	if es.boundInput != nil && es.boundInput.Value != es.betAtoms {
+		return fmt.Errorf("bound funding amount mismatch: have %d want %d", es.boundInput.Value, es.betAtoms)
+	}
+
+	return nil
 }
 
 func (s *Server) sendGameUpdates(ctx context.Context, player *ponggame.Player, game *ponggame.GameInstance) {
@@ -314,9 +405,47 @@ func (s *Server) sendGameUpdates(ctx context.Context, player *ponggame.Player, g
 	}
 }
 
-func (s *Server) Run(ctx context.Context) error {
-	go s.bot.Run(ctx)
+// notify sends a simple text notification if the stream is live.
+// (Optional: de-dupe by caching the last message per player to avoid spam.)
+func (s *Server) notify(p *ponggame.Player, resp *pong.NtfnStreamResponse) error {
+	if p == nil {
+		return fmt.Errorf("player nil")
+	}
+	if p.ID == nil {
+		return fmt.Errorf("player id nil")
+	}
+	if p.NotifierStream == nil {
+		return fmt.Errorf("player stream nil")
+	}
+	if resp == nil {
+		return fmt.Errorf("nil response")
+	}
+	if err := p.NotifierStream.Send(resp); err != nil {
+		s.log.Warnf("notify: failed to deliver to %s: %v", p.ID.String(), err)
+		return err
+	}
+	return nil
+}
 
+func (s *Server) notifyallusers(resp *pong.NtfnStreamResponse) {
+	// Notify all users.
+	s.usersMu.RLock()
+	usersSnap := make([]*ponggame.Player, 0, len(s.users))
+	for _, u := range s.users {
+		usersSnap = append(usersSnap, u)
+	}
+	s.usersMu.RUnlock()
+
+	for _, user := range usersSnap {
+		if user.NotifierStream == nil {
+			s.log.Errorf("user %s without NotifierStream", user.ID)
+			continue
+		}
+		_ = s.notify(user, resp)
+	}
+}
+
+func (s *Server) Run(ctx context.Context) error {
 	for {
 		select {
 		case <-ctx.Done():
@@ -333,326 +462,22 @@ func (s *Server) Run(ctx context.Context) error {
 		case <-s.waitingRoomCreated:
 			s.log.Debugf("New waiting room created")
 
-			s.gameManager.Lock()
-			for _, wr := range s.gameManager.WaitingRooms {
+			for _, wr := range s.gameManager.WaitingRoomsSnapshot() {
 				if wr.Ctx.Err() == nil { // Only manage rooms with active contexts
 					s.log.Debugf("Managing waiting room: %s", wr.ID)
-					go s.ManageWaitingRoom(wr.Ctx, wr)
+					go s.manageWaitingRoom(wr.Ctx, wr)
 				}
 			}
-			s.gameManager.Unlock()
 		}
 	}
-}
-
-func (s *Server) GetWaitingRooms(ctx context.Context, req *pong.WaitingRoomsRequest) (*pong.WaitingRoomsResponse, error) {
-	s.Lock()
-	defer s.Unlock()
-
-	pongWaitingRooms := make([]*pong.WaitingRoom, len(s.gameManager.WaitingRooms))
-	for i, room := range s.gameManager.WaitingRooms {
-		wr, err := room.Marshal()
-		if err != nil {
-			return nil, err
-		}
-		pongWaitingRooms[i] = wr
-	}
-
-	return &pong.WaitingRoomsResponse{
-		Wr: pongWaitingRooms,
-	}, nil
-}
-
-func (s *Server) JoinWaitingRoom(ctx context.Context, req *pong.JoinWaitingRoomRequest) (*pong.JoinWaitingRoomResponse, error) {
-	var uid zkidentity.ShortID
-	err := uid.FromString(req.ClientId)
-	if err != nil {
-		return nil, err
-	}
-	player := s.gameManager.PlayerSessions.GetPlayer(uid)
-	if player == nil {
-		return nil, fmt.Errorf("player not found: %s", req.ClientId)
-	}
-
-	// Check if player is already in another waiting room
-	s.gameManager.Lock()
-	for _, existingWR := range s.gameManager.WaitingRooms {
-		for _, p := range existingWR.Players {
-			if p.ID.String() == req.ClientId && p.WR != nil {
-				s.gameManager.Unlock()
-				return nil, fmt.Errorf("player %s is already in another waiting room", req.ClientId)
-			}
-		}
-	}
-	s.gameManager.Unlock()
-
-	wr := s.gameManager.GetWaitingRoom(req.RoomId)
-	if wr == nil {
-		return nil, fmt.Errorf("waiting room not found: %s", req.RoomId)
-	}
-
-	// Fetch and reserve joining player's tips
-	tips, err := s.db.FetchReceivedTipsByUID(ctx, uid, serverdb.StatusUnpaid)
-	if err != nil {
-		return nil, fmt.Errorf("failed to fetch player tips: %v", err)
-	}
-
-	// Calculate total from tips
-	totalBet := int64(0)
-	for _, tip := range tips {
-		totalBet += tip.AmountMatoms
-	}
-
-	// Validate bet amount matches
-	if totalBet != wr.BetAmount {
-		return nil, fmt.Errorf("bet amount mismatch. Available: %.8f, Required: %.8f",
-			float64(totalBet)/1e11, float64(wr.BetAmount)/1e11)
-	}
-
-	wr.AddPlayer(player)
-	player.WR = wr
-
-	wr.Lock()
-	wr.ReservedTips = append(wr.ReservedTips, tips...)
-	wr.Unlock()
-
-	pwr, err := wr.Marshal()
-	if err != nil {
-		return nil, err
-	}
-	for _, p := range wr.Players {
-		if p.NotifierStream == nil {
-			s.log.Errorf("player %s has nil NotifierStream", p.ID.String())
-			continue
-		}
-		p.NotifierStream.Send(&pong.NtfnStreamResponse{
-			NotificationType: pong.NotificationType_PLAYER_JOINED_WR,
-			Message:          fmt.Sprintf("New player joined Waiting Room: %s", player.Nick),
-			PlayerId:         p.ID.String(),
-			RoomId:           wr.ID,
-			Wr:               pwr,
-		})
-	}
-
-	return &pong.JoinWaitingRoomResponse{
-		Wr: pwr,
-	}, nil
-}
-
-func (s *Server) CreateWaitingRoom(ctx context.Context, req *pong.CreateWaitingRoomRequest) (*pong.CreateWaitingRoomResponse, error) {
-	var hostID zkidentity.ShortID
-	err := hostID.FromString(req.HostId)
-	if err != nil {
-		return nil, err
-	}
-
-	hostPlayer := s.gameManager.PlayerSessions.GetPlayer(hostID)
-	if hostPlayer == nil {
-		return nil, fmt.Errorf("player not found: %s", req.HostId)
-	}
-	if hostPlayer.BetAmt != req.BetAmt {
-		return nil, fmt.Errorf("server and request mismatch. request amt: %.8f, server amt: %.8f",
-			float64(req.BetAmt)/1e11, float64(hostPlayer.BetAmt)/1e11)
-	}
-	if !s.isF2P && req.BetAmt == 0 {
-		return nil, fmt.Errorf("bet needs to be higher than 0")
-	}
-	if !s.isF2P && float64(req.BetAmt)/1e11 < s.minBetAmt {
-		return nil, fmt.Errorf("bet needs to be higher than %.8f", s.minBetAmt)
-	}
-	if hostPlayer.WR != nil {
-		return nil, fmt.Errorf("player %s is already in a waiting room", hostID.String())
-	}
-
-	s.log.Debugf("creating waiting room. Host ID: %s", hostID)
-
-	// Fetch and reserve unprocessed tips
-	tips, err := s.db.FetchReceivedTipsByUID(ctx, hostID, serverdb.StatusUnpaid)
-	if err != nil {
-		return nil, fmt.Errorf("failed to fetch unprocessed tips: %v", err)
-	}
-
-	// Calculate total from tips
-	totalBet := int64(0)
-	for _, tip := range tips {
-		totalBet += tip.AmountMatoms
-	}
-
-	// Validate bet amount matches
-	if totalBet != req.BetAmt {
-		return nil, fmt.Errorf("bet amount mismatch. Available: %.8f, Requested: %.8f",
-			float64(totalBet)/1e11, float64(req.BetAmt)/1e11)
-	}
-
-	// Create waiting room with reserved tips
-	wr, err := ponggame.NewWaitingRoom(hostPlayer, req.BetAmt)
-	if err != nil {
-		return nil, fmt.Errorf("failed to create waiting room: %v", err)
-	}
-
-	wr.Lock()
-	wr.ReservedTips = tips // Store reserved tips
-	wr.Unlock()
-
-	hostPlayer.WR = wr
-
-	// append to WaitingRooms slice
-	s.gameManager.Lock()
-	s.gameManager.WaitingRooms = append(s.gameManager.WaitingRooms, wr)
-	totalRooms := len(s.gameManager.WaitingRooms)
-	s.gameManager.Unlock()
-
-	s.log.Debugf("waiting room created. Total rooms: %d", totalRooms)
-
-	// Signal that a new Waiting Room has been created
-	select {
-	case s.waitingRoomCreated <- struct{}{}:
-	default:
-		// Non-blocking send to avoid deadlock in case of rapid room creations
-	}
-
-	pongWR, err := wr.Marshal()
-	if err != nil {
-		return nil, err
-	}
-
-	s.RLock()
-	for _, user := range s.users {
-		if user.NotifierStream == nil {
-			s.log.Errorf("user %s without NotifierStream", user.ID)
-			continue
-		}
-		user.NotifierStream.Send(&pong.NtfnStreamResponse{
-			Wr:               pongWR,
-			NotificationType: pong.NotificationType_ON_WR_CREATED,
-		})
-	}
-	s.RUnlock()
-
-	return &pong.CreateWaitingRoomResponse{
-		Wr: pongWR,
-	}, nil
-}
-
-// LeaveWaitingRoom handles a request from a client to leave a waiting room
-func (s *Server) LeaveWaitingRoom(ctx context.Context, req *pong.LeaveWaitingRoomRequest) (*pong.LeaveWaitingRoomResponse, error) {
-	s.log.Debugf("LeaveWaitingRoom request from client %s for room %s", req.ClientId, req.RoomId)
-
-	var clientID zkidentity.ShortID
-	if err := clientID.FromString(req.ClientId); err != nil {
-		return &pong.LeaveWaitingRoomResponse{
-			Success: false,
-			Message: fmt.Sprintf("invalid client ID: %v", err),
-		}, nil
-	}
-
-	// Get the waiting room
-	wr := s.gameManager.GetWaitingRoom(req.RoomId)
-	if wr == nil {
-		return &pong.LeaveWaitingRoomResponse{
-			Success: false,
-			Message: "waiting room not found",
-		}, nil
-	}
-
-	// Check if player is in the room
-	player := wr.GetPlayer(&clientID)
-	if player == nil {
-		return &pong.LeaveWaitingRoomResponse{
-			Success: false,
-			Message: "player not in waiting room",
-		}, nil
-	}
-
-	// Remove the player from the waiting room
-	wr.RemovePlayer(clientID)
-
-	// If player was the host and there are other players, assign a new host
-	if wr.HostID.String() == clientID.String() && len(wr.Players) > 0 {
-		wr.Lock()
-		wr.HostID = wr.Players[0].ID
-		wr.Unlock()
-	}
-
-	// If the room is now empty, remove it
-	if len(wr.Players) == 0 {
-		s.gameManager.RemoveWaitingRoom(wr.ID)
-	} else {
-		// Notify remaining players that someone left
-		pwrMarshaled, err := wr.Marshal()
-		if err == nil {
-			for _, p := range wr.Players {
-				// Send notification to remaining players
-				p.NotifierStream.Send(&pong.NtfnStreamResponse{
-					NotificationType: pong.NotificationType_PLAYER_LEFT_WR,
-					RoomId:           wr.ID,
-					Wr:               pwrMarshaled,
-					PlayerId:         req.ClientId,
-				})
-			}
-		}
-	}
-
-	// Reset the player's waiting room reference
-	if player != nil {
-		player.WR = nil
-	}
-
-	return &pong.LeaveWaitingRoomResponse{
-		Success: true,
-		Message: "successfully left waiting room",
-	}, nil
-}
-
-// UnreadyGameStream handles a request from a client who wants to signal they are no longer ready
-func (s *Server) UnreadyGameStream(ctx context.Context, req *pong.UnreadyGameStreamRequest) (*pong.UnreadyGameStreamResponse, error) {
-	var clientID zkidentity.ShortID
-	clientID.FromString(req.ClientId)
-
-	s.log.Debugf("Client %s called UnreadyGameStream", req.ClientId)
-
-	// Find the player
-	player := s.gameManager.PlayerSessions.GetPlayer(clientID)
-	if player == nil {
-		return nil, fmt.Errorf("player not found: %s", req.ClientId)
-	}
-
-	// Check if the player is in a waiting room
-	if player.WR != nil {
-		player.Ready = false
-
-		// First get the cancel function and call it before deleting
-		if cancel, ok := s.activeGameStreams.Load(clientID); ok {
-			if cancelFn, isCancel := cancel.(context.CancelFunc); isCancel {
-				cancelFn()
-			}
-		}
-
-		// Then delete the entry
-		s.activeGameStreams.Delete(clientID)
-		player.GameStream = nil
-
-		// Notify other players in the waiting room
-		pwr, err := player.WR.Marshal()
-		if err == nil {
-			for _, p := range player.WR.Players {
-				p.NotifierStream.Send(&pong.NtfnStreamResponse{
-					NotificationType: pong.NotificationType_ON_PLAYER_READY,
-					Message:          fmt.Sprintf("Player %s is not ready", player.Nick),
-					PlayerId:         p.ID.String(),
-					RoomId:           player.WR.ID,
-					Wr:               pwr,
-					Ready:            false,
-				})
-			}
-		}
-	}
-
-	return &pong.UnreadyGameStreamResponse{}, nil
 }
 
 // Shutdown forcefully shuts down the server, closing HTTP server, database, waiting rooms, and games.
 func (s *Server) Shutdown(ctx context.Context) error {
+	// Stop chain watcher first so background RPCs stop
+	if s.watcher != nil {
+		s.watcher.Stop()
+	}
 	// Stop HTTP server first
 	if s.httpServer != nil {
 		s.log.Info("Shutting down HTTP server...")
@@ -663,13 +488,11 @@ func (s *Server) Shutdown(ctx context.Context) error {
 
 	// Forcefully terminate all active games
 	s.log.Info("Terminating all active games...")
-	s.gameManager.Lock()
-	for id, game := range s.gameManager.Games {
+	for id, game := range s.gameManager.GamesSnapshot() {
 		s.log.Debugf("Forcefully terminating game: %s", id)
 		// Close the frame channel to signal goroutines to exit
 		game.Cleanup()
 	}
-	s.gameManager.Unlock()
 
 	// Cancel all active streams before cleaning up resources
 	s.log.Info("Canceling all active streams...")
@@ -691,17 +514,7 @@ func (s *Server) Shutdown(ctx context.Context) error {
 
 	// Clean up game resources before closing database
 	s.log.Info("Shutting down waiting rooms and games...")
-
-	s.gameManager.Lock()
-	for _, wr := range s.gameManager.WaitingRooms {
-		wr.Cancel() // Cancel each waiting room context
-	}
-	s.gameManager.WaitingRooms = nil // Clear all waiting rooms
-	s.gameManager.Unlock()
-
-	s.Lock()
-	s.users = nil
-	s.Unlock()
+	s.gameManager.CancelAllWaitingRooms()
 
 	// Close database LAST after all operations are done
 	s.log.Info("Closing database...")
@@ -713,43 +526,316 @@ func (s *Server) Shutdown(ctx context.Context) error {
 	return nil
 }
 
-// SignalReadyToPlay handles player readiness for a game
-func (s *Server) SignalReadyToPlay(ctx context.Context, req *pong.SignalReadyToPlayRequest) (*pong.SignalReadyToPlayResponse, error) {
-	var clientID zkidentity.ShortID
-	clientID.FromString(req.ClientId)
-
-	s.log.Debugf("Client %s signaling ready to play for game %s", req.ClientId, req.GameId)
-
-	player := s.gameManager.PlayerSessions.GetPlayer(clientID)
-	if player == nil {
-		return nil, fmt.Errorf("player not found for client ID %s", clientID)
+func (s *Server) handleGameEnd(ctx context.Context, game *ponggame.GameInstance, wr *ponggame.WaitingRoom) {
+	players := wr.ReadyPlayers()
+	winner := game.Winner
+	var winnerID string
+	if winner != nil {
+		winnerID = winner.String()
+		s.log.Infof("Game ended. Winner: %s", winnerID)
+	} else {
+		s.log.Infof("Game ended in a draw.")
 	}
 
-	game := s.gameManager.GetPlayerGame(clientID)
-	if game == nil {
-		return nil, fmt.Errorf("game instance not found for client ID %s", clientID)
+	// Notify players of game outcome (no transfers)
+	for _, player := range players {
+		message := "Game ended in a draw."
+		if player.ID == winner {
+			message = "Congratulations, you won!"
+		} else if winner != nil {
+			message = "Sorry, you lost."
+		}
+		_ = s.notify(player, &pong.NtfnStreamResponse{
+			NotificationType: pong.NotificationType_GAME_END,
+			Message:          message,
+			GameId:           game.Id,
+		})
+		// delete player from gameManager PlayerGameMap
+		s.gameManager.RemovePlayerGame(*player.ID)
 	}
 
-	// Mark this player as ready in the game
-	game.Lock()
-	game.PlayersReady[req.ClientId] = true
-	game.Unlock()
+	// Finalize winner branch and broadcast on server (skip in F2P)
+	if winner != nil && !s.isF2P {
+		// Determine branch index anchored to room host: branch 0 pays host (a), 1 pays non-host (b).
+		winnerBranch := int32(0)
+		var hostUID string
+		if len(players) >= 2 {
+			if players[0].WR != nil && players[0].WR.HostID != nil {
+				hostUID = players[0].WR.HostID.String()
+			} else if players[1].WR != nil && players[1].WR.HostID != nil {
+				hostUID = players[1].WR.HostID.String()
+			}
+			if hostUID != "" && winnerID != hostUID {
+				winnerBranch = 1
+			}
+		}
+		s.log.Debugf("finalize: computed winnerBranch=%d host=%s winner=%s", winnerBranch, hostUID, winnerID)
 
-	// Notify all players in the game that this player is ready
-	for _, p := range game.Players {
-		if p.NotifierStream != nil {
-			p.NotifierStream.Send(&pong.NtfnStreamResponse{
-				NotificationType: pong.NotificationType_ON_PLAYER_READY,
-				Message:          fmt.Sprintf("Player %s is ready to start the game", player.Nick),
-				PlayerId:         req.ClientId,
-				GameId:           req.GameId,
-				Ready:            true,
+		// Look up the winner's escrow session bound to this room and gather presigs for the branch.
+		var wrID string
+		for _, p := range players {
+			if p != nil && p.WR != nil {
+				wrID = p.WR.ID
+				break
+			}
+		}
+		s.roomEscrowsMu.RLock()
+		var es *escrowSession
+		if wrID != "" && s.roomEscrows != nil {
+			if m := s.roomEscrows[wrID]; m != nil {
+				if eid := m[winnerID]; eid != "" {
+					s.escrowsMu.RLock()
+					es = s.escrows[eid]
+					s.escrowsMu.RUnlock()
+				}
+			}
+		}
+		s.roomEscrowsMu.RUnlock()
+		if es == nil {
+			s.log.Errorf("finalize: no room-bound escrow session found for winner %s in wr %s", winnerID, wrID)
+			return
+		}
+		if es.preSign == nil || len(es.preSign) == 0 {
+			s.log.Warnf("finalize: no presign contexts stored for winner %s", winnerID)
+			return
+		}
+
+		// Choose any context for the winner branch to anchor the draft hex.
+		var chosen *PreSignCtx
+		var branches []int32
+		for _, ctxp := range es.preSign {
+			branches = append(branches, ctxp.Branch)
+			if ctxp.Branch == winnerBranch {
+				chosen = ctxp
+			}
+		}
+		if chosen == nil {
+			s.log.Warnf("finalize: no presign context for branch %d; have branches=%v", winnerBranch, branches)
+			return
+		}
+
+		// Build inputs/presigs for the chosen draft from stored contexts.
+		inputs := make([]*pong.NeedPreSigs_PerInput, 0, len(es.preSign))
+		presigs := make(map[string]*pong.PreSig)
+		for id, ctxp := range es.preSign {
+			if ctxp.Branch != winnerBranch || ctxp.DraftHex != chosen.DraftHex {
+				continue
+			}
+			inputs = append(inputs, &pong.NeedPreSigs_PerInput{InputId: id, RedeemScriptHex: ctxp.RedeemScriptHex})
+			presigs[id] = &pong.PreSig{InputId: id, RLineCompressed: append([]byte(nil), ctxp.RLineCompressed...), SLine32: append([]byte(nil), ctxp.SLine32...)}
+		}
+		if len(inputs) == 0 || len(presigs) == 0 {
+			s.log.Warnf("finalize: missing presigs/inputs for winner branch %d", winnerBranch)
+			return
+		}
+
+		// Derive gamma using the configured adaptor secret (same domain separation as presign).
+		serverSecret := s.adaptorSecret
+		if serverSecret == "" {
+			s.log.Warnf("finalize: server adaptor secret not configured; cannot finalize")
+			return
+		}
+		branchTag := fmt.Sprintf("branch-%d", winnerBranch)
+		gammaHex, _ := pongbisonrelay.DeriveAdaptorGamma("", branchTag, winnerBranch, branchTag, serverSecret)
+
+		// Finalize winner transaction.
+		hexTx, err := pongbisonrelay.FinalizeWinner(gammaHex, chosen.DraftHex, inputs, presigs)
+		if err != nil {
+			s.log.Warnf("finalize: failed to finalize tx: %v", err)
+			if w := s.gameManager.PlayerSessions.GetPlayer(*winner); w != nil && w.NotifierStream != nil {
+				_ = s.notify(w, &pong.NtfnStreamResponse{NotificationType: pong.NotificationType_MESSAGE, Message: "Settlement failed to finalize; please contact support."})
+			}
+			return
+		}
+
+		// Broadcast the transaction via dcrd.
+		raw, err := hex.DecodeString(hexTx)
+		if err != nil {
+			s.log.Warnf("finalize: bad hex for tx: %v", err)
+			return
+		}
+		var tx wire.MsgTx
+		if err := tx.Deserialize(bytes.NewReader(raw)); err != nil {
+			s.log.Warnf("finalize: deserialize tx failed: %v", err)
+			return
+		}
+		ctxBroadcast, cancel := context.WithTimeout(ctx, 20*time.Second)
+		defer cancel()
+		h, err := s.dcrd.SendRawTransaction(ctxBroadcast, &tx, false)
+		if err != nil {
+			s.log.Warnf("broadcast failed: %v", err)
+			// Include hex for manual broadcast/debugging.
+			if w := s.gameManager.PlayerSessions.GetPlayer(*winner); w != nil && w.NotifierStream != nil {
+				_ = s.notify(w, &pong.NtfnStreamResponse{NotificationType: pong.NotificationType_MESSAGE, Message: fmt.Sprintf("Settlement broadcast failed: %v. You may broadcast manually with this hex: %s", err, hexTx)})
+			}
+			return
+		}
+		// After game finishes, and tx was successfully broadcasted,
+		// remove the associated waiting room  and escrows.
+		if wr != nil {
+			// Cancel room context to stop any related goroutines.
+			if wr.Cancel != nil {
+				wr.Cancel()
+			}
+			// Remove from game manager's waiting rooms list.
+			s.gameManager.RemoveWaitingRoom(wr.ID)
+			// Clean up any escrow bookkeeping for this room to avoid leaks.
+			s.roomEscrowsMu.Lock()
+			if s.roomEscrows != nil {
+				delete(s.roomEscrows, wr.ID)
+			}
+			s.roomEscrowsMu.Unlock()
+
+			s.notifyallusers(&pong.NtfnStreamResponse{
+				NotificationType: pong.NotificationType_ON_WR_REMOVED,
+				Message:          "Waiting room has been removed",
+				RoomId:           wrID,
+			})
+
+			s.log.Debugf("Waiting room %s removed after game end", wr.ID)
+		}
+		txid := h.String()
+
+		// Notify both players of settlement broadcast.
+		for _, p := range players {
+			_ = s.notify(p, &pong.NtfnStreamResponse{
+				NotificationType: pong.NotificationType_MESSAGE,
+				Message:          fmt.Sprintf("Settlement broadcasted. txid=%s", txid),
 			})
 		}
 	}
+}
 
-	return &pong.SignalReadyToPlayResponse{
-		Success: true,
-		Message: "Ready signal received",
-	}, nil
+// ManageWaitingRoom
+func (s *Server) manageWaitingRoom(ctx context.Context, wr *ponggame.WaitingRoom) error {
+	ticker := time.NewTicker(time.Second)
+	defer ticker.Stop()
+
+	for {
+		select {
+		case <-ctx.Done():
+			s.log.Infof("Exited ManageWaitingRoom: %s (context cancelled)", wr.ID)
+			return nil
+
+		case <-ticker.C:
+			players := wr.ReadyPlayers()
+			if len(players) < 2 {
+				continue
+			}
+
+			// F2P: start immediately once both players are ready.
+			if s.isF2P {
+				s.log.Infof("Game starting with players: %s and %s", players[0].ID, players[1].ID)
+				go s.handleGameLifecycle(ctx, wr)
+				return nil
+			}
+
+			// Non-F2P: require escrow bound and funded for both players.
+			escrowOK := true
+			for _, p := range players {
+				es := s.escrowForRoomPlayer(wr.ID, p.ID.String())
+				if es == nil {
+					escrowOK = false
+					s.notify(p, &pong.NtfnStreamResponse{NotificationType: pong.NotificationType_MESSAGE, Message: "No escrow bound to this room for you. Bind a funded escrow first."})
+					continue
+				}
+				if err := s.ensureBoundFunding(es); err != nil {
+					escrowOK = false
+					s.notify(p, &pong.NtfnStreamResponse{NotificationType: pong.NotificationType_MESSAGE, Message: fmt.Sprintf("Waiting for exact funding input: %v", err)})
+					continue
+				}
+			}
+			if !escrowOK {
+				continue
+			}
+
+			// Require both players to have completed presign handshakes for the same branch.
+			esA := s.escrowForRoomPlayer(wr.ID, players[0].ID.String())
+			esB := s.escrowForRoomPlayer(wr.ID, players[1].ID.String())
+			isComplete := func(winES, loseES *escrowSession) bool {
+				if winES == nil || loseES == nil {
+					return false
+				}
+				winBound, winInputs, winConsistent := winES.preSignSnapshot()
+				loseBound, _, _ := loseES.preSignSnapshot()
+				if len(winInputs) < 2 || winBound == "" || loseBound == "" || !winConsistent {
+					return false
+				}
+				haveWin := false
+				haveLose := false
+				for _, in := range winInputs {
+					if in == winBound {
+						haveWin = true
+					}
+					if in == loseBound {
+						haveLose = true
+					}
+				}
+				return haveWin && haveLose
+			}
+
+			if !isComplete(esA, esB) || !isComplete(esB, esA) {
+				if !isComplete(esA, esB) {
+					s.notify(players[0], &pong.NtfnStreamResponse{NotificationType: pong.NotificationType_MESSAGE, Message: "Waiting: complete presign ([P]) for both inputs."})
+				}
+				if !isComplete(esB, esA) {
+					s.notify(players[1], &pong.NtfnStreamResponse{NotificationType: pong.NotificationType_MESSAGE, Message: "Waiting: complete presign ([P]) for both inputs."})
+				}
+				continue
+			}
+
+			// At this point: both players have completed escrow & presign checks.
+			// and both have completed presigning. Start the game.
+
+			s.log.Infof("Game starting with players: %s and %s", players[0].ID, players[1].ID)
+
+			go s.handleGameLifecycle(ctx, wr)
+			return nil
+		}
+	}
+}
+
+func (s *Server) handleGameLifecycle(ctx context.Context, wr *ponggame.WaitingRoom) {
+	players := wr.ReadyPlayers()[:2]
+	game, err := s.gameManager.StartGame(ctx, players)
+	if err != nil {
+		s.log.Errorf("Failed to start game: %v", err)
+		return
+	}
+
+	defer func() {
+		// reset player status
+		for _, player := range game.Players {
+			player.ResetPlayer()
+		}
+		// remove game from gameManager after it ended
+		s.gameManager.DeleteGame(game.Id)
+		s.log.Debugf("Game %s cleaned up", game.Id)
+	}()
+
+	game.Run()
+
+	var wg sync.WaitGroup
+	for _, player := range players {
+		wg.Add(1)
+		go func(player *ponggame.Player) {
+			defer wg.Done()
+			if player.NotifierStream != nil {
+				err := s.notify(player, &pong.NtfnStreamResponse{
+					NotificationType: pong.NotificationType_GAME_START,
+					Message:          "Game started with ID: " + game.Id,
+					Started:          true,
+					GameId:           game.Id,
+				})
+				if err != nil {
+					s.log.Warnf("Failed to notify player %s: %v", player.ID, err)
+				}
+			}
+			s.sendGameUpdates(ctx, player, game)
+		}(player)
+	}
+
+	wg.Wait() // Wait for both players' streams to finish
+
+	s.handleGameEnd(ctx, game, wr)
 }

@@ -20,6 +20,7 @@ class Config {
   late final String rpcPass;
   late final bool wantsLogNtfns;
   late final String dataDir;
+  late final String address;
 
   Config();
 
@@ -35,6 +36,7 @@ class Config {
     this.rpcPass = "",
     this.wantsLogNtfns = false,
     this.dataDir = "",
+    this.address = "",
   });
 
   // Save a new config from scratch
@@ -45,6 +47,7 @@ class Config {
 
     set("default", "server", serverAddr);
     set("default", "grpccertpath", grpcCertPath);
+    set("default", "address", address);
     set("clientrpc", "rpccertpath", rpcCertPath);
     set("log", "debug", debugLevel);
     set("clientrpc", "rpcwebsocketurl", rpcWebsocketURL);
@@ -67,6 +70,7 @@ class Config {
     return Config.filled(
       serverAddr: f.get("default", "server") ?? "localhost:443",
       grpcCertPath: f.get("default", "grpccertpath") ?? "",
+      address: f.get("default", "address") ?? "",
       rpcCertPath: f.get("clientrpc", "rpccertpath") ?? "",
       rpcClientCertPath: f.get("clientrpc", "rpcclientcertpath") ?? "",
       rpcClientKeyPath: f.get("clientrpc", "rpcclientkeypath") ?? "",
@@ -148,14 +152,48 @@ Future<Config> loadConfig(String filepath) async {
     f = ini.Config.fromString("[clientrpc]\n[log]\n");
   }
 
+  // Accept alt names used by legacy configs in [default] section.
+  String pick(List<String?> xs, String fallback) {
+    for (final v in xs) {
+      if (v != null && v.trim().isNotEmpty) return v;
+    }
+    return fallback;
+  }
+
+  final serverAddr = pick([
+    f.get("default", "server"),
+    f.get("default", "serveraddr"),
+  ], "localhost:50051");
+  final grpcCertPath = pick([
+    f.get("default", "grpccertpath"),
+    f.get("default", "grpcservercert"),
+  ], "");
+  final rpcWebsocket = pick([
+    f.get("clientrpc", "rpcwebsocketurl"),
+    f.get("default", "brrpcurl"),
+  ], "");
+  final rpccert = pick([
+    getPath("clientrpc", "rpccertpath", ""),
+    f.get("default", "brclientcert"),
+  ], "");
+  final rpcclientcert = pick([
+    getPath("clientrpc", "rpcclientcertpath", ""),
+    f.get("default", "brclientrpccert"),
+  ], "");
+  final rpcclientkey = pick([
+    getPath("clientrpc", "rpcclientkeypath", ""),
+    f.get("default", "brclientrpckey"),
+  ], "");
+
   var c = Config.filled(
-      serverAddr: f.get("default", "server") ?? "localhost:50051",
-      grpcCertPath: f.get("default", "grpccertpath") ?? "",
+      serverAddr: serverAddr,
+      grpcCertPath: grpcCertPath,
+      address: f.get("default", "address") ?? "",
       debugLevel: f.get("log", "debuglevel") ?? "info",
-      rpcWebsocketURL: f.get("clientrpc", "rpcwebsocketurl") ?? "",
-      rpcCertPath: getPath("clientrpc", "rpccertpath", ""),
-      rpcClientCertPath: getPath("clientrpc", "rpcclientcertpath", ""),
-      rpcClientKeyPath: getPath("clientrpc", "rpcclientkeypath", ""),
+      rpcWebsocketURL: rpcWebsocket,
+      rpcCertPath: rpccert,
+      rpcClientCertPath: rpcclientcert,
+      rpcClientKeyPath: rpcclientkey,
       rpcUser: f.get("clientrpc", "rpcuser") ?? "",
       rpcPass: f.get("clientrpc", "rpcpass") ?? "",
       wantsLogNtfns: getBool("clientrpc", "wantsLogNtfns"),

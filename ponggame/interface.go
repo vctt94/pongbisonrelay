@@ -9,7 +9,7 @@ import (
 	"github.com/companyzero/bisonrelay/zkidentity"
 	"github.com/decred/slog"
 	"github.com/ndabAP/ping-pong/engine"
-	"github.com/vctt94/pong-bisonrelay/pongrpc/grpc/pong"
+	"github.com/vctt94/pongbisonrelay/pongrpc/grpc/pong"
 )
 
 // Rect represents a bounding box with center position and half-dimensions
@@ -33,6 +33,7 @@ func (v Vec2) Scale(s float64) Vec2 {
 }
 
 type Player struct {
+	sync.RWMutex
 	ID *zkidentity.ShortID
 
 	Nick           string
@@ -47,6 +48,18 @@ type Player struct {
 	FrameCh chan []byte
 
 	WR *WaitingRoom
+}
+
+func (p *Player) Marshal() *pong.Player {
+	p.RLock()
+	defer p.RUnlock()
+	return &pong.Player{
+		Uid:    p.ID.String(),
+		Nick:   p.Nick,
+		BetAmt: p.BetAmt,
+		Number: p.PlayerNumber,
+		Score:  int32(p.Score),
+	}
 }
 
 func (p *Player) ResetPlayer() {
@@ -99,19 +112,89 @@ type WaitingRoom struct {
 	ReservedTips []*types.ReceivedTip
 }
 
-type GameManager struct {
-	sync.RWMutex
+func (wr *WaitingRoom) Marshal() *pong.WaitingRoom {
+	wr.RLock()
+	defer wr.RUnlock()
+	players := make([]*pong.Player, len(wr.Players))
+	for i, player := range wr.Players {
+		players[i] = player.Marshal()
+	}
+	return &pong.WaitingRoom{
+		Id:      wr.ID,
+		HostId:  wr.HostID.String(),
+		Players: players,
+		BetAmt:  wr.BetAmount,
+	}
+}
 
-	ID             *zkidentity.ShortID
-	Games          map[string]*GameInstance
-	WaitingRooms   []*WaitingRoom
+type GameManager struct {
+	ID *zkidentity.ShortID
+
 	PlayerSessions *PlayerSessions
-	PlayerGameMap  map[zkidentity.ShortID]*GameInstance
+
+	Games   map[string]*GameInstance
+	gamesMu sync.RWMutex
+
+	waitingRoomsMu sync.RWMutex
+	WaitingRooms   []*WaitingRoom
+
+	playerGameMapMu sync.RWMutex
+	PlayerGameMap   map[zkidentity.ShortID]*GameInstance
 
 	Log slog.Logger
+}
 
-	// Callback for waiting room removal notifications
-	OnWaitingRoomRemoved func(*pong.WaitingRoom)
+// WaitingRoomsSnapshot returns a shallow copy of the waiting rooms slice.
+func (g *GameManager) WaitingRoomsSnapshot() []*WaitingRoom {
+	g.waitingRoomsMu.RLock()
+	defer g.waitingRoomsMu.RUnlock()
+	return append([]*WaitingRoom(nil), g.WaitingRooms...)
+}
+
+// AppendWaitingRoom appends a waiting room and returns the total count.
+func (g *GameManager) AppendWaitingRoom(wr *WaitingRoom) int {
+	g.waitingRoomsMu.Lock()
+	g.WaitingRooms = append(g.WaitingRooms, wr)
+	total := len(g.WaitingRooms)
+	g.waitingRoomsMu.Unlock()
+	return total
+}
+
+// GamesSnapshot returns a shallow copy of the games map.
+func (g *GameManager) GamesSnapshot() map[string]*GameInstance {
+	g.gamesMu.RLock()
+	defer g.gamesMu.RUnlock()
+	out := make(map[string]*GameInstance, len(g.Games))
+	for k, v := range g.Games {
+		out[k] = v
+	}
+	return out
+}
+
+// DeleteGame removes a game by id.
+func (g *GameManager) DeleteGame(id string) {
+	g.gamesMu.Lock()
+	delete(g.Games, id)
+	g.gamesMu.Unlock()
+}
+
+// RemovePlayerGame removes the player->game mapping.
+func (g *GameManager) RemovePlayerGame(clientID zkidentity.ShortID) {
+	g.playerGameMapMu.Lock()
+	delete(g.PlayerGameMap, clientID)
+	g.playerGameMapMu.Unlock()
+}
+
+// CancelAllWaitingRooms cancels and clears all waiting rooms.
+func (g *GameManager) CancelAllWaitingRooms() {
+	g.waitingRoomsMu.Lock()
+	for _, wr := range g.WaitingRooms {
+		if wr != nil {
+			wr.Cancel()
+		}
+	}
+	g.WaitingRooms = nil
+	g.waitingRoomsMu.Unlock()
 }
 
 // CanvasEngine is a ping-pong engine for browsers with Canvas support

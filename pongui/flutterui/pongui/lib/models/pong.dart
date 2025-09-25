@@ -1,10 +1,11 @@
-import 'dart:convert';
+import 'dart:async';
 import 'dart:developer' as developer;
 
 import 'package:flutter/material.dart';
 import 'package:golib_plugin/definitions.dart';
 import 'package:golib_plugin/golib_plugin.dart';
 import 'package:pongui/components/pong_game.dart';
+import 'package:pongui/components/helper.dart';
 import 'package:pongui/config.dart';
 import 'package:golib_plugin/grpc/generated/pong.pb.dart';
 import 'package:golib_plugin/grpc/generated/pong.pbgrpc.dart';
@@ -31,10 +32,23 @@ class PongModel extends ChangeNotifier {
   String clientId = '';
   String nick = '';
   int betAmt = 0;
+  String escrowId = '';
+  String payoutAddressOrPubkey = '';
+  String escrowDepositAddress = '';
+  String escrowPkScriptHex = '';
+  int escrowBetAtoms = 0;
+  String fundingStatus = '';
+  int escrowConfs = 0;
+  // Escrow funding flags derived from notifications
+  bool escrowFunded = false;    // true when deposit seen (0-conf OK)
+  bool escrowConfirmed = false; // true when at least 1 confirmation
   String errorMessage = '';
   List<LocalWaitingRoom> waitingRooms = [];
   LocalWaitingRoom? currentWR;
   GameUpdate? gameState;
+  final SnapshotInterpolator interpolator = SnapshotInterpolator();
+  final RenderLoop renderLoop = RenderLoop();
+  StreamSubscription<GameUpdateBytes>? _gameStreamSub;
 
   // Connection state
   bool isConnected = false;
@@ -43,6 +57,29 @@ class PongModel extends ChangeNotifier {
   GameState _currentGameState = GameState.idle;
   String currentGameId = '';
   String countdownMessage = '';
+
+  // Track last settlement match id used for presign so we can archive the
+  // session key safely after game completion.
+  String lastMatchId = '';
+
+  void setEscrowId(String id) {
+    escrowId = id;
+    notifyListeners();
+  }
+
+  void setEscrowDetails(String id, String depositAddr, [String? pkScriptHex]) {
+    escrowId = id;
+    escrowDepositAddress = depositAddr;
+    escrowPkScriptHex = pkScriptHex ?? escrowPkScriptHex;
+    notifyListeners();
+  }
+
+  void setEscrowBetAtoms(int atoms) {
+    escrowBetAtoms = atoms;
+    // Reflect intended bet in UI immediately
+    betAmt = atoms;
+    notifyListeners();
+  }
 
   // Getters for the game state
   GameState get currentGameState => _currentGameState;
@@ -73,7 +110,8 @@ class PongModel extends ChangeNotifier {
       
       final appDataDir = await defaultAppDataDir();
       final logFilePath = path.join(appDataDir, "logs", "pongui.log");
-      
+
+      // Let golib load the authoritative BR config from disk; pass UI config as overrides only.
       InitClient initArgs = InitClient(
         cfg.serverAddr,
         cfg.grpcCertPath,
@@ -96,8 +134,9 @@ class PongModel extends ChangeNotifier {
 
       clientId = localInfo.id;
       nick = localInfo.nick;
-      var rooms = await Golib.getWaitingRooms();
-      waitingRooms = rooms;
+      payoutAddressOrPubkey = cfg.address;
+      // Query initial waiting rooms via golib
+      waitingRooms = await Golib.getWaitingRooms();
       List<String> parts = cfg.serverAddr.split(":");
       String ipAddress = parts[0];
       int port = int.parse(parts[1]);
@@ -110,8 +149,8 @@ class PongModel extends ChangeNotifier {
       startListeningToNtfn(grpcClient, clientId);
       notifyListeners();
     } catch (exception) {
-      print("Exception: $exception");
-      // XXX this is not correct, need to check if error is eof
+      // Surface startup/config errors to the UI
+      errorMessage = "${exception.toString()}";
       isConnected = false;
       notifyListeners();
     }
@@ -125,19 +164,40 @@ class PongModel extends ChangeNotifier {
       notifyListeners();
 
       switch (ntfn.notificationType) {
+        case NotificationType.MESSAGE:
+          // Avoid deriving funding state from free-form messages; show as toast only.
+          notificationModel.showNotification(ntfn.message);
+          notifyListeners();
+          break;
         case NotificationType.BET_AMOUNT_UPDATE:
           if (ntfn.playerId == clientId) {
             betAmt = ntfn.betAmt.toInt();
+            escrowConfs = ntfn.confs;
+            // Consider escrow funded whenever a watcher-driven update arrives (may be 0-conf)
+            escrowFunded = ntfn.confs >= 0;
+            // Confirmed when at least 1 conf
+            escrowConfirmed = ntfn.confs >= 1;
+            // Optional: textual status for tooltip only, derived from structured confs
+            fundingStatus = escrowConfirmed
+                ? 'Deposit confirmed (${ntfn.confs})'
+                : 'Deposit seen (mempool)';
             notifyListeners();
           }
           break;
 
         case NotificationType.ON_WR_CREATED:
-          waitingRooms.add(LocalWaitingRoom.fromProto(ntfn.wr));
+          // Refresh rooms in background (can't await in this listener)
+          Golib.getWaitingRooms().then((rooms) {
+            waitingRooms = rooms;
+            notifyListeners();
+          }).catchError((_) {
+            // Fallback: append from notification payload
+            waitingRooms.add(LocalWaitingRoom.fromProto(ntfn.wr));
+            notifyListeners();
+          });
           notificationModel.showNotification(
             "Waiting room created by ${ntfn.wr.hostId}",
           );
-          notifyListeners();
           break;
 
         case NotificationType.GAME_START:
@@ -192,7 +252,9 @@ class PongModel extends ChangeNotifier {
 
         case NotificationType.GAME_END:
           notificationModel.showNotification(ntfn.message);
+          // Reset gameplay state and clear escrow so the user can start fresh.
           resetGameState();
+          clearEscrowState();
           break;
 
         case NotificationType.ON_WR_REMOVED:
@@ -218,6 +280,8 @@ class PongModel extends ChangeNotifier {
           currentWR = LocalWaitingRoom.fromProto(ntfn.wr);
           notificationModel.showNotification(ntfn.message);
           notifyListeners();
+          // Ensure we stop local rendering when opponent disconnects
+          _stopGameStreamAndRenderLoop();
           break;
 
         case NotificationType.ON_PLAYER_READY:
@@ -277,6 +341,26 @@ class PongModel extends ChangeNotifier {
     betAmt = 0;
     currentGameId = '';
     countdownMessage = '';
+    _stopGameStreamAndRenderLoop();
+    notifyListeners();
+  }
+
+  // Clear all escrow-related client state so user can open a fresh escrow
+  // after a game ends or when leaving a room.
+  void clearEscrowState() {
+    escrowId = '';
+    escrowDepositAddress = '';
+    escrowPkScriptHex = '';
+    escrowBetAtoms = 0;
+    escrowFunded = false;
+    escrowConfirmed = false;
+    escrowConfs = 0;
+    fundingStatus = '';
+    // Also archive the persisted session key so a new escrow can use a new key
+    // while retaining recovery data for this match.
+    if (lastMatchId.isNotEmpty) {
+      Golib.archiveSettlementSessionKey(lastMatchId);
+    }
     notifyListeners();
   }
 
@@ -292,9 +376,19 @@ class PongModel extends ChangeNotifier {
         notifyListeners();
         return;
       }
+      if (escrowId.isEmpty) {
+        errorMessage = "Open escrow first in Settings → Settlement panel";
+        notifyListeners();
+        return;
+      }
+      if (!escrowFunded) {
+        errorMessage = "Wait until escrow deposit is seen before creating a room";
+        notifyListeners();
+        return;
+      }
 
       CreateWaitingRoomArgs createRoomArgs =
-          CreateWaitingRoomArgs(clientId, betAmt);
+        CreateWaitingRoomArgs(clientId, betAmt, escrowId: escrowId);
 
       developer.log("CreateWaitingRoom args: $createRoomArgs");
       var roomInfo = await Golib.CreateWaitingRoom(createRoomArgs);
@@ -317,7 +411,7 @@ class PongModel extends ChangeNotifier {
 
   Future<void> joinWaitingRoom(String id) async {
     try {
-      await Golib.JoinWaitingRoom(id);
+      await Golib.JoinWaitingRoom(id, escrowId: escrowId);
       _currentGameState = GameState.inWaitingRoom;
       errorMessage = '';
       notifyListeners();
@@ -337,11 +431,13 @@ class PongModel extends ChangeNotifier {
 
     if (_currentGameState != GameState.waitingRoomReady) {
       // Player is getting ready
-      grpcClient.startGameStreamRequest(clientId).listen((gameUpdateBytes) {
+      _gameStreamSub?.cancel();
+      _gameStreamSub = grpcClient.startGameStreamRequest(clientId).listen((gameUpdateBytes) {
         final update = GameUpdate.fromBuffer(gameUpdateBytes.data);
-        gameState = update;
+        // Push into interpolator; avoid notifying listeners per frame
+        interpolator.push(update);
+        gameState = update; // keep latest raw state for non-render UI
         errorMessage = '';
-        notifyListeners();
       }, onError: (error) {
         developer.log("Error in game stream: $error");
         errorMessage = "Error in game stream: ${error.message}";
@@ -349,11 +445,14 @@ class PongModel extends ChangeNotifier {
       });
 
       _currentGameState = GameState.waitingRoomReady;
+      // Start render loop now that the stream is active
+      renderLoop.start();
     } else {
       // Player is unreadying
       try {
         grpcClient.unreadyGameStream(clientId);
         _currentGameState = GameState.inWaitingRoom;
+        _stopGameStreamAndRenderLoop();
       } catch (error) {
         developer.log("Error in unready game stream: $error");
         errorMessage = "Error in unready game stream: $error";
@@ -373,10 +472,12 @@ class PongModel extends ChangeNotifier {
     try {
       await Golib.LeaveWaitingRoom(currentWR!.id);
 
-      // Reset waiting room state
+      // Reset waiting room state and escrow so a new match can be started
       currentWR = null;
       _currentGameState = GameState.idle;
       errorMessage = '';
+      clearEscrowState();
+      _stopGameStreamAndRenderLoop();
       notifyListeners();
 
       notificationModel.showNotification("Left waiting room successfully");
@@ -411,5 +512,16 @@ class PongModel extends ChangeNotifier {
       errorMessage = "Error signaling ready to play: $e";
       notifyListeners();
     }
+  }
+
+  // Sample current interpolated frame for rendering
+  GameUpdate sampleInterpolatedGameState() {
+    return interpolator.sample();
+  }
+
+  void _stopGameStreamAndRenderLoop() {
+    _gameStreamSub?.cancel();
+    _gameStreamSub = null;
+    renderLoop.stop();
   }
 }

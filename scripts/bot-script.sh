@@ -13,7 +13,7 @@ BRSERVER_PORT=12345
 BR_RPC_PORT=7676
 
 # bot
-BOT_DIR=$HOME/projects/BR/pong-bisonrelay/cmd/pongbot
+BOT_DIR=$HOME/projects/BR/pongbisonrelay/cmd/pongbot
 
 ###############################################################################
 # (Re)start session

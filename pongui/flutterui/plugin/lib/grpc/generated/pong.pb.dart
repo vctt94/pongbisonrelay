@@ -18,6 +18,1409 @@ import 'pong.pbenum.dart';
 
 export 'pong.pbenum.dart';
 
+enum ClientMsg_Kind {
+  hello, 
+  ack, 
+  verifyOk, 
+  notSet
+}
+
+/// === Phase 1 streaming messages ===
+class ClientMsg extends $pb.GeneratedMessage {
+  factory ClientMsg({
+    $core.String? matchId,
+    Hello? hello,
+    Ack? ack,
+    VerifyOk? verifyOk,
+  }) {
+    final $result = create();
+    if (matchId != null) {
+      $result.matchId = matchId;
+    }
+    if (hello != null) {
+      $result.hello = hello;
+    }
+    if (ack != null) {
+      $result.ack = ack;
+    }
+    if (verifyOk != null) {
+      $result.verifyOk = verifyOk;
+    }
+    return $result;
+  }
+  ClientMsg._() : super();
+  factory ClientMsg.fromBuffer($core.List<$core.int> i, [$pb.ExtensionRegistry r = $pb.ExtensionRegistry.EMPTY]) => create()..mergeFromBuffer(i, r);
+  factory ClientMsg.fromJson($core.String i, [$pb.ExtensionRegistry r = $pb.ExtensionRegistry.EMPTY]) => create()..mergeFromJson(i, r);
+
+  static const $core.Map<$core.int, ClientMsg_Kind> _ClientMsg_KindByTag = {
+    10 : ClientMsg_Kind.hello,
+    12 : ClientMsg_Kind.ack,
+    13 : ClientMsg_Kind.verifyOk,
+    0 : ClientMsg_Kind.notSet
+  };
+  static final $pb.BuilderInfo _i = $pb.BuilderInfo(_omitMessageNames ? '' : 'ClientMsg', package: const $pb.PackageName(_omitMessageNames ? '' : 'pong'), createEmptyInstance: create)
+    ..oo(0, [10, 12, 13])
+    ..aOS(1, _omitFieldNames ? '' : 'matchId')
+    ..aOM<Hello>(10, _omitFieldNames ? '' : 'hello', subBuilder: Hello.create)
+    ..aOM<Ack>(12, _omitFieldNames ? '' : 'ack', subBuilder: Ack.create)
+    ..aOM<VerifyOk>(13, _omitFieldNames ? '' : 'verifyOk', subBuilder: VerifyOk.create)
+    ..hasRequiredFields = false
+  ;
+
+  @$core.Deprecated(
+  'Using this can add significant overhead to your binary. '
+  'Use [GeneratedMessageGenericExtensions.deepCopy] instead. '
+  'Will be removed in next major version')
+  ClientMsg clone() => ClientMsg()..mergeFromMessage(this);
+  @$core.Deprecated(
+  'Using this can add significant overhead to your binary. '
+  'Use [GeneratedMessageGenericExtensions.rebuild] instead. '
+  'Will be removed in next major version')
+  ClientMsg copyWith(void Function(ClientMsg) updates) => super.copyWith((message) => updates(message as ClientMsg)) as ClientMsg;
+
+  $pb.BuilderInfo get info_ => _i;
+
+  @$core.pragma('dart2js:noInline')
+  static ClientMsg create() => ClientMsg._();
+  ClientMsg createEmptyInstance() => create();
+  static $pb.PbList<ClientMsg> createRepeated() => $pb.PbList<ClientMsg>();
+  @$core.pragma('dart2js:noInline')
+  static ClientMsg getDefault() => _defaultInstance ??= $pb.GeneratedMessage.$_defaultFor<ClientMsg>(create);
+  static ClientMsg? _defaultInstance;
+
+  ClientMsg_Kind whichKind() => _ClientMsg_KindByTag[$_whichOneof(0)]!;
+  void clearKind() => clearField($_whichOneof(0));
+
+  @$pb.TagNumber(1)
+  $core.String get matchId => $_getSZ(0);
+  @$pb.TagNumber(1)
+  set matchId($core.String v) { $_setString(0, v); }
+  @$pb.TagNumber(1)
+  $core.bool hasMatchId() => $_has(0);
+  @$pb.TagNumber(1)
+  void clearMatchId() => clearField(1);
+
+  @$pb.TagNumber(10)
+  Hello get hello => $_getN(1);
+  @$pb.TagNumber(10)
+  set hello(Hello v) { setField(10, v); }
+  @$pb.TagNumber(10)
+  $core.bool hasHello() => $_has(1);
+  @$pb.TagNumber(10)
+  void clearHello() => clearField(10);
+  @$pb.TagNumber(10)
+  Hello ensureHello() => $_ensure(1);
+
+  @$pb.TagNumber(12)
+  Ack get ack => $_getN(2);
+  @$pb.TagNumber(12)
+  set ack(Ack v) { setField(12, v); }
+  @$pb.TagNumber(12)
+  $core.bool hasAck() => $_has(2);
+  @$pb.TagNumber(12)
+  void clearAck() => clearField(12);
+  @$pb.TagNumber(12)
+  Ack ensureAck() => $_ensure(2);
+
+  /// minimal handshake message carrying ack_digest and presigs.
+  @$pb.TagNumber(13)
+  VerifyOk get verifyOk => $_getN(3);
+  @$pb.TagNumber(13)
+  set verifyOk(VerifyOk v) { setField(13, v); }
+  @$pb.TagNumber(13)
+  $core.bool hasVerifyOk() => $_has(3);
+  @$pb.TagNumber(13)
+  void clearVerifyOk() => clearField(13);
+  @$pb.TagNumber(13)
+  VerifyOk ensureVerifyOk() => $_ensure(3);
+}
+
+enum ServerMsg_Kind {
+  req, 
+  info, 
+  ok, 
+  notSet
+}
+
+class ServerMsg extends $pb.GeneratedMessage {
+  factory ServerMsg({
+    $core.String? matchId,
+    NeedPreSigs? req,
+    Info? info,
+    ServerOk? ok,
+  }) {
+    final $result = create();
+    if (matchId != null) {
+      $result.matchId = matchId;
+    }
+    if (req != null) {
+      $result.req = req;
+    }
+    if (info != null) {
+      $result.info = info;
+    }
+    if (ok != null) {
+      $result.ok = ok;
+    }
+    return $result;
+  }
+  ServerMsg._() : super();
+  factory ServerMsg.fromBuffer($core.List<$core.int> i, [$pb.ExtensionRegistry r = $pb.ExtensionRegistry.EMPTY]) => create()..mergeFromBuffer(i, r);
+  factory ServerMsg.fromJson($core.String i, [$pb.ExtensionRegistry r = $pb.ExtensionRegistry.EMPTY]) => create()..mergeFromJson(i, r);
+
+  static const $core.Map<$core.int, ServerMsg_Kind> _ServerMsg_KindByTag = {
+    11 : ServerMsg_Kind.req,
+    13 : ServerMsg_Kind.info,
+    14 : ServerMsg_Kind.ok,
+    0 : ServerMsg_Kind.notSet
+  };
+  static final $pb.BuilderInfo _i = $pb.BuilderInfo(_omitMessageNames ? '' : 'ServerMsg', package: const $pb.PackageName(_omitMessageNames ? '' : 'pong'), createEmptyInstance: create)
+    ..oo(0, [11, 13, 14])
+    ..aOS(1, _omitFieldNames ? '' : 'matchId')
+    ..aOM<NeedPreSigs>(11, _omitFieldNames ? '' : 'req', subBuilder: NeedPreSigs.create)
+    ..aOM<Info>(13, _omitFieldNames ? '' : 'info', subBuilder: Info.create)
+    ..aOM<ServerOk>(14, _omitFieldNames ? '' : 'ok', subBuilder: ServerOk.create)
+    ..hasRequiredFields = false
+  ;
+
+  @$core.Deprecated(
+  'Using this can add significant overhead to your binary. '
+  'Use [GeneratedMessageGenericExtensions.deepCopy] instead. '
+  'Will be removed in next major version')
+  ServerMsg clone() => ServerMsg()..mergeFromMessage(this);
+  @$core.Deprecated(
+  'Using this can add significant overhead to your binary. '
+  'Use [GeneratedMessageGenericExtensions.rebuild] instead. '
+  'Will be removed in next major version')
+  ServerMsg copyWith(void Function(ServerMsg) updates) => super.copyWith((message) => updates(message as ServerMsg)) as ServerMsg;
+
+  $pb.BuilderInfo get info_ => _i;
+
+  @$core.pragma('dart2js:noInline')
+  static ServerMsg create() => ServerMsg._();
+  ServerMsg createEmptyInstance() => create();
+  static $pb.PbList<ServerMsg> createRepeated() => $pb.PbList<ServerMsg>();
+  @$core.pragma('dart2js:noInline')
+  static ServerMsg getDefault() => _defaultInstance ??= $pb.GeneratedMessage.$_defaultFor<ServerMsg>(create);
+  static ServerMsg? _defaultInstance;
+
+  ServerMsg_Kind whichKind() => _ServerMsg_KindByTag[$_whichOneof(0)]!;
+  void clearKind() => clearField($_whichOneof(0));
+
+  @$pb.TagNumber(1)
+  $core.String get matchId => $_getSZ(0);
+  @$pb.TagNumber(1)
+  set matchId($core.String v) { $_setString(0, v); }
+  @$pb.TagNumber(1)
+  $core.bool hasMatchId() => $_has(0);
+  @$pb.TagNumber(1)
+  void clearMatchId() => clearField(1);
+
+  @$pb.TagNumber(11)
+  NeedPreSigs get req => $_getN(1);
+  @$pb.TagNumber(11)
+  set req(NeedPreSigs v) { setField(11, v); }
+  @$pb.TagNumber(11)
+  $core.bool hasReq() => $_has(1);
+  @$pb.TagNumber(11)
+  void clearReq() => clearField(11);
+  @$pb.TagNumber(11)
+  NeedPreSigs ensureReq() => $_ensure(1);
+
+  @$pb.TagNumber(13)
+  Info get info => $_getN(2);
+  @$pb.TagNumber(13)
+  set info(Info v) { setField(13, v); }
+  @$pb.TagNumber(13)
+  $core.bool hasInfo() => $_has(2);
+  @$pb.TagNumber(13)
+  void clearInfo() => clearField(13);
+  @$pb.TagNumber(13)
+  Info ensureInfo() => $_ensure(2);
+
+  /// New handshake completion ack from server.
+  @$pb.TagNumber(14)
+  ServerOk get ok => $_getN(3);
+  @$pb.TagNumber(14)
+  set ok(ServerOk v) { setField(14, v); }
+  @$pb.TagNumber(14)
+  $core.bool hasOk() => $_has(3);
+  @$pb.TagNumber(14)
+  void clearOk() => clearField(14);
+  @$pb.TagNumber(14)
+  ServerOk ensureOk() => $_ensure(3);
+}
+
+class Hello extends $pb.GeneratedMessage {
+  factory Hello({
+    $core.String? matchId,
+    $core.List<$core.int>? compPubkey,
+    $core.String? clientVersion,
+  }) {
+    final $result = create();
+    if (matchId != null) {
+      $result.matchId = matchId;
+    }
+    if (compPubkey != null) {
+      $result.compPubkey = compPubkey;
+    }
+    if (clientVersion != null) {
+      $result.clientVersion = clientVersion;
+    }
+    return $result;
+  }
+  Hello._() : super();
+  factory Hello.fromBuffer($core.List<$core.int> i, [$pb.ExtensionRegistry r = $pb.ExtensionRegistry.EMPTY]) => create()..mergeFromBuffer(i, r);
+  factory Hello.fromJson($core.String i, [$pb.ExtensionRegistry r = $pb.ExtensionRegistry.EMPTY]) => create()..mergeFromJson(i, r);
+
+  static final $pb.BuilderInfo _i = $pb.BuilderInfo(_omitMessageNames ? '' : 'Hello', package: const $pb.PackageName(_omitMessageNames ? '' : 'pong'), createEmptyInstance: create)
+    ..aOS(1, _omitFieldNames ? '' : 'matchId')
+    ..a<$core.List<$core.int>>(2, _omitFieldNames ? '' : 'compPubkey', $pb.PbFieldType.OY)
+    ..aOS(3, _omitFieldNames ? '' : 'clientVersion')
+    ..hasRequiredFields = false
+  ;
+
+  @$core.Deprecated(
+  'Using this can add significant overhead to your binary. '
+  'Use [GeneratedMessageGenericExtensions.deepCopy] instead. '
+  'Will be removed in next major version')
+  Hello clone() => Hello()..mergeFromMessage(this);
+  @$core.Deprecated(
+  'Using this can add significant overhead to your binary. '
+  'Use [GeneratedMessageGenericExtensions.rebuild] instead. '
+  'Will be removed in next major version')
+  Hello copyWith(void Function(Hello) updates) => super.copyWith((message) => updates(message as Hello)) as Hello;
+
+  $pb.BuilderInfo get info_ => _i;
+
+  @$core.pragma('dart2js:noInline')
+  static Hello create() => Hello._();
+  Hello createEmptyInstance() => create();
+  static $pb.PbList<Hello> createRepeated() => $pb.PbList<Hello>();
+  @$core.pragma('dart2js:noInline')
+  static Hello getDefault() => _defaultInstance ??= $pb.GeneratedMessage.$_defaultFor<Hello>(create);
+  static Hello? _defaultInstance;
+
+  @$pb.TagNumber(1)
+  $core.String get matchId => $_getSZ(0);
+  @$pb.TagNumber(1)
+  set matchId($core.String v) { $_setString(0, v); }
+  @$pb.TagNumber(1)
+  $core.bool hasMatchId() => $_has(0);
+  @$pb.TagNumber(1)
+  void clearMatchId() => clearField(1);
+
+  @$pb.TagNumber(2)
+  $core.List<$core.int> get compPubkey => $_getN(1);
+  @$pb.TagNumber(2)
+  set compPubkey($core.List<$core.int> v) { $_setBytes(1, v); }
+  @$pb.TagNumber(2)
+  $core.bool hasCompPubkey() => $_has(1);
+  @$pb.TagNumber(2)
+  void clearCompPubkey() => clearField(2);
+
+  @$pb.TagNumber(3)
+  $core.String get clientVersion => $_getSZ(2);
+  @$pb.TagNumber(3)
+  set clientVersion($core.String v) { $_setString(2, v); }
+  @$pb.TagNumber(3)
+  $core.bool hasClientVersion() => $_has(2);
+  @$pb.TagNumber(3)
+  void clearClientVersion() => clearField(3);
+}
+
+class NeedPreSigs_PerInput extends $pb.GeneratedMessage {
+  factory NeedPreSigs_PerInput({
+    $core.String? inputId,
+    $core.String? redeemScriptHex,
+    $core.String? mHex,
+    $core.List<$core.int>? tCompressed,
+  }) {
+    final $result = create();
+    if (inputId != null) {
+      $result.inputId = inputId;
+    }
+    if (redeemScriptHex != null) {
+      $result.redeemScriptHex = redeemScriptHex;
+    }
+    if (mHex != null) {
+      $result.mHex = mHex;
+    }
+    if (tCompressed != null) {
+      $result.tCompressed = tCompressed;
+    }
+    return $result;
+  }
+  NeedPreSigs_PerInput._() : super();
+  factory NeedPreSigs_PerInput.fromBuffer($core.List<$core.int> i, [$pb.ExtensionRegistry r = $pb.ExtensionRegistry.EMPTY]) => create()..mergeFromBuffer(i, r);
+  factory NeedPreSigs_PerInput.fromJson($core.String i, [$pb.ExtensionRegistry r = $pb.ExtensionRegistry.EMPTY]) => create()..mergeFromJson(i, r);
+
+  static final $pb.BuilderInfo _i = $pb.BuilderInfo(_omitMessageNames ? '' : 'NeedPreSigs.PerInput', package: const $pb.PackageName(_omitMessageNames ? '' : 'pong'), createEmptyInstance: create)
+    ..aOS(1, _omitFieldNames ? '' : 'inputId')
+    ..aOS(2, _omitFieldNames ? '' : 'redeemScriptHex')
+    ..aOS(3, _omitFieldNames ? '' : 'mHex')
+    ..a<$core.List<$core.int>>(4, _omitFieldNames ? '' : 'TCompressed', $pb.PbFieldType.OY, protoName: 'T_compressed')
+    ..hasRequiredFields = false
+  ;
+
+  @$core.Deprecated(
+  'Using this can add significant overhead to your binary. '
+  'Use [GeneratedMessageGenericExtensions.deepCopy] instead. '
+  'Will be removed in next major version')
+  NeedPreSigs_PerInput clone() => NeedPreSigs_PerInput()..mergeFromMessage(this);
+  @$core.Deprecated(
+  'Using this can add significant overhead to your binary. '
+  'Use [GeneratedMessageGenericExtensions.rebuild] instead. '
+  'Will be removed in next major version')
+  NeedPreSigs_PerInput copyWith(void Function(NeedPreSigs_PerInput) updates) => super.copyWith((message) => updates(message as NeedPreSigs_PerInput)) as NeedPreSigs_PerInput;
+
+  $pb.BuilderInfo get info_ => _i;
+
+  @$core.pragma('dart2js:noInline')
+  static NeedPreSigs_PerInput create() => NeedPreSigs_PerInput._();
+  NeedPreSigs_PerInput createEmptyInstance() => create();
+  static $pb.PbList<NeedPreSigs_PerInput> createRepeated() => $pb.PbList<NeedPreSigs_PerInput>();
+  @$core.pragma('dart2js:noInline')
+  static NeedPreSigs_PerInput getDefault() => _defaultInstance ??= $pb.GeneratedMessage.$_defaultFor<NeedPreSigs_PerInput>(create);
+  static NeedPreSigs_PerInput? _defaultInstance;
+
+  @$pb.TagNumber(1)
+  $core.String get inputId => $_getSZ(0);
+  @$pb.TagNumber(1)
+  set inputId($core.String v) { $_setString(0, v); }
+  @$pb.TagNumber(1)
+  $core.bool hasInputId() => $_has(0);
+  @$pb.TagNumber(1)
+  void clearInputId() => clearField(1);
+
+  @$pb.TagNumber(2)
+  $core.String get redeemScriptHex => $_getSZ(1);
+  @$pb.TagNumber(2)
+  set redeemScriptHex($core.String v) { $_setString(1, v); }
+  @$pb.TagNumber(2)
+  $core.bool hasRedeemScriptHex() => $_has(1);
+  @$pb.TagNumber(2)
+  void clearRedeemScriptHex() => clearField(2);
+
+  @$pb.TagNumber(3)
+  $core.String get mHex => $_getSZ(2);
+  @$pb.TagNumber(3)
+  set mHex($core.String v) { $_setString(2, v); }
+  @$pb.TagNumber(3)
+  $core.bool hasMHex() => $_has(2);
+  @$pb.TagNumber(3)
+  void clearMHex() => clearField(3);
+
+  @$pb.TagNumber(4)
+  $core.List<$core.int> get tCompressed => $_getN(3);
+  @$pb.TagNumber(4)
+  set tCompressed($core.List<$core.int> v) { $_setBytes(3, v); }
+  @$pb.TagNumber(4)
+  $core.bool hasTCompressed() => $_has(3);
+  @$pb.TagNumber(4)
+  void clearTCompressed() => clearField(4);
+}
+
+class NeedPreSigs extends $pb.GeneratedMessage {
+  factory NeedPreSigs({
+    $core.String? draftTxHex,
+    $core.Iterable<NeedPreSigs_PerInput>? inputs,
+  }) {
+    final $result = create();
+    if (draftTxHex != null) {
+      $result.draftTxHex = draftTxHex;
+    }
+    if (inputs != null) {
+      $result.inputs.addAll(inputs);
+    }
+    return $result;
+  }
+  NeedPreSigs._() : super();
+  factory NeedPreSigs.fromBuffer($core.List<$core.int> i, [$pb.ExtensionRegistry r = $pb.ExtensionRegistry.EMPTY]) => create()..mergeFromBuffer(i, r);
+  factory NeedPreSigs.fromJson($core.String i, [$pb.ExtensionRegistry r = $pb.ExtensionRegistry.EMPTY]) => create()..mergeFromJson(i, r);
+
+  static final $pb.BuilderInfo _i = $pb.BuilderInfo(_omitMessageNames ? '' : 'NeedPreSigs', package: const $pb.PackageName(_omitMessageNames ? '' : 'pong'), createEmptyInstance: create)
+    ..aOS(2, _omitFieldNames ? '' : 'draftTxHex')
+    ..pc<NeedPreSigs_PerInput>(4, _omitFieldNames ? '' : 'inputs', $pb.PbFieldType.PM, subBuilder: NeedPreSigs_PerInput.create)
+    ..hasRequiredFields = false
+  ;
+
+  @$core.Deprecated(
+  'Using this can add significant overhead to your binary. '
+  'Use [GeneratedMessageGenericExtensions.deepCopy] instead. '
+  'Will be removed in next major version')
+  NeedPreSigs clone() => NeedPreSigs()..mergeFromMessage(this);
+  @$core.Deprecated(
+  'Using this can add significant overhead to your binary. '
+  'Use [GeneratedMessageGenericExtensions.rebuild] instead. '
+  'Will be removed in next major version')
+  NeedPreSigs copyWith(void Function(NeedPreSigs) updates) => super.copyWith((message) => updates(message as NeedPreSigs)) as NeedPreSigs;
+
+  $pb.BuilderInfo get info_ => _i;
+
+  @$core.pragma('dart2js:noInline')
+  static NeedPreSigs create() => NeedPreSigs._();
+  NeedPreSigs createEmptyInstance() => create();
+  static $pb.PbList<NeedPreSigs> createRepeated() => $pb.PbList<NeedPreSigs>();
+  @$core.pragma('dart2js:noInline')
+  static NeedPreSigs getDefault() => _defaultInstance ??= $pb.GeneratedMessage.$_defaultFor<NeedPreSigs>(create);
+  static NeedPreSigs? _defaultInstance;
+
+  @$pb.TagNumber(2)
+  $core.String get draftTxHex => $_getSZ(0);
+  @$pb.TagNumber(2)
+  set draftTxHex($core.String v) { $_setString(0, v); }
+  @$pb.TagNumber(2)
+  $core.bool hasDraftTxHex() => $_has(0);
+  @$pb.TagNumber(2)
+  void clearDraftTxHex() => clearField(2);
+
+  @$pb.TagNumber(4)
+  $core.List<NeedPreSigs_PerInput> get inputs => $_getList(1);
+}
+
+/// Client VERIFY_OK message: verifies draft, builds presigs, and includes ack digest.
+class VerifyOk extends $pb.GeneratedMessage {
+  factory VerifyOk({
+    $core.List<$core.int>? ackDigest,
+    $core.Iterable<PreSig>? presigs,
+  }) {
+    final $result = create();
+    if (ackDigest != null) {
+      $result.ackDigest = ackDigest;
+    }
+    if (presigs != null) {
+      $result.presigs.addAll(presigs);
+    }
+    return $result;
+  }
+  VerifyOk._() : super();
+  factory VerifyOk.fromBuffer($core.List<$core.int> i, [$pb.ExtensionRegistry r = $pb.ExtensionRegistry.EMPTY]) => create()..mergeFromBuffer(i, r);
+  factory VerifyOk.fromJson($core.String i, [$pb.ExtensionRegistry r = $pb.ExtensionRegistry.EMPTY]) => create()..mergeFromJson(i, r);
+
+  static final $pb.BuilderInfo _i = $pb.BuilderInfo(_omitMessageNames ? '' : 'VerifyOk', package: const $pb.PackageName(_omitMessageNames ? '' : 'pong'), createEmptyInstance: create)
+    ..a<$core.List<$core.int>>(1, _omitFieldNames ? '' : 'ackDigest', $pb.PbFieldType.OY)
+    ..pc<PreSig>(2, _omitFieldNames ? '' : 'presigs', $pb.PbFieldType.PM, subBuilder: PreSig.create)
+    ..hasRequiredFields = false
+  ;
+
+  @$core.Deprecated(
+  'Using this can add significant overhead to your binary. '
+  'Use [GeneratedMessageGenericExtensions.deepCopy] instead. '
+  'Will be removed in next major version')
+  VerifyOk clone() => VerifyOk()..mergeFromMessage(this);
+  @$core.Deprecated(
+  'Using this can add significant overhead to your binary. '
+  'Use [GeneratedMessageGenericExtensions.rebuild] instead. '
+  'Will be removed in next major version')
+  VerifyOk copyWith(void Function(VerifyOk) updates) => super.copyWith((message) => updates(message as VerifyOk)) as VerifyOk;
+
+  $pb.BuilderInfo get info_ => _i;
+
+  @$core.pragma('dart2js:noInline')
+  static VerifyOk create() => VerifyOk._();
+  VerifyOk createEmptyInstance() => create();
+  static $pb.PbList<VerifyOk> createRepeated() => $pb.PbList<VerifyOk>();
+  @$core.pragma('dart2js:noInline')
+  static VerifyOk getDefault() => _defaultInstance ??= $pb.GeneratedMessage.$_defaultFor<VerifyOk>(create);
+  static VerifyOk? _defaultInstance;
+
+  @$pb.TagNumber(1)
+  $core.List<$core.int> get ackDigest => $_getN(0);
+  @$pb.TagNumber(1)
+  set ackDigest($core.List<$core.int> v) { $_setBytes(0, v); }
+  @$pb.TagNumber(1)
+  $core.bool hasAckDigest() => $_has(0);
+  @$pb.TagNumber(1)
+  void clearAckDigest() => clearField(1);
+
+  @$pb.TagNumber(2)
+  $core.List<PreSig> get presigs => $_getList(1);
+}
+
+/// Per-input pre-signature using minus variant and normalized R'.
+class PreSig extends $pb.GeneratedMessage {
+  factory PreSig({
+    $core.String? inputId,
+    $core.List<$core.int>? rLineCompressed,
+    $core.List<$core.int>? sLine32,
+  }) {
+    final $result = create();
+    if (inputId != null) {
+      $result.inputId = inputId;
+    }
+    if (rLineCompressed != null) {
+      $result.rLineCompressed = rLineCompressed;
+    }
+    if (sLine32 != null) {
+      $result.sLine32 = sLine32;
+    }
+    return $result;
+  }
+  PreSig._() : super();
+  factory PreSig.fromBuffer($core.List<$core.int> i, [$pb.ExtensionRegistry r = $pb.ExtensionRegistry.EMPTY]) => create()..mergeFromBuffer(i, r);
+  factory PreSig.fromJson($core.String i, [$pb.ExtensionRegistry r = $pb.ExtensionRegistry.EMPTY]) => create()..mergeFromJson(i, r);
+
+  static final $pb.BuilderInfo _i = $pb.BuilderInfo(_omitMessageNames ? '' : 'PreSig', package: const $pb.PackageName(_omitMessageNames ? '' : 'pong'), createEmptyInstance: create)
+    ..aOS(1, _omitFieldNames ? '' : 'inputId')
+    ..a<$core.List<$core.int>>(2, _omitFieldNames ? '' : 'RLineCompressed', $pb.PbFieldType.OY, protoName: 'RLine_compressed')
+    ..a<$core.List<$core.int>>(3, _omitFieldNames ? '' : 'sLine32', $pb.PbFieldType.OY, protoName: 'sLine32')
+    ..hasRequiredFields = false
+  ;
+
+  @$core.Deprecated(
+  'Using this can add significant overhead to your binary. '
+  'Use [GeneratedMessageGenericExtensions.deepCopy] instead. '
+  'Will be removed in next major version')
+  PreSig clone() => PreSig()..mergeFromMessage(this);
+  @$core.Deprecated(
+  'Using this can add significant overhead to your binary. '
+  'Use [GeneratedMessageGenericExtensions.rebuild] instead. '
+  'Will be removed in next major version')
+  PreSig copyWith(void Function(PreSig) updates) => super.copyWith((message) => updates(message as PreSig)) as PreSig;
+
+  $pb.BuilderInfo get info_ => _i;
+
+  @$core.pragma('dart2js:noInline')
+  static PreSig create() => PreSig._();
+  PreSig createEmptyInstance() => create();
+  static $pb.PbList<PreSig> createRepeated() => $pb.PbList<PreSig>();
+  @$core.pragma('dart2js:noInline')
+  static PreSig getDefault() => _defaultInstance ??= $pb.GeneratedMessage.$_defaultFor<PreSig>(create);
+  static PreSig? _defaultInstance;
+
+  @$pb.TagNumber(1)
+  $core.String get inputId => $_getSZ(0);
+  @$pb.TagNumber(1)
+  set inputId($core.String v) { $_setString(0, v); }
+  @$pb.TagNumber(1)
+  $core.bool hasInputId() => $_has(0);
+  @$pb.TagNumber(1)
+  void clearInputId() => clearField(1);
+
+  @$pb.TagNumber(2)
+  $core.List<$core.int> get rLineCompressed => $_getN(1);
+  @$pb.TagNumber(2)
+  set rLineCompressed($core.List<$core.int> v) { $_setBytes(1, v); }
+  @$pb.TagNumber(2)
+  $core.bool hasRLineCompressed() => $_has(1);
+  @$pb.TagNumber(2)
+  void clearRLineCompressed() => clearField(2);
+
+  @$pb.TagNumber(3)
+  $core.List<$core.int> get sLine32 => $_getN(2);
+  @$pb.TagNumber(3)
+  set sLine32($core.List<$core.int> v) { $_setBytes(2, v); }
+  @$pb.TagNumber(3)
+  $core.bool hasSLine32() => $_has(2);
+  @$pb.TagNumber(3)
+  void clearSLine32() => clearField(3);
+}
+
+class Ack extends $pb.GeneratedMessage {
+  factory Ack({
+    $core.String? note,
+  }) {
+    final $result = create();
+    if (note != null) {
+      $result.note = note;
+    }
+    return $result;
+  }
+  Ack._() : super();
+  factory Ack.fromBuffer($core.List<$core.int> i, [$pb.ExtensionRegistry r = $pb.ExtensionRegistry.EMPTY]) => create()..mergeFromBuffer(i, r);
+  factory Ack.fromJson($core.String i, [$pb.ExtensionRegistry r = $pb.ExtensionRegistry.EMPTY]) => create()..mergeFromJson(i, r);
+
+  static final $pb.BuilderInfo _i = $pb.BuilderInfo(_omitMessageNames ? '' : 'Ack', package: const $pb.PackageName(_omitMessageNames ? '' : 'pong'), createEmptyInstance: create)
+    ..aOS(1, _omitFieldNames ? '' : 'note')
+    ..hasRequiredFields = false
+  ;
+
+  @$core.Deprecated(
+  'Using this can add significant overhead to your binary. '
+  'Use [GeneratedMessageGenericExtensions.deepCopy] instead. '
+  'Will be removed in next major version')
+  Ack clone() => Ack()..mergeFromMessage(this);
+  @$core.Deprecated(
+  'Using this can add significant overhead to your binary. '
+  'Use [GeneratedMessageGenericExtensions.rebuild] instead. '
+  'Will be removed in next major version')
+  Ack copyWith(void Function(Ack) updates) => super.copyWith((message) => updates(message as Ack)) as Ack;
+
+  $pb.BuilderInfo get info_ => _i;
+
+  @$core.pragma('dart2js:noInline')
+  static Ack create() => Ack._();
+  Ack createEmptyInstance() => create();
+  static $pb.PbList<Ack> createRepeated() => $pb.PbList<Ack>();
+  @$core.pragma('dart2js:noInline')
+  static Ack getDefault() => _defaultInstance ??= $pb.GeneratedMessage.$_defaultFor<Ack>(create);
+  static Ack? _defaultInstance;
+
+  @$pb.TagNumber(1)
+  $core.String get note => $_getSZ(0);
+  @$pb.TagNumber(1)
+  set note($core.String v) { $_setString(0, v); }
+  @$pb.TagNumber(1)
+  $core.bool hasNote() => $_has(0);
+  @$pb.TagNumber(1)
+  void clearNote() => clearField(1);
+}
+
+class Info extends $pb.GeneratedMessage {
+  factory Info({
+    $core.String? text,
+  }) {
+    final $result = create();
+    if (text != null) {
+      $result.text = text;
+    }
+    return $result;
+  }
+  Info._() : super();
+  factory Info.fromBuffer($core.List<$core.int> i, [$pb.ExtensionRegistry r = $pb.ExtensionRegistry.EMPTY]) => create()..mergeFromBuffer(i, r);
+  factory Info.fromJson($core.String i, [$pb.ExtensionRegistry r = $pb.ExtensionRegistry.EMPTY]) => create()..mergeFromJson(i, r);
+
+  static final $pb.BuilderInfo _i = $pb.BuilderInfo(_omitMessageNames ? '' : 'Info', package: const $pb.PackageName(_omitMessageNames ? '' : 'pong'), createEmptyInstance: create)
+    ..aOS(1, _omitFieldNames ? '' : 'text')
+    ..hasRequiredFields = false
+  ;
+
+  @$core.Deprecated(
+  'Using this can add significant overhead to your binary. '
+  'Use [GeneratedMessageGenericExtensions.deepCopy] instead. '
+  'Will be removed in next major version')
+  Info clone() => Info()..mergeFromMessage(this);
+  @$core.Deprecated(
+  'Using this can add significant overhead to your binary. '
+  'Use [GeneratedMessageGenericExtensions.rebuild] instead. '
+  'Will be removed in next major version')
+  Info copyWith(void Function(Info) updates) => super.copyWith((message) => updates(message as Info)) as Info;
+
+  $pb.BuilderInfo get info_ => _i;
+
+  @$core.pragma('dart2js:noInline')
+  static Info create() => Info._();
+  Info createEmptyInstance() => create();
+  static $pb.PbList<Info> createRepeated() => $pb.PbList<Info>();
+  @$core.pragma('dart2js:noInline')
+  static Info getDefault() => _defaultInstance ??= $pb.GeneratedMessage.$_defaultFor<Info>(create);
+  static Info? _defaultInstance;
+
+  @$pb.TagNumber(1)
+  $core.String get text => $_getSZ(0);
+  @$pb.TagNumber(1)
+  set text($core.String v) { $_setString(0, v); }
+  @$pb.TagNumber(1)
+  $core.bool hasText() => $_has(0);
+  @$pb.TagNumber(1)
+  void clearText() => clearField(1);
+}
+
+/// Server SERVER_OK message: acknowledges successful verification.
+class ServerOk extends $pb.GeneratedMessage {
+  factory ServerOk({
+    $core.List<$core.int>? ackDigest,
+  }) {
+    final $result = create();
+    if (ackDigest != null) {
+      $result.ackDigest = ackDigest;
+    }
+    return $result;
+  }
+  ServerOk._() : super();
+  factory ServerOk.fromBuffer($core.List<$core.int> i, [$pb.ExtensionRegistry r = $pb.ExtensionRegistry.EMPTY]) => create()..mergeFromBuffer(i, r);
+  factory ServerOk.fromJson($core.String i, [$pb.ExtensionRegistry r = $pb.ExtensionRegistry.EMPTY]) => create()..mergeFromJson(i, r);
+
+  static final $pb.BuilderInfo _i = $pb.BuilderInfo(_omitMessageNames ? '' : 'ServerOk', package: const $pb.PackageName(_omitMessageNames ? '' : 'pong'), createEmptyInstance: create)
+    ..a<$core.List<$core.int>>(1, _omitFieldNames ? '' : 'ackDigest', $pb.PbFieldType.OY)
+    ..hasRequiredFields = false
+  ;
+
+  @$core.Deprecated(
+  'Using this can add significant overhead to your binary. '
+  'Use [GeneratedMessageGenericExtensions.deepCopy] instead. '
+  'Will be removed in next major version')
+  ServerOk clone() => ServerOk()..mergeFromMessage(this);
+  @$core.Deprecated(
+  'Using this can add significant overhead to your binary. '
+  'Use [GeneratedMessageGenericExtensions.rebuild] instead. '
+  'Will be removed in next major version')
+  ServerOk copyWith(void Function(ServerOk) updates) => super.copyWith((message) => updates(message as ServerOk)) as ServerOk;
+
+  $pb.BuilderInfo get info_ => _i;
+
+  @$core.pragma('dart2js:noInline')
+  static ServerOk create() => ServerOk._();
+  ServerOk createEmptyInstance() => create();
+  static $pb.PbList<ServerOk> createRepeated() => $pb.PbList<ServerOk>();
+  @$core.pragma('dart2js:noInline')
+  static ServerOk getDefault() => _defaultInstance ??= $pb.GeneratedMessage.$_defaultFor<ServerOk>(create);
+  static ServerOk? _defaultInstance;
+
+  @$pb.TagNumber(1)
+  $core.List<$core.int> get ackDigest => $_getN(0);
+  @$pb.TagNumber(1)
+  set ackDigest($core.List<$core.int> v) { $_setBytes(0, v); }
+  @$pb.TagNumber(1)
+  $core.bool hasAckDigest() => $_has(0);
+  @$pb.TagNumber(1)
+  void clearAckDigest() => clearField(1);
+}
+
+/// === Finalization bundle for winner ===
+class GetFinalizeBundleRequest extends $pb.GeneratedMessage {
+  factory GetFinalizeBundleRequest({
+    $core.String? matchId,
+    $core.String? winnerUid,
+  }) {
+    final $result = create();
+    if (matchId != null) {
+      $result.matchId = matchId;
+    }
+    if (winnerUid != null) {
+      $result.winnerUid = winnerUid;
+    }
+    return $result;
+  }
+  GetFinalizeBundleRequest._() : super();
+  factory GetFinalizeBundleRequest.fromBuffer($core.List<$core.int> i, [$pb.ExtensionRegistry r = $pb.ExtensionRegistry.EMPTY]) => create()..mergeFromBuffer(i, r);
+  factory GetFinalizeBundleRequest.fromJson($core.String i, [$pb.ExtensionRegistry r = $pb.ExtensionRegistry.EMPTY]) => create()..mergeFromJson(i, r);
+
+  static final $pb.BuilderInfo _i = $pb.BuilderInfo(_omitMessageNames ? '' : 'GetFinalizeBundleRequest', package: const $pb.PackageName(_omitMessageNames ? '' : 'pong'), createEmptyInstance: create)
+    ..aOS(1, _omitFieldNames ? '' : 'matchId')
+    ..aOS(2, _omitFieldNames ? '' : 'winnerUid')
+    ..hasRequiredFields = false
+  ;
+
+  @$core.Deprecated(
+  'Using this can add significant overhead to your binary. '
+  'Use [GeneratedMessageGenericExtensions.deepCopy] instead. '
+  'Will be removed in next major version')
+  GetFinalizeBundleRequest clone() => GetFinalizeBundleRequest()..mergeFromMessage(this);
+  @$core.Deprecated(
+  'Using this can add significant overhead to your binary. '
+  'Use [GeneratedMessageGenericExtensions.rebuild] instead. '
+  'Will be removed in next major version')
+  GetFinalizeBundleRequest copyWith(void Function(GetFinalizeBundleRequest) updates) => super.copyWith((message) => updates(message as GetFinalizeBundleRequest)) as GetFinalizeBundleRequest;
+
+  $pb.BuilderInfo get info_ => _i;
+
+  @$core.pragma('dart2js:noInline')
+  static GetFinalizeBundleRequest create() => GetFinalizeBundleRequest._();
+  GetFinalizeBundleRequest createEmptyInstance() => create();
+  static $pb.PbList<GetFinalizeBundleRequest> createRepeated() => $pb.PbList<GetFinalizeBundleRequest>();
+  @$core.pragma('dart2js:noInline')
+  static GetFinalizeBundleRequest getDefault() => _defaultInstance ??= $pb.GeneratedMessage.$_defaultFor<GetFinalizeBundleRequest>(create);
+  static GetFinalizeBundleRequest? _defaultInstance;
+
+  @$pb.TagNumber(1)
+  $core.String get matchId => $_getSZ(0);
+  @$pb.TagNumber(1)
+  set matchId($core.String v) { $_setString(0, v); }
+  @$pb.TagNumber(1)
+  $core.bool hasMatchId() => $_has(0);
+  @$pb.TagNumber(1)
+  void clearMatchId() => clearField(1);
+
+  @$pb.TagNumber(2)
+  $core.String get winnerUid => $_getSZ(1);
+  @$pb.TagNumber(2)
+  set winnerUid($core.String v) { $_setString(1, v); }
+  @$pb.TagNumber(2)
+  $core.bool hasWinnerUid() => $_has(1);
+  @$pb.TagNumber(2)
+  void clearWinnerUid() => clearField(2);
+}
+
+class FinalizeInput extends $pb.GeneratedMessage {
+  factory FinalizeInput({
+    $core.String? inputId,
+    $core.String? redeemScriptHex,
+    $core.List<$core.int>? rLineCompressed,
+    $core.List<$core.int>? sLine32,
+  }) {
+    final $result = create();
+    if (inputId != null) {
+      $result.inputId = inputId;
+    }
+    if (redeemScriptHex != null) {
+      $result.redeemScriptHex = redeemScriptHex;
+    }
+    if (rLineCompressed != null) {
+      $result.rLineCompressed = rLineCompressed;
+    }
+    if (sLine32 != null) {
+      $result.sLine32 = sLine32;
+    }
+    return $result;
+  }
+  FinalizeInput._() : super();
+  factory FinalizeInput.fromBuffer($core.List<$core.int> i, [$pb.ExtensionRegistry r = $pb.ExtensionRegistry.EMPTY]) => create()..mergeFromBuffer(i, r);
+  factory FinalizeInput.fromJson($core.String i, [$pb.ExtensionRegistry r = $pb.ExtensionRegistry.EMPTY]) => create()..mergeFromJson(i, r);
+
+  static final $pb.BuilderInfo _i = $pb.BuilderInfo(_omitMessageNames ? '' : 'FinalizeInput', package: const $pb.PackageName(_omitMessageNames ? '' : 'pong'), createEmptyInstance: create)
+    ..aOS(1, _omitFieldNames ? '' : 'inputId')
+    ..aOS(2, _omitFieldNames ? '' : 'redeemScriptHex')
+    ..a<$core.List<$core.int>>(3, _omitFieldNames ? '' : 'RLineCompressed', $pb.PbFieldType.OY, protoName: 'RLine_compressed')
+    ..a<$core.List<$core.int>>(4, _omitFieldNames ? '' : 'sLine32', $pb.PbFieldType.OY, protoName: 'sLine32')
+    ..hasRequiredFields = false
+  ;
+
+  @$core.Deprecated(
+  'Using this can add significant overhead to your binary. '
+  'Use [GeneratedMessageGenericExtensions.deepCopy] instead. '
+  'Will be removed in next major version')
+  FinalizeInput clone() => FinalizeInput()..mergeFromMessage(this);
+  @$core.Deprecated(
+  'Using this can add significant overhead to your binary. '
+  'Use [GeneratedMessageGenericExtensions.rebuild] instead. '
+  'Will be removed in next major version')
+  FinalizeInput copyWith(void Function(FinalizeInput) updates) => super.copyWith((message) => updates(message as FinalizeInput)) as FinalizeInput;
+
+  $pb.BuilderInfo get info_ => _i;
+
+  @$core.pragma('dart2js:noInline')
+  static FinalizeInput create() => FinalizeInput._();
+  FinalizeInput createEmptyInstance() => create();
+  static $pb.PbList<FinalizeInput> createRepeated() => $pb.PbList<FinalizeInput>();
+  @$core.pragma('dart2js:noInline')
+  static FinalizeInput getDefault() => _defaultInstance ??= $pb.GeneratedMessage.$_defaultFor<FinalizeInput>(create);
+  static FinalizeInput? _defaultInstance;
+
+  @$pb.TagNumber(1)
+  $core.String get inputId => $_getSZ(0);
+  @$pb.TagNumber(1)
+  set inputId($core.String v) { $_setString(0, v); }
+  @$pb.TagNumber(1)
+  $core.bool hasInputId() => $_has(0);
+  @$pb.TagNumber(1)
+  void clearInputId() => clearField(1);
+
+  @$pb.TagNumber(2)
+  $core.String get redeemScriptHex => $_getSZ(1);
+  @$pb.TagNumber(2)
+  set redeemScriptHex($core.String v) { $_setString(1, v); }
+  @$pb.TagNumber(2)
+  $core.bool hasRedeemScriptHex() => $_has(1);
+  @$pb.TagNumber(2)
+  void clearRedeemScriptHex() => clearField(2);
+
+  @$pb.TagNumber(3)
+  $core.List<$core.int> get rLineCompressed => $_getN(2);
+  @$pb.TagNumber(3)
+  set rLineCompressed($core.List<$core.int> v) { $_setBytes(2, v); }
+  @$pb.TagNumber(3)
+  $core.bool hasRLineCompressed() => $_has(2);
+  @$pb.TagNumber(3)
+  void clearRLineCompressed() => clearField(3);
+
+  @$pb.TagNumber(4)
+  $core.List<$core.int> get sLine32 => $_getN(3);
+  @$pb.TagNumber(4)
+  set sLine32($core.List<$core.int> v) { $_setBytes(3, v); }
+  @$pb.TagNumber(4)
+  $core.bool hasSLine32() => $_has(3);
+  @$pb.TagNumber(4)
+  void clearSLine32() => clearField(4);
+}
+
+class GetFinalizeBundleResponse extends $pb.GeneratedMessage {
+  factory GetFinalizeBundleResponse({
+    $core.String? draftTxHex,
+    $core.List<$core.int>? gamma32,
+    $core.Iterable<FinalizeInput>? inputs,
+  }) {
+    final $result = create();
+    if (draftTxHex != null) {
+      $result.draftTxHex = draftTxHex;
+    }
+    if (gamma32 != null) {
+      $result.gamma32 = gamma32;
+    }
+    if (inputs != null) {
+      $result.inputs.addAll(inputs);
+    }
+    return $result;
+  }
+  GetFinalizeBundleResponse._() : super();
+  factory GetFinalizeBundleResponse.fromBuffer($core.List<$core.int> i, [$pb.ExtensionRegistry r = $pb.ExtensionRegistry.EMPTY]) => create()..mergeFromBuffer(i, r);
+  factory GetFinalizeBundleResponse.fromJson($core.String i, [$pb.ExtensionRegistry r = $pb.ExtensionRegistry.EMPTY]) => create()..mergeFromJson(i, r);
+
+  static final $pb.BuilderInfo _i = $pb.BuilderInfo(_omitMessageNames ? '' : 'GetFinalizeBundleResponse', package: const $pb.PackageName(_omitMessageNames ? '' : 'pong'), createEmptyInstance: create)
+    ..aOS(1, _omitFieldNames ? '' : 'draftTxHex')
+    ..a<$core.List<$core.int>>(2, _omitFieldNames ? '' : 'gamma32', $pb.PbFieldType.OY)
+    ..pc<FinalizeInput>(3, _omitFieldNames ? '' : 'inputs', $pb.PbFieldType.PM, subBuilder: FinalizeInput.create)
+    ..hasRequiredFields = false
+  ;
+
+  @$core.Deprecated(
+  'Using this can add significant overhead to your binary. '
+  'Use [GeneratedMessageGenericExtensions.deepCopy] instead. '
+  'Will be removed in next major version')
+  GetFinalizeBundleResponse clone() => GetFinalizeBundleResponse()..mergeFromMessage(this);
+  @$core.Deprecated(
+  'Using this can add significant overhead to your binary. '
+  'Use [GeneratedMessageGenericExtensions.rebuild] instead. '
+  'Will be removed in next major version')
+  GetFinalizeBundleResponse copyWith(void Function(GetFinalizeBundleResponse) updates) => super.copyWith((message) => updates(message as GetFinalizeBundleResponse)) as GetFinalizeBundleResponse;
+
+  $pb.BuilderInfo get info_ => _i;
+
+  @$core.pragma('dart2js:noInline')
+  static GetFinalizeBundleResponse create() => GetFinalizeBundleResponse._();
+  GetFinalizeBundleResponse createEmptyInstance() => create();
+  static $pb.PbList<GetFinalizeBundleResponse> createRepeated() => $pb.PbList<GetFinalizeBundleResponse>();
+  @$core.pragma('dart2js:noInline')
+  static GetFinalizeBundleResponse getDefault() => _defaultInstance ??= $pb.GeneratedMessage.$_defaultFor<GetFinalizeBundleResponse>(create);
+  static GetFinalizeBundleResponse? _defaultInstance;
+
+  @$pb.TagNumber(1)
+  $core.String get draftTxHex => $_getSZ(0);
+  @$pb.TagNumber(1)
+  set draftTxHex($core.String v) { $_setString(0, v); }
+  @$pb.TagNumber(1)
+  $core.bool hasDraftTxHex() => $_has(0);
+  @$pb.TagNumber(1)
+  void clearDraftTxHex() => clearField(1);
+
+  @$pb.TagNumber(2)
+  $core.List<$core.int> get gamma32 => $_getN(1);
+  @$pb.TagNumber(2)
+  set gamma32($core.List<$core.int> v) { $_setBytes(1, v); }
+  @$pb.TagNumber(2)
+  $core.bool hasGamma32() => $_has(1);
+  @$pb.TagNumber(2)
+  void clearGamma32() => clearField(2);
+
+  @$pb.TagNumber(3)
+  $core.List<FinalizeInput> get inputs => $_getList(2);
+}
+
+class OpenEscrowRequest extends $pb.GeneratedMessage {
+  factory OpenEscrowRequest({
+    $core.String? ownerUid,
+    $core.List<$core.int>? compPubkey,
+    $fixnum.Int64? betAtoms,
+    $core.int? csvBlocks,
+    $core.List<$core.int>? payoutPubkey,
+  }) {
+    final $result = create();
+    if (ownerUid != null) {
+      $result.ownerUid = ownerUid;
+    }
+    if (compPubkey != null) {
+      $result.compPubkey = compPubkey;
+    }
+    if (betAtoms != null) {
+      $result.betAtoms = betAtoms;
+    }
+    if (csvBlocks != null) {
+      $result.csvBlocks = csvBlocks;
+    }
+    if (payoutPubkey != null) {
+      $result.payoutPubkey = payoutPubkey;
+    }
+    return $result;
+  }
+  OpenEscrowRequest._() : super();
+  factory OpenEscrowRequest.fromBuffer($core.List<$core.int> i, [$pb.ExtensionRegistry r = $pb.ExtensionRegistry.EMPTY]) => create()..mergeFromBuffer(i, r);
+  factory OpenEscrowRequest.fromJson($core.String i, [$pb.ExtensionRegistry r = $pb.ExtensionRegistry.EMPTY]) => create()..mergeFromJson(i, r);
+
+  static final $pb.BuilderInfo _i = $pb.BuilderInfo(_omitMessageNames ? '' : 'OpenEscrowRequest', package: const $pb.PackageName(_omitMessageNames ? '' : 'pong'), createEmptyInstance: create)
+    ..aOS(1, _omitFieldNames ? '' : 'ownerUid')
+    ..a<$core.List<$core.int>>(2, _omitFieldNames ? '' : 'compPubkey', $pb.PbFieldType.OY)
+    ..a<$fixnum.Int64>(3, _omitFieldNames ? '' : 'betAtoms', $pb.PbFieldType.OU6, defaultOrMaker: $fixnum.Int64.ZERO)
+    ..a<$core.int>(4, _omitFieldNames ? '' : 'csvBlocks', $pb.PbFieldType.OU3)
+    ..a<$core.List<$core.int>>(5, _omitFieldNames ? '' : 'payoutPubkey', $pb.PbFieldType.OY)
+    ..hasRequiredFields = false
+  ;
+
+  @$core.Deprecated(
+  'Using this can add significant overhead to your binary. '
+  'Use [GeneratedMessageGenericExtensions.deepCopy] instead. '
+  'Will be removed in next major version')
+  OpenEscrowRequest clone() => OpenEscrowRequest()..mergeFromMessage(this);
+  @$core.Deprecated(
+  'Using this can add significant overhead to your binary. '
+  'Use [GeneratedMessageGenericExtensions.rebuild] instead. '
+  'Will be removed in next major version')
+  OpenEscrowRequest copyWith(void Function(OpenEscrowRequest) updates) => super.copyWith((message) => updates(message as OpenEscrowRequest)) as OpenEscrowRequest;
+
+  $pb.BuilderInfo get info_ => _i;
+
+  @$core.pragma('dart2js:noInline')
+  static OpenEscrowRequest create() => OpenEscrowRequest._();
+  OpenEscrowRequest createEmptyInstance() => create();
+  static $pb.PbList<OpenEscrowRequest> createRepeated() => $pb.PbList<OpenEscrowRequest>();
+  @$core.pragma('dart2js:noInline')
+  static OpenEscrowRequest getDefault() => _defaultInstance ??= $pb.GeneratedMessage.$_defaultFor<OpenEscrowRequest>(create);
+  static OpenEscrowRequest? _defaultInstance;
+
+  @$pb.TagNumber(1)
+  $core.String get ownerUid => $_getSZ(0);
+  @$pb.TagNumber(1)
+  set ownerUid($core.String v) { $_setString(0, v); }
+  @$pb.TagNumber(1)
+  $core.bool hasOwnerUid() => $_has(0);
+  @$pb.TagNumber(1)
+  void clearOwnerUid() => clearField(1);
+
+  @$pb.TagNumber(2)
+  $core.List<$core.int> get compPubkey => $_getN(1);
+  @$pb.TagNumber(2)
+  set compPubkey($core.List<$core.int> v) { $_setBytes(1, v); }
+  @$pb.TagNumber(2)
+  $core.bool hasCompPubkey() => $_has(1);
+  @$pb.TagNumber(2)
+  void clearCompPubkey() => clearField(2);
+
+  @$pb.TagNumber(3)
+  $fixnum.Int64 get betAtoms => $_getI64(2);
+  @$pb.TagNumber(3)
+  set betAtoms($fixnum.Int64 v) { $_setInt64(2, v); }
+  @$pb.TagNumber(3)
+  $core.bool hasBetAtoms() => $_has(2);
+  @$pb.TagNumber(3)
+  void clearBetAtoms() => clearField(3);
+
+  @$pb.TagNumber(4)
+  $core.int get csvBlocks => $_getIZ(3);
+  @$pb.TagNumber(4)
+  set csvBlocks($core.int v) { $_setUnsignedInt32(3, v); }
+  @$pb.TagNumber(4)
+  $core.bool hasCsvBlocks() => $_has(3);
+  @$pb.TagNumber(4)
+  void clearCsvBlocks() => clearField(4);
+
+  @$pb.TagNumber(5)
+  $core.List<$core.int> get payoutPubkey => $_getN(4);
+  @$pb.TagNumber(5)
+  set payoutPubkey($core.List<$core.int> v) { $_setBytes(4, v); }
+  @$pb.TagNumber(5)
+  $core.bool hasPayoutPubkey() => $_has(4);
+  @$pb.TagNumber(5)
+  void clearPayoutPubkey() => clearField(5);
+}
+
+class OpenEscrowResponse extends $pb.GeneratedMessage {
+  factory OpenEscrowResponse({
+    $core.String? escrowId,
+    $core.String? depositAddress,
+    $core.String? pkScriptHex,
+  }) {
+    final $result = create();
+    if (escrowId != null) {
+      $result.escrowId = escrowId;
+    }
+    if (depositAddress != null) {
+      $result.depositAddress = depositAddress;
+    }
+    if (pkScriptHex != null) {
+      $result.pkScriptHex = pkScriptHex;
+    }
+    return $result;
+  }
+  OpenEscrowResponse._() : super();
+  factory OpenEscrowResponse.fromBuffer($core.List<$core.int> i, [$pb.ExtensionRegistry r = $pb.ExtensionRegistry.EMPTY]) => create()..mergeFromBuffer(i, r);
+  factory OpenEscrowResponse.fromJson($core.String i, [$pb.ExtensionRegistry r = $pb.ExtensionRegistry.EMPTY]) => create()..mergeFromJson(i, r);
+
+  static final $pb.BuilderInfo _i = $pb.BuilderInfo(_omitMessageNames ? '' : 'OpenEscrowResponse', package: const $pb.PackageName(_omitMessageNames ? '' : 'pong'), createEmptyInstance: create)
+    ..aOS(1, _omitFieldNames ? '' : 'escrowId')
+    ..aOS(2, _omitFieldNames ? '' : 'depositAddress')
+    ..aOS(3, _omitFieldNames ? '' : 'pkScriptHex')
+    ..hasRequiredFields = false
+  ;
+
+  @$core.Deprecated(
+  'Using this can add significant overhead to your binary. '
+  'Use [GeneratedMessageGenericExtensions.deepCopy] instead. '
+  'Will be removed in next major version')
+  OpenEscrowResponse clone() => OpenEscrowResponse()..mergeFromMessage(this);
+  @$core.Deprecated(
+  'Using this can add significant overhead to your binary. '
+  'Use [GeneratedMessageGenericExtensions.rebuild] instead. '
+  'Will be removed in next major version')
+  OpenEscrowResponse copyWith(void Function(OpenEscrowResponse) updates) => super.copyWith((message) => updates(message as OpenEscrowResponse)) as OpenEscrowResponse;
+
+  $pb.BuilderInfo get info_ => _i;
+
+  @$core.pragma('dart2js:noInline')
+  static OpenEscrowResponse create() => OpenEscrowResponse._();
+  OpenEscrowResponse createEmptyInstance() => create();
+  static $pb.PbList<OpenEscrowResponse> createRepeated() => $pb.PbList<OpenEscrowResponse>();
+  @$core.pragma('dart2js:noInline')
+  static OpenEscrowResponse getDefault() => _defaultInstance ??= $pb.GeneratedMessage.$_defaultFor<OpenEscrowResponse>(create);
+  static OpenEscrowResponse? _defaultInstance;
+
+  @$pb.TagNumber(1)
+  $core.String get escrowId => $_getSZ(0);
+  @$pb.TagNumber(1)
+  set escrowId($core.String v) { $_setString(0, v); }
+  @$pb.TagNumber(1)
+  $core.bool hasEscrowId() => $_has(0);
+  @$pb.TagNumber(1)
+  void clearEscrowId() => clearField(1);
+
+  @$pb.TagNumber(2)
+  $core.String get depositAddress => $_getSZ(1);
+  @$pb.TagNumber(2)
+  set depositAddress($core.String v) { $_setString(1, v); }
+  @$pb.TagNumber(2)
+  $core.bool hasDepositAddress() => $_has(1);
+  @$pb.TagNumber(2)
+  void clearDepositAddress() => clearField(2);
+
+  @$pb.TagNumber(3)
+  $core.String get pkScriptHex => $_getSZ(2);
+  @$pb.TagNumber(3)
+  set pkScriptHex($core.String v) { $_setString(2, v); }
+  @$pb.TagNumber(3)
+  $core.bool hasPkScriptHex() => $_has(2);
+  @$pb.TagNumber(3)
+  void clearPkScriptHex() => clearField(3);
+}
+
+class EscrowUTXO extends $pb.GeneratedMessage {
+  factory EscrowUTXO({
+    $core.String? txid,
+    $core.int? vout,
+    $fixnum.Int64? value,
+    $core.String? redeemScriptHex,
+    $core.String? pkScriptHex,
+    $core.String? owner,
+  }) {
+    final $result = create();
+    if (txid != null) {
+      $result.txid = txid;
+    }
+    if (vout != null) {
+      $result.vout = vout;
+    }
+    if (value != null) {
+      $result.value = value;
+    }
+    if (redeemScriptHex != null) {
+      $result.redeemScriptHex = redeemScriptHex;
+    }
+    if (pkScriptHex != null) {
+      $result.pkScriptHex = pkScriptHex;
+    }
+    if (owner != null) {
+      $result.owner = owner;
+    }
+    return $result;
+  }
+  EscrowUTXO._() : super();
+  factory EscrowUTXO.fromBuffer($core.List<$core.int> i, [$pb.ExtensionRegistry r = $pb.ExtensionRegistry.EMPTY]) => create()..mergeFromBuffer(i, r);
+  factory EscrowUTXO.fromJson($core.String i, [$pb.ExtensionRegistry r = $pb.ExtensionRegistry.EMPTY]) => create()..mergeFromJson(i, r);
+
+  static final $pb.BuilderInfo _i = $pb.BuilderInfo(_omitMessageNames ? '' : 'EscrowUTXO', package: const $pb.PackageName(_omitMessageNames ? '' : 'pong'), createEmptyInstance: create)
+    ..aOS(1, _omitFieldNames ? '' : 'txid')
+    ..a<$core.int>(2, _omitFieldNames ? '' : 'vout', $pb.PbFieldType.OU3)
+    ..a<$fixnum.Int64>(3, _omitFieldNames ? '' : 'value', $pb.PbFieldType.OU6, defaultOrMaker: $fixnum.Int64.ZERO)
+    ..aOS(4, _omitFieldNames ? '' : 'redeemScriptHex')
+    ..aOS(5, _omitFieldNames ? '' : 'pkScriptHex')
+    ..aOS(6, _omitFieldNames ? '' : 'owner')
+    ..hasRequiredFields = false
+  ;
+
+  @$core.Deprecated(
+  'Using this can add significant overhead to your binary. '
+  'Use [GeneratedMessageGenericExtensions.deepCopy] instead. '
+  'Will be removed in next major version')
+  EscrowUTXO clone() => EscrowUTXO()..mergeFromMessage(this);
+  @$core.Deprecated(
+  'Using this can add significant overhead to your binary. '
+  'Use [GeneratedMessageGenericExtensions.rebuild] instead. '
+  'Will be removed in next major version')
+  EscrowUTXO copyWith(void Function(EscrowUTXO) updates) => super.copyWith((message) => updates(message as EscrowUTXO)) as EscrowUTXO;
+
+  $pb.BuilderInfo get info_ => _i;
+
+  @$core.pragma('dart2js:noInline')
+  static EscrowUTXO create() => EscrowUTXO._();
+  EscrowUTXO createEmptyInstance() => create();
+  static $pb.PbList<EscrowUTXO> createRepeated() => $pb.PbList<EscrowUTXO>();
+  @$core.pragma('dart2js:noInline')
+  static EscrowUTXO getDefault() => _defaultInstance ??= $pb.GeneratedMessage.$_defaultFor<EscrowUTXO>(create);
+  static EscrowUTXO? _defaultInstance;
+
+  @$pb.TagNumber(1)
+  $core.String get txid => $_getSZ(0);
+  @$pb.TagNumber(1)
+  set txid($core.String v) { $_setString(0, v); }
+  @$pb.TagNumber(1)
+  $core.bool hasTxid() => $_has(0);
+  @$pb.TagNumber(1)
+  void clearTxid() => clearField(1);
+
+  @$pb.TagNumber(2)
+  $core.int get vout => $_getIZ(1);
+  @$pb.TagNumber(2)
+  set vout($core.int v) { $_setUnsignedInt32(1, v); }
+  @$pb.TagNumber(2)
+  $core.bool hasVout() => $_has(1);
+  @$pb.TagNumber(2)
+  void clearVout() => clearField(2);
+
+  @$pb.TagNumber(3)
+  $fixnum.Int64 get value => $_getI64(2);
+  @$pb.TagNumber(3)
+  set value($fixnum.Int64 v) { $_setInt64(2, v); }
+  @$pb.TagNumber(3)
+  $core.bool hasValue() => $_has(2);
+  @$pb.TagNumber(3)
+  void clearValue() => clearField(3);
+
+  @$pb.TagNumber(4)
+  $core.String get redeemScriptHex => $_getSZ(3);
+  @$pb.TagNumber(4)
+  set redeemScriptHex($core.String v) { $_setString(3, v); }
+  @$pb.TagNumber(4)
+  $core.bool hasRedeemScriptHex() => $_has(3);
+  @$pb.TagNumber(4)
+  void clearRedeemScriptHex() => clearField(4);
+
+  @$pb.TagNumber(5)
+  $core.String get pkScriptHex => $_getSZ(4);
+  @$pb.TagNumber(5)
+  set pkScriptHex($core.String v) { $_setString(4, v); }
+  @$pb.TagNumber(5)
+  $core.bool hasPkScriptHex() => $_has(4);
+  @$pb.TagNumber(5)
+  void clearPkScriptHex() => clearField(5);
+
+  @$pb.TagNumber(6)
+  $core.String get owner => $_getSZ(5);
+  @$pb.TagNumber(6)
+  set owner($core.String v) { $_setString(5, v); }
+  @$pb.TagNumber(6)
+  $core.bool hasOwner() => $_has(5);
+  @$pb.TagNumber(6)
+  void clearOwner() => clearField(6);
+}
+
+class MatchAllocatedNtfn extends $pb.GeneratedMessage {
+  factory MatchAllocatedNtfn({
+    $core.String? matchId,
+    $core.String? roomId,
+    $fixnum.Int64? betAtoms,
+    $core.int? csvBlocks,
+    $core.List<$core.int>? aComp,
+    $core.List<$core.int>? bComp,
+  }) {
+    final $result = create();
+    if (matchId != null) {
+      $result.matchId = matchId;
+    }
+    if (roomId != null) {
+      $result.roomId = roomId;
+    }
+    if (betAtoms != null) {
+      $result.betAtoms = betAtoms;
+    }
+    if (csvBlocks != null) {
+      $result.csvBlocks = csvBlocks;
+    }
+    if (aComp != null) {
+      $result.aComp = aComp;
+    }
+    if (bComp != null) {
+      $result.bComp = bComp;
+    }
+    return $result;
+  }
+  MatchAllocatedNtfn._() : super();
+  factory MatchAllocatedNtfn.fromBuffer($core.List<$core.int> i, [$pb.ExtensionRegistry r = $pb.ExtensionRegistry.EMPTY]) => create()..mergeFromBuffer(i, r);
+  factory MatchAllocatedNtfn.fromJson($core.String i, [$pb.ExtensionRegistry r = $pb.ExtensionRegistry.EMPTY]) => create()..mergeFromJson(i, r);
+
+  static final $pb.BuilderInfo _i = $pb.BuilderInfo(_omitMessageNames ? '' : 'MatchAllocatedNtfn', package: const $pb.PackageName(_omitMessageNames ? '' : 'pong'), createEmptyInstance: create)
+    ..aOS(1, _omitFieldNames ? '' : 'matchId')
+    ..aOS(2, _omitFieldNames ? '' : 'roomId')
+    ..a<$fixnum.Int64>(3, _omitFieldNames ? '' : 'betAtoms', $pb.PbFieldType.OU6, defaultOrMaker: $fixnum.Int64.ZERO)
+    ..a<$core.int>(4, _omitFieldNames ? '' : 'csvBlocks', $pb.PbFieldType.OU3)
+    ..a<$core.List<$core.int>>(5, _omitFieldNames ? '' : 'aComp', $pb.PbFieldType.OY)
+    ..a<$core.List<$core.int>>(6, _omitFieldNames ? '' : 'bComp', $pb.PbFieldType.OY)
+    ..hasRequiredFields = false
+  ;
+
+  @$core.Deprecated(
+  'Using this can add significant overhead to your binary. '
+  'Use [GeneratedMessageGenericExtensions.deepCopy] instead. '
+  'Will be removed in next major version')
+  MatchAllocatedNtfn clone() => MatchAllocatedNtfn()..mergeFromMessage(this);
+  @$core.Deprecated(
+  'Using this can add significant overhead to your binary. '
+  'Use [GeneratedMessageGenericExtensions.rebuild] instead. '
+  'Will be removed in next major version')
+  MatchAllocatedNtfn copyWith(void Function(MatchAllocatedNtfn) updates) => super.copyWith((message) => updates(message as MatchAllocatedNtfn)) as MatchAllocatedNtfn;
+
+  $pb.BuilderInfo get info_ => _i;
+
+  @$core.pragma('dart2js:noInline')
+  static MatchAllocatedNtfn create() => MatchAllocatedNtfn._();
+  MatchAllocatedNtfn createEmptyInstance() => create();
+  static $pb.PbList<MatchAllocatedNtfn> createRepeated() => $pb.PbList<MatchAllocatedNtfn>();
+  @$core.pragma('dart2js:noInline')
+  static MatchAllocatedNtfn getDefault() => _defaultInstance ??= $pb.GeneratedMessage.$_defaultFor<MatchAllocatedNtfn>(create);
+  static MatchAllocatedNtfn? _defaultInstance;
+
+  @$pb.TagNumber(1)
+  $core.String get matchId => $_getSZ(0);
+  @$pb.TagNumber(1)
+  set matchId($core.String v) { $_setString(0, v); }
+  @$pb.TagNumber(1)
+  $core.bool hasMatchId() => $_has(0);
+  @$pb.TagNumber(1)
+  void clearMatchId() => clearField(1);
+
+  @$pb.TagNumber(2)
+  $core.String get roomId => $_getSZ(1);
+  @$pb.TagNumber(2)
+  set roomId($core.String v) { $_setString(1, v); }
+  @$pb.TagNumber(2)
+  $core.bool hasRoomId() => $_has(1);
+  @$pb.TagNumber(2)
+  void clearRoomId() => clearField(2);
+
+  @$pb.TagNumber(3)
+  $fixnum.Int64 get betAtoms => $_getI64(2);
+  @$pb.TagNumber(3)
+  set betAtoms($fixnum.Int64 v) { $_setInt64(2, v); }
+  @$pb.TagNumber(3)
+  $core.bool hasBetAtoms() => $_has(2);
+  @$pb.TagNumber(3)
+  void clearBetAtoms() => clearField(3);
+
+  @$pb.TagNumber(4)
+  $core.int get csvBlocks => $_getIZ(3);
+  @$pb.TagNumber(4)
+  set csvBlocks($core.int v) { $_setUnsignedInt32(3, v); }
+  @$pb.TagNumber(4)
+  $core.bool hasCsvBlocks() => $_has(3);
+  @$pb.TagNumber(4)
+  void clearCsvBlocks() => clearField(4);
+
+  @$pb.TagNumber(5)
+  $core.List<$core.int> get aComp => $_getN(4);
+  @$pb.TagNumber(5)
+  set aComp($core.List<$core.int> v) { $_setBytes(4, v); }
+  @$pb.TagNumber(5)
+  $core.bool hasAComp() => $_has(4);
+  @$pb.TagNumber(5)
+  void clearAComp() => clearField(5);
+
+  @$pb.TagNumber(6)
+  $core.List<$core.int> get bComp => $_getN(5);
+  @$pb.TagNumber(6)
+  set bComp($core.List<$core.int> v) { $_setBytes(5, v); }
+  @$pb.TagNumber(6)
+  $core.bool hasBComp() => $_has(5);
+  @$pb.TagNumber(6)
+  void clearBComp() => clearField(6);
+}
+
 class UnreadyGameStreamRequest extends $pb.GeneratedMessage {
   factory UnreadyGameStreamRequest({
     $core.String? clientId,
@@ -162,6 +1565,8 @@ class NtfnStreamResponse extends $pb.GeneratedMessage {
     $core.String? roomId,
     WaitingRoom? wr,
     $core.bool? ready,
+    MatchAllocatedNtfn? matchAlloc,
+    $core.int? confs,
   }) {
     final $result = create();
     if (notificationType != null) {
@@ -194,6 +1599,12 @@ class NtfnStreamResponse extends $pb.GeneratedMessage {
     if (ready != null) {
       $result.ready = ready;
     }
+    if (matchAlloc != null) {
+      $result.matchAlloc = matchAlloc;
+    }
+    if (confs != null) {
+      $result.confs = confs;
+    }
     return $result;
   }
   NtfnStreamResponse._() : super();
@@ -211,6 +1622,8 @@ class NtfnStreamResponse extends $pb.GeneratedMessage {
     ..aOS(8, _omitFieldNames ? '' : 'roomId')
     ..aOM<WaitingRoom>(9, _omitFieldNames ? '' : 'wr', subBuilder: WaitingRoom.create)
     ..aOB(10, _omitFieldNames ? '' : 'ready')
+    ..aOM<MatchAllocatedNtfn>(11, _omitFieldNames ? '' : 'matchAlloc', subBuilder: MatchAllocatedNtfn.create)
+    ..a<$core.int>(12, _omitFieldNames ? '' : 'confs', $pb.PbFieldType.OU3)
     ..hasRequiredFields = false
   ;
 
@@ -326,6 +1739,27 @@ class NtfnStreamResponse extends $pb.GeneratedMessage {
   $core.bool hasReady() => $_has(9);
   @$pb.TagNumber(10)
   void clearReady() => clearField(10);
+
+  @$pb.TagNumber(11)
+  MatchAllocatedNtfn get matchAlloc => $_getN(10);
+  @$pb.TagNumber(11)
+  set matchAlloc(MatchAllocatedNtfn v) { setField(11, v); }
+  @$pb.TagNumber(11)
+  $core.bool hasMatchAlloc() => $_has(10);
+  @$pb.TagNumber(11)
+  void clearMatchAlloc() => clearField(11);
+  @$pb.TagNumber(11)
+  MatchAllocatedNtfn ensureMatchAlloc() => $_ensure(10);
+
+  /// Number of confirmations for the relevant escrow deposit (if applicable)
+  @$pb.TagNumber(12)
+  $core.int get confs => $_getIZ(11);
+  @$pb.TagNumber(12)
+  set confs($core.int v) { $_setUnsignedInt32(11, v); }
+  @$pb.TagNumber(12)
+  $core.bool hasConfs() => $_has(11);
+  @$pb.TagNumber(12)
+  void clearConfs() => clearField(12);
 }
 
 /// Waiting Room Messages
@@ -427,6 +1861,7 @@ class JoinWaitingRoomRequest extends $pb.GeneratedMessage {
   factory JoinWaitingRoomRequest({
     $core.String? roomId,
     $core.String? clientId,
+    $core.String? escrowId,
   }) {
     final $result = create();
     if (roomId != null) {
@@ -434,6 +1869,9 @@ class JoinWaitingRoomRequest extends $pb.GeneratedMessage {
     }
     if (clientId != null) {
       $result.clientId = clientId;
+    }
+    if (escrowId != null) {
+      $result.escrowId = escrowId;
     }
     return $result;
   }
@@ -444,6 +1882,7 @@ class JoinWaitingRoomRequest extends $pb.GeneratedMessage {
   static final $pb.BuilderInfo _i = $pb.BuilderInfo(_omitMessageNames ? '' : 'JoinWaitingRoomRequest', package: const $pb.PackageName(_omitMessageNames ? '' : 'pong'), createEmptyInstance: create)
     ..aOS(1, _omitFieldNames ? '' : 'roomId')
     ..aOS(2, _omitFieldNames ? '' : 'clientId')
+    ..aOS(3, _omitFieldNames ? '' : 'escrowId')
     ..hasRequiredFields = false
   ;
 
@@ -485,6 +1924,15 @@ class JoinWaitingRoomRequest extends $pb.GeneratedMessage {
   $core.bool hasClientId() => $_has(1);
   @$pb.TagNumber(2)
   void clearClientId() => clearField(2);
+
+  @$pb.TagNumber(3)
+  $core.String get escrowId => $_getSZ(2);
+  @$pb.TagNumber(3)
+  set escrowId($core.String v) { $_setString(2, v); }
+  @$pb.TagNumber(3)
+  $core.bool hasEscrowId() => $_has(2);
+  @$pb.TagNumber(3)
+  void clearEscrowId() => clearField(3);
 }
 
 class JoinWaitingRoomResponse extends $pb.GeneratedMessage {
@@ -543,6 +1991,7 @@ class CreateWaitingRoomRequest extends $pb.GeneratedMessage {
   factory CreateWaitingRoomRequest({
     $core.String? hostId,
     $fixnum.Int64? betAmt,
+    $core.String? escrowId,
   }) {
     final $result = create();
     if (hostId != null) {
@@ -550,6 +1999,9 @@ class CreateWaitingRoomRequest extends $pb.GeneratedMessage {
     }
     if (betAmt != null) {
       $result.betAmt = betAmt;
+    }
+    if (escrowId != null) {
+      $result.escrowId = escrowId;
     }
     return $result;
   }
@@ -560,6 +2012,7 @@ class CreateWaitingRoomRequest extends $pb.GeneratedMessage {
   static final $pb.BuilderInfo _i = $pb.BuilderInfo(_omitMessageNames ? '' : 'CreateWaitingRoomRequest', package: const $pb.PackageName(_omitMessageNames ? '' : 'pong'), createEmptyInstance: create)
     ..aOS(1, _omitFieldNames ? '' : 'hostId')
     ..aInt64(2, _omitFieldNames ? '' : 'betAmt', protoName: 'betAmt')
+    ..aOS(3, _omitFieldNames ? '' : 'escrowId')
     ..hasRequiredFields = false
   ;
 
@@ -601,6 +2054,15 @@ class CreateWaitingRoomRequest extends $pb.GeneratedMessage {
   $core.bool hasBetAmt() => $_has(1);
   @$pb.TagNumber(2)
   void clearBetAmt() => clearField(2);
+
+  @$pb.TagNumber(3)
+  $core.String get escrowId => $_getSZ(2);
+  @$pb.TagNumber(3)
+  set escrowId($core.String v) { $_setString(2, v); }
+  @$pb.TagNumber(3)
+  $core.bool hasEscrowId() => $_has(2);
+  @$pb.TagNumber(3)
+  void clearEscrowId() => clearField(3);
 }
 
 class CreateWaitingRoomResponse extends $pb.GeneratedMessage {
@@ -742,12 +2204,21 @@ class WaitingRoom extends $pb.GeneratedMessage {
 }
 
 class WaitingRoomRequest extends $pb.GeneratedMessage {
-  factory WaitingRoomRequest() => create();
+  factory WaitingRoomRequest({
+    $core.String? roomId,
+  }) {
+    final $result = create();
+    if (roomId != null) {
+      $result.roomId = roomId;
+    }
+    return $result;
+  }
   WaitingRoomRequest._() : super();
   factory WaitingRoomRequest.fromBuffer($core.List<$core.int> i, [$pb.ExtensionRegistry r = $pb.ExtensionRegistry.EMPTY]) => create()..mergeFromBuffer(i, r);
   factory WaitingRoomRequest.fromJson($core.String i, [$pb.ExtensionRegistry r = $pb.ExtensionRegistry.EMPTY]) => create()..mergeFromJson(i, r);
 
   static final $pb.BuilderInfo _i = $pb.BuilderInfo(_omitMessageNames ? '' : 'WaitingRoomRequest', package: const $pb.PackageName(_omitMessageNames ? '' : 'pong'), createEmptyInstance: create)
+    ..aOS(1, _omitFieldNames ? '' : 'roomId')
     ..hasRequiredFields = false
   ;
 
@@ -771,15 +2242,24 @@ class WaitingRoomRequest extends $pb.GeneratedMessage {
   @$core.pragma('dart2js:noInline')
   static WaitingRoomRequest getDefault() => _defaultInstance ??= $pb.GeneratedMessage.$_defaultFor<WaitingRoomRequest>(create);
   static WaitingRoomRequest? _defaultInstance;
+
+  @$pb.TagNumber(1)
+  $core.String get roomId => $_getSZ(0);
+  @$pb.TagNumber(1)
+  set roomId($core.String v) { $_setString(0, v); }
+  @$pb.TagNumber(1)
+  $core.bool hasRoomId() => $_has(0);
+  @$pb.TagNumber(1)
+  void clearRoomId() => clearField(1);
 }
 
 class WaitingRoomResponse extends $pb.GeneratedMessage {
   factory WaitingRoomResponse({
-    $core.Iterable<Player>? players,
+    WaitingRoom? wr,
   }) {
     final $result = create();
-    if (players != null) {
-      $result.players.addAll(players);
+    if (wr != null) {
+      $result.wr = wr;
     }
     return $result;
   }
@@ -788,7 +2268,7 @@ class WaitingRoomResponse extends $pb.GeneratedMessage {
   factory WaitingRoomResponse.fromJson($core.String i, [$pb.ExtensionRegistry r = $pb.ExtensionRegistry.EMPTY]) => create()..mergeFromJson(i, r);
 
   static final $pb.BuilderInfo _i = $pb.BuilderInfo(_omitMessageNames ? '' : 'WaitingRoomResponse', package: const $pb.PackageName(_omitMessageNames ? '' : 'pong'), createEmptyInstance: create)
-    ..pc<Player>(1, _omitFieldNames ? '' : 'players', $pb.PbFieldType.PM, subBuilder: Player.create)
+    ..aOM<WaitingRoom>(1, _omitFieldNames ? '' : 'wr', subBuilder: WaitingRoom.create)
     ..hasRequiredFields = false
   ;
 
@@ -814,10 +2294,17 @@ class WaitingRoomResponse extends $pb.GeneratedMessage {
   static WaitingRoomResponse? _defaultInstance;
 
   @$pb.TagNumber(1)
-  $core.List<Player> get players => $_getList(0);
+  WaitingRoom get wr => $_getN(0);
+  @$pb.TagNumber(1)
+  set wr(WaitingRoom v) { setField(1, v); }
+  @$pb.TagNumber(1)
+  $core.bool hasWr() => $_has(0);
+  @$pb.TagNumber(1)
+  void clearWr() => clearField(1);
+  @$pb.TagNumber(1)
+  WaitingRoom ensureWr() => $_ensure(0);
 }
 
-/// Game Messages
 class Player extends $pb.GeneratedMessage {
   factory Player({
     $core.String? uid,

@@ -1,6 +1,7 @@
 package main
 
 import (
+	"encoding/hex"
 	"fmt"
 	"os"
 	"path/filepath"
@@ -17,7 +18,15 @@ type PongBotConfig struct {
 	MinBetAmt float64
 	GRPCHost  string
 	GRPCPort  string
-	HttpPort  string
+
+	// dcrd connectivity (optional)
+	DcrdHost string
+	DcrdCert string
+	DcrdUser string
+	DcrdPass string
+
+	// Schnorr adaptor secret (32-byte hex string)
+	AdaptorSecret string
 }
 
 // Load config function
@@ -32,14 +41,31 @@ func LoadPongBotConfig(dataDir, configFile string) (*PongBotConfig, error) {
 	if err != nil {
 		return nil, fmt.Errorf("failed to parse minbetamt: %w", err)
 	}
+	isf2p, err := strconv.ParseBool(baseConfig.ExtraConfig["isf2p"])
+	if err != nil {
+		isf2p = false
+	}
 	// Create the combined config
 	cfg := &PongBotConfig{
-		BotConfig: baseConfig,
-		IsF2P:     false,
-		MinBetAmt: minBetAmt,
-		GRPCHost:  baseConfig.ExtraConfig["grpchost"],
-		GRPCPort:  baseConfig.ExtraConfig["grpcport"],
-		HttpPort:  baseConfig.ExtraConfig["httpport"],
+		BotConfig:     baseConfig,
+		IsF2P:         isf2p,
+		MinBetAmt:     minBetAmt,
+		GRPCHost:      baseConfig.ExtraConfig["grpchost"],
+		GRPCPort:      baseConfig.ExtraConfig["grpcport"],
+		DcrdHost:      baseConfig.ExtraConfig["dcrdhost"],
+		DcrdCert:      baseConfig.ExtraConfig["dcrdcert"],
+		DcrdUser:      baseConfig.ExtraConfig["dcrduser"],
+		DcrdPass:      baseConfig.ExtraConfig["dcrdpass"],
+		AdaptorSecret: baseConfig.ExtraConfig["adaptorsecret"],
+	}
+
+	// Validate adaptor secret: must be present and 32 bytes of hex (64 chars)
+	if cfg.AdaptorSecret == "" {
+		return nil, fmt.Errorf("missing adaptorsecret in %s", configFile)
+	}
+	sb, err := hex.DecodeString(cfg.AdaptorSecret)
+	if err != nil || len(sb) != 32 {
+		return nil, fmt.Errorf("invalid adaptorsecret: expected 64 hex chars (32 bytes)")
 	}
 
 	// Load the config file if it exists

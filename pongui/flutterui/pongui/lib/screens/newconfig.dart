@@ -26,13 +26,14 @@ class _NewConfigScreenState extends State<NewConfigScreen> {
   // text controllers
   late final _serverAddr = TextEditingController(text: widget.model.serverAddr);
   late final _grpcCert   = TextEditingController(text: widget.model.grpcCertPath);
-  late final _rpcCert    = TextEditingController(text: widget.model.rpcCertPath);
-  late final _rpcCliCert = TextEditingController(text: widget.model.rpcClientCertPath);
-  late final _rpcCliKey  = TextEditingController(text: widget.model.rpcClientKeyPath);
-  late final _wsURL      = TextEditingController(text: widget.model.rpcWebsocketURL);
+  late final _address    = TextEditingController(text: widget.model.address);
+  // late final _rpcCert    = TextEditingController(text: widget.model.rpcCertPath);
+  // late final _rpcCliCert = TextEditingController(text: widget.model.rpcClientCertPath);
+  // late final _rpcCliKey  = TextEditingController(text: widget.model.rpcClientKeyPath);
+  // late final _wsURL      = TextEditingController(text: widget.model.rpcWebsocketURL);
   late final _debugLvl   = TextEditingController(text: widget.model.debugLevel);
-  late final _user       = TextEditingController(text: widget.model.rpcUser);
-  late final _pass       = TextEditingController(text: widget.model.rpcPass);
+  // late final _user       = TextEditingController(text: widget.model.rpcUser);
+  // late final _pass       = TextEditingController(text: widget.model.rpcPass);
 
   bool _wantsLogNtfns = false;
   String _cfgPath = '', _dataDir = '';
@@ -80,13 +81,14 @@ Aq6RDElOTqAlDbNAuV8b/joQjIDLwqA=
       widget.model
         ..serverAddr        = _serverAddr.text
         ..grpcCertPath      = _grpcCert.text
-        ..rpcCertPath       = _rpcCert.text
-        ..rpcClientCertPath = _rpcCliCert.text
-        ..rpcClientKeyPath  = _rpcCliKey.text
-        ..rpcWebsocketURL   = _wsURL.text
+        ..address           = _address.text
+        // ..rpcCertPath       = _rpcCert.text
+        // ..rpcClientCertPath = _rpcCliCert.text
+        // ..rpcClientKeyPath  = _rpcCliKey.text
+        // ..rpcWebsocketURL   = _wsURL.text
         ..debugLevel        = _debugLvl.text
-        ..rpcUser           = _user.text
-        ..rpcPass           = _pass.text
+        // ..rpcUser           = _user.text
+        // ..rpcPass           = _pass.text
         ..wantsLogNtfns     = _wantsLogNtfns;
 
       await _prepareDataDir();
@@ -122,13 +124,14 @@ Aq6RDElOTqAlDbNAuV8b/joQjIDLwqA=
                 const SizedBox(height: 20),
                 _field(_serverAddr, 'Server Address', required: true),
                 _field(_grpcCert,   'gRPC Server Cert Path'),
-                _field(_rpcCert,    'RPC Cert Path'),
-                _field(_rpcCliCert, 'RPC Client Cert Path'),
-                _field(_rpcCliKey,  'RPC Client Key Path'),
-                _field(_wsURL, 'RPC WebSocket URL', required: true),
+                _field(_address,    'Payout Address or PubKey (33/65B hex)') ,
+                // _field(_rpcCert,    'RPC Cert Path'),
+                // _field(_rpcCliCert, 'RPC Client Cert Path'),
+                // _field(_rpcCliKey,  'RPC Client Key Path'),
+                // _field(_wsURL, 'RPC WebSocket URL', required: true),
                 _field(_debugLvl, 'Debug Level'),
-                _field(_user, 'RPC User', required: true),
-                _field(_pass, 'RPC Password', required: true, obscure: true),
+                // _field(_user, 'RPC User', required: true),
+                // _field(_pass, 'RPC Password', required: true, obscure: true),
                 const SizedBox(height: 12),
                 Row(
                   mainAxisAlignment: MainAxisAlignment.spaceBetween,
