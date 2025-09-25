@@ -15,43 +15,30 @@ import (
 
 const maxScore = 3
 
-// HandleWaitingRoomDisconnection handles player disconnection from a waiting room.
-func (gm *GameManager) HandleWaitingRoomDisconnection(clientID zkidentity.ShortID, log slog.Logger) error {
+// RemovePlayerFromWaitingRoom handles the core logic of removing a player from a waiting room
+func (gm *GameManager) RemovePlayerFromWaitingRoom(clientID zkidentity.ShortID) (isHost bool, roomRemoved bool) {
 	wr := gm.GetWaitingRoomFromPlayer(clientID)
 	if wr == nil {
-		// player is not in a waiting room
-		return nil
+		return false, false
 	}
 
-	// if the player is the host, remove the waiting room
-	if clientID == *wr.HostID {
+	// Check if player is the host
+	wr.RLock()
+	hostID := wr.HostID
+	wr.RUnlock()
+
+	isHost = *hostID == clientID
+
+	if isHost {
+		// Host is leaving - remove the entire room
 		gm.RemoveWaitingRoom(wr.ID)
-		return nil
+		return true, true
+	} else {
+		// Non-host is leaving - remove just the player
+		p := gm.PlayerSessions.GetPlayer(clientID)
+		wr.RemovePlayer(p)
+		return false, false
 	}
-
-	// if not the host, remove the player from the waiting room
-	p := gm.PlayerSessions.GetPlayer(clientID)
-	wr.RemovePlayer(p)
-
-	return nil
-}
-
-// HandleGameDisconnection handles player disconnection from an active game.
-func (gm *GameManager) HandleGameDisconnection(clientID zkidentity.ShortID, log slog.Logger) {
-	game := gm.GetPlayerGame(clientID)
-	if game == nil {
-		return
-	}
-
-	remainingPlayer := GetRemainingPlayerInGame(game, clientID)
-	if remainingPlayer != nil && remainingPlayer.NotifierStream != nil {
-		remainingPlayer.NotifierStream.Send(&pong.NtfnStreamResponse{
-			NotificationType: pong.NotificationType_OPPONENT_DISCONNECTED,
-			Message:          "Opponent disconnected. Game over.",
-			Started:          false,
-		})
-	}
-
 }
 
 func (gm *GameManager) HandlePlayerInput(clientID zkidentity.ShortID, req *pong.PlayerInput) (*pong.GameUpdate, error) {

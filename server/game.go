@@ -62,6 +62,7 @@ func (s *Server) StartNtfnStream(req *pong.StartNtfnStreamRequest, stream pong.P
 	// Wait for disconnection
 	<-ctx.Done()
 	s.log.Debugf("Notifier stream ended for client %s", clientID)
+	s.handleDisconnect(clientID)
 	return ctx.Err()
 }
 

@@ -137,6 +137,45 @@ func (es *escrowSession) clearPreSigns() {
 	}
 }
 
+// cleanupEscrowSessionsForPlayers cleans up all escrow sessions for the given players.
+// This includes canceling trackEscrow goroutines, unsubscribing from chain watcher,
+// clearing presign artifacts, and removing sessions from memory.
+func (s *Server) cleanupEscrowSessionsForPlayers(players []*ponggame.Player) {
+	s.escrowsMu.Lock()
+	var escrowsToDelete []string
+	for _, p := range players {
+		// Find and clean up escrow sessions for this player
+		for escrowID, es := range s.escrows {
+			if es != nil && es.ownerUID == *p.ID {
+				// Cancel the trackEscrow goroutine
+				if es.cancelTrack != nil {
+					es.cancelTrack()
+				}
+				// Unsubscribe from chain watcher
+				if es.unsubW != nil {
+					es.unsubW()
+				}
+				// Clear presign artifacts
+				es.clearPreSigns()
+				// Mark for deletion
+				escrowsToDelete = append(escrowsToDelete, escrowID)
+			}
+		}
+	}
+	// Remove escrow sessions from the map
+	for _, escrowID := range escrowsToDelete {
+		delete(s.escrows, escrowID)
+	}
+	s.escrowsMu.Unlock()
+
+	// Clean up room escrow mappings
+	s.roomEscrowsMu.Lock()
+	for _, p := range players {
+		delete(s.roomEscrows, *p.ID)
+	}
+	s.roomEscrowsMu.Unlock()
+}
+
 type Server struct {
 	pong.UnimplementedPongGameServer
 	pong.UnimplementedPongWaitingRoomServer
@@ -294,26 +333,14 @@ func (s *Server) handleDisconnect(clientID zkidentity.ShortID) {
 	delete(s.users, clientID)
 	s.usersMu.Unlock()
 
-	// Only process tips if player exists in sessions AND is not in an active game
-	playerSession := s.gameManager.PlayerSessions.GetPlayer(clientID)
-	if playerSession != nil {
+	player := s.gameManager.PlayerSessions.GetPlayer(clientID)
+	if player != nil {
+		// Clean up escrow sessions for this player
+		s.cleanupEscrowSessionsForPlayers([]*ponggame.Player{player})
 		s.gameManager.PlayerSessions.RemovePlayer(clientID)
 	}
 
-	// Clean up presign artifacts for all escrow sessions owned by this player
-	s.escrowsMu.RLock()
-	for _, es := range s.escrows {
-		// clean up escrow session
-		// XXX This should be kept in a long term storage?
-		// after csv can refund
-		if es != nil && es.ownerUID == clientID {
-			delete(s.roomEscrows, clientID)
-		}
-	}
-	s.escrowsMu.RUnlock()
-
-	s.gameManager.HandleWaitingRoomDisconnection(clientID, s.log)
-	s.gameManager.HandleGameDisconnection(clientID, s.log)
+	s.gameManager.RemovePlayerFromWaitingRoom(clientID)
 }
 
 // escrowForRoomPlayer returns the escrow session bound to (wrID, ownerUID)
@@ -403,15 +430,15 @@ func (s *Server) ensureBoundFunding(es *escrowSession) error {
 	return nil
 }
 
-func (s *Server) sendGameUpdates(ctx context.Context, player *ponggame.Player, game *ponggame.GameInstance) {
+func (s *Server) sendGameUpdates(ctx context.Context, player *ponggame.Player, game *ponggame.GameInstance) error {
 	for {
 		select {
 		case <-ctx.Done():
-			s.handleDisconnect(*player.ID)
-			return
-		case frame, ok := <-player.FrameCh: // Use individual player channel instead of shared game channel
+			// XXX: try reconnecting
+			return ctx.Err()
+		case frame, ok := <-player.FrameCh:
 			if !ok {
-				return // Player's frame channel closed, exit
+				return ctx.Err() // Player's frame channel closed, exit
 			}
 			if player.GameStream == nil {
 				// XXX something going on with the stream, should try a reconnect.
@@ -420,8 +447,7 @@ func (s *Server) sendGameUpdates(ctx context.Context, player *ponggame.Player, g
 			}
 			err := player.GameStream.Send(&pong.GameUpdateBytes{Data: frame})
 			if err != nil {
-				s.handleDisconnect(*player.ID)
-				return
+				return err
 			}
 		}
 	}
@@ -702,14 +728,8 @@ func (s *Server) handleGameEnd(ctx context.Context, game *ponggame.GameInstance,
 
 			// Remove from game manager's waiting rooms list.
 			s.gameManager.RemoveWaitingRoom(wr.ID)
-			// Clean up any escrow bookkeeping for this room to avoid leaks.
-			s.roomEscrowsMu.Lock()
-			if s.roomEscrows != nil {
-				for _, p := range wr.Players {
-					delete(s.roomEscrows, *p.ID)
-				}
-			}
-			s.roomEscrowsMu.Unlock()
+			// Clean up escrow sessions and room mappings for all players in this room
+			s.cleanupEscrowSessionsForPlayers(wr.Players)
 
 			s.notifyallusers(&pong.NtfnStreamResponse{
 				NotificationType: pong.NotificationType_ON_WR_REMOVED,

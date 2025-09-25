@@ -263,7 +263,7 @@ func (s *Server) LeaveWaitingRoom(ctx context.Context, req *pong.LeaveWaitingRoo
 		}, nil
 	}
 
-	// Get the waiting room
+	// Get the waiting room for cleanup and validation
 	wr := s.gameManager.GetWaitingRoom(req.RoomId)
 	if wr == nil {
 		return &pong.LeaveWaitingRoomResponse{
@@ -281,17 +281,15 @@ func (s *Server) LeaveWaitingRoom(ctx context.Context, req *pong.LeaveWaitingRoo
 		}, nil
 	}
 
+	// Clean up active game streams for all players in the room
 	wr.RLock()
-	hostID := wr.HostID
 	players := wr.Players
 	wr.RUnlock()
 
 	for _, p := range players {
-		// clean up presign artifacts for all players in the room
 		if es := s.escrowForRoomPlayer(*p.ID, wr.ID); es != nil {
 			es.clearPreSigns()
 		}
-		// clean up active game streams for all players in the room
 		if cancel, ok := s.activeGameStreams.Load(*p.ID); ok {
 			if cancelFn, isCancel := cancel.(context.CancelFunc); isCancel {
 				cancelFn()
@@ -299,44 +297,41 @@ func (s *Server) LeaveWaitingRoom(ctx context.Context, req *pong.LeaveWaitingRoo
 		}
 	}
 
-	// If the leaving player is the host, close the room entirely.
-	if *hostID == clientID {
-		// Cancel the room context if present and remove from manager.
+	isHost, _ := s.gameManager.RemovePlayerFromWaitingRoom(clientID)
+
+	if isHost {
+		// Cancel the room context if present
 		if wr.Cancel != nil {
 			wr.Cancel()
 		}
-		s.gameManager.RemoveWaitingRoom(wr.ID)
 
 		// Broadcast room removal to all users (for UIs that list rooms).
 		s.notifyallusers(&pong.NtfnStreamResponse{
 			NotificationType: pong.NotificationType_ON_WR_REMOVED,
 			Message:          "host left the waiting room so the room was closed",
-			RoomId:           wr.ID,
+			RoomId:           req.RoomId,
 		})
 		return &pong.LeaveWaitingRoomResponse{
 			Success: true,
 			Message: "host left; room closed",
 		}, nil
+	} else {
+		// Get remaining players and notify them
+		wr.RLock()
+		wrSnapshot := wr.Marshal()
+		wr.RUnlock()
+
+		remainingPlayers := ponggame.GetRemainingPlayersInWaitingRoom(wr, clientID)
+		for _, remainingPlayer := range remainingPlayers {
+			_ = s.notify(remainingPlayer, &pong.NtfnStreamResponse{
+				NotificationType: pong.NotificationType_OPPONENT_DISCONNECTED,
+				Message:          "player left the waiting room",
+				Wr:               wrSnapshot,
+			})
+		}
+		return &pong.LeaveWaitingRoomResponse{
+			Success: true,
+			Message: "successfully left waiting room",
+		}, nil
 	}
-	// Non-host: remove the player from the waiting room
-	wr.RemovePlayer(player)
-
-	wr.RLock()
-	wrSnapshot := wr.Marshal()
-	wr.RUnlock()
-
-	// Get remaining players and notify them
-	remainingPlayers := ponggame.GetRemainingPlayersInWaitingRoom(wr, clientID)
-	for _, remainingPlayer := range remainingPlayers {
-		_ = s.notify(remainingPlayer, &pong.NtfnStreamResponse{
-			NotificationType: pong.NotificationType_OPPONENT_DISCONNECTED,
-			Message:          "player left the waiting room",
-			Wr:               wrSnapshot,
-		})
-	}
-
-	return &pong.LeaveWaitingRoomResponse{
-		Success: true,
-		Message: "successfully left waiting room",
-	}, nil
 }
