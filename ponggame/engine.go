@@ -74,7 +74,6 @@ func (e *CanvasEngine) NewRound(ctx context.Context, framesch chan<- []byte, inp
 				e.tick()
 
 				if errors.Is(e.Err, engine.ErrP1Win) {
-					e.log.Info("p1 wins")
 					e.P1Score += 1
 
 					// Send the winner's ID through the roundResult channel
@@ -86,7 +85,6 @@ func (e *CanvasEngine) NewRound(ctx context.Context, framesch chan<- []byte, inp
 
 					return
 				} else if errors.Is(e.Err, engine.ErrP2Win) {
-					e.log.Info("p2 wins")
 					e.P2Score += 1
 
 					// Send the winner's ID through the roundResult channel
