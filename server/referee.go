@@ -188,86 +188,83 @@ func (s *Server) OpenEscrow(ctx context.Context, req *pong.OpenEscrowRequest) (*
 }
 
 func (s *Server) SettlementStream(stream pong.PongReferee_SettlementStreamServer) error {
-	// Step 1: receive HELLO
+	// 1) Receive HELLO
 	first, err := stream.Recv()
 	if err != nil || first.GetHello() == nil {
 		return status.Errorf(codes.InvalidArgument, "expected HELLO: %v", err)
 	}
 	hel := first.GetHello()
 	if len(hel.CompPubkey) != 33 {
-		return status.Error(codes.InvalidArgument, "bad comp pubkey")
+		return status.Error(codes.InvalidArgument, "bad comp pubkey len")
 	}
-	// Canonicalize client pubkey
 	X, err := secp256k1.ParsePubKey(hel.CompPubkey)
 	if err != nil {
 		return status.Errorf(codes.InvalidArgument, "parse pubkey: %v", err)
 	}
-	_ = X.SerializeCompressed()
+	xBytes := X.SerializeCompressed()
 
-	// New: room-scoped settlement. Expect match_id as "<wrID>|<hostUID>".
+	// 2) Room-scoped settlement: require wrID (allow legacy "<wrID>|..." but we only use wrID).
 	matchID := first.GetMatchId()
 	if matchID == "" {
 		matchID = hel.GetMatchId()
 	}
 	if matchID == "" {
-		return status.Error(codes.InvalidArgument, "missing match_id in ClientMsg/Hello")
+		return status.Error(codes.InvalidArgument, "missing match_id")
 	}
-	var wrID, hostUID string
 	parts := strings.SplitN(matchID, "|", 2)
-	wrID = strings.TrimSpace(parts[0])
+	wrID := strings.TrimSpace(parts[0])
 	if wrID == "" {
 		return status.Error(codes.InvalidArgument, "invalid match_id: missing room id")
 	}
 
+	// 3) Fetch waiting room and host (as zkidentity.ShortID, no string conversions)
 	wr := s.gameManager.GetWaitingRoom(wrID)
 	if wr == nil {
 		return status.Errorf(codes.FailedPrecondition, "waiting room %s not found", wrID)
 	}
-	if len(parts) == 2 {
-		hostUID = strings.TrimSpace(parts[1])
+	if wr.HostID == nil {
+		return status.Error(codes.FailedPrecondition, "waiting room has no host")
 	}
-	if hostUID == "" && wr.HostID != nil {
-		hostUID = wr.HostID.String()
-	}
-	if hostUID == "" {
-		return status.Error(codes.FailedPrecondition, "could not determine host uid for match")
-	}
+	host := *wr.HostID // ShortID by value
 
-	// Determine caller by matching HELLO comp pubkey to an escrow bound in this room.
-	xBytes := X.SerializeCompressed()
-	var callerUID string
+	// 4) Determine caller by matching HELLO comp pubkey to an escrow bound in this room.
+	// Snapshot candidates (uid -> escrowID for this wr) without holding both locks.
+	type cand struct {
+		uid      zkidentity.ShortID
+		escrowID string
+	}
+	cands := make([]cand, 0, 8)
+
 	s.roomEscrowsMu.RLock()
-	if m := s.roomEscrows[wrID]; m != nil {
-		for uid, eid := range m {
-			s.escrowsMu.RLock()
-			es := s.escrows[eid]
-			s.escrowsMu.RUnlock()
-			if es != nil && len(es.compPubkey) == 33 {
-				if bytes.Equal(es.compPubkey, xBytes) {
-					callerUID = uid
-					break
-				}
-			}
+	for uid, rooms := range s.roomEscrows { // uid := zkidentity.ShortID
+		if eid, ok := rooms[wrID]; ok && eid != "" {
+			cands = append(cands, cand{uid: uid, escrowID: eid})
 		}
 	}
 	s.roomEscrowsMu.RUnlock()
-	if callerUID == "" {
+
+	var caller zkidentity.ShortID
+	found := false
+	for _, c := range cands {
+		s.escrowsMu.RLock()
+		es := s.escrows[c.escrowID]
+		s.escrowsMu.RUnlock()
+		if es != nil && len(es.compPubkey) == 33 && bytes.Equal(es.compPubkey, xBytes) {
+			caller = c.uid
+			found = true
+			break
+		}
+	}
+	if !found {
 		return status.Error(codes.FailedPrecondition, "caller escrow not found in room")
 	}
 
-	var host zkidentity.ShortID
-	if err := host.FromString(hostUID); err != nil {
-		return status.Error(codes.InvalidArgument, "bad host uid in match_id")
-	}
+	s.log.Debugf("SettlementStream: wr=%s host=%s caller=%s", wrID, host.String(), caller.String())
 
-	s.log.Debugf("SettlementStream: match_id=%q wr=%s host=%s caller=%s", matchID, wrID, hostUID, callerUID)
-
-	var caller zkidentity.ShortID
-	if err := caller.FromString(callerUID); err != nil {
-		return status.Error(codes.InvalidArgument, "bad caller uid")
-	}
+	// 5) Hand off to the room-specific handler (no string conversions needed)
 	return s.settlementStreamForRoom(stream, X, wr, caller, host)
 }
+
 
 // makeSettleInputFromEscrow builds a minimal settlement context from a bound escrow.
 // It requires es.boundInputID and es.boundInput to be set (use ensureBoundFunding first).
@@ -327,8 +324,8 @@ func (s *Server) settlementStreamForRoom(
 	}
 
 	// Resolve room-bound escrows.
-	myEscrow := s.escrowForRoomPlayer(wr.ID, myPlayer.ID.String())
-	oppEscrow := s.escrowForRoomPlayer(wr.ID, oppPlayer.ID.String())
+	myEscrow := s.escrowForRoomPlayer(*myPlayer.ID, wr.ID)
+	oppEscrow := s.escrowForRoomPlayer(*oppPlayer.ID, wr.ID)
 	if myEscrow == nil || oppEscrow == nil {
 		return fmt.Errorf("room-bound escrows missing (my=%v opp=%v)", myEscrow != nil, oppEscrow != nil)
 	}
@@ -754,9 +751,14 @@ func (s *Server) GetFinalizeBundle(ctx context.Context, req *pong.GetFinalizeBun
 		return nil, status.Error(codes.InvalidArgument, "bad match_id")
 	}
 
+	winnerID := zkidentity.ShortID{}
+	if err := winnerID.FromString(req.WinnerUid); err != nil {
+		return nil, status.Error(codes.InvalidArgument, "bad winner uid")
+	}
+
 	s.roomEscrowsMu.RLock()
 	var es *escrowSession
-	if m := s.roomEscrows[wrID]; m != nil {
+	if m := s.roomEscrows[winnerID]; m != nil {
 		if eid := m[req.WinnerUid]; eid != "" {
 			s.escrowsMu.RLock()
 			es = s.escrows[eid]

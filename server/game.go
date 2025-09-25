@@ -94,8 +94,8 @@ func (s *Server) StartGameStream(req *pong.StartGameStreamRequest, stream pong.P
 	if !s.isF2P {
 		var escrowID string
 		s.roomEscrowsMu.RLock()
-		if m, ok := s.roomEscrows[player.WR.ID]; ok {
-			escrowID = m[player.ID.String()]
+		if m, ok := s.roomEscrows[clientID]; ok {
+			escrowID = m[player.WR.ID]
 		}
 		var es *escrowSession
 		if escrowID != "" {

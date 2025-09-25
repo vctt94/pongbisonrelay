@@ -128,12 +128,12 @@ func (s *Server) CreateWaitingRoom(ctx context.Context, req *pong.CreateWaitingR
 	// Bind host escrow to room.
 	s.roomEscrowsMu.Lock()
 	if s.roomEscrows == nil {
-		s.roomEscrows = make(map[string]map[string]string)
+		s.roomEscrows = make(map[zkidentity.ShortID]map[string]string)
 	}
-	if s.roomEscrows[wr.ID] == nil {
-		s.roomEscrows[wr.ID] = make(map[string]string)
+	if s.roomEscrows[*hostPlayer.ID] == nil {
+		s.roomEscrows[*hostPlayer.ID] = make(map[string]string)
 	}
-	s.roomEscrows[wr.ID][hostID.String()] = es.escrowID
+	s.roomEscrows[*hostPlayer.ID][wr.ID] = es.escrowID
 	s.roomEscrowsMu.Unlock()
 
 	// Add to list of rooms.
@@ -224,12 +224,12 @@ func (s *Server) JoinWaitingRoom(ctx context.Context, req *pong.JoinWaitingRoomR
 
 	s.roomEscrowsMu.Lock()
 	if s.roomEscrows == nil {
-		s.roomEscrows = make(map[string]map[string]string)
+		s.roomEscrows = make(map[zkidentity.ShortID]map[string]string)
 	}
-	if s.roomEscrows[wr.ID] == nil {
-		s.roomEscrows[wr.ID] = make(map[string]string)
+	if s.roomEscrows[*player.ID] == nil {
+		s.roomEscrows[*player.ID] = make(map[string]string)
 	}
-	s.roomEscrows[wr.ID][player.ID.String()] = es.escrowID
+	s.roomEscrows[*player.ID][wr.ID] = es.escrowID
 	// Notify room.
 	s.roomEscrowsMu.Unlock()
 

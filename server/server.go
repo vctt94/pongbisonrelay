@@ -159,7 +159,7 @@ type Server struct {
 	escrows   map[string]*escrowSession
 
 	roomEscrowsMu sync.RWMutex
-	roomEscrows   map[string]map[string]string // roomID -> owner_uid -> escrow_id
+	roomEscrows   map[zkidentity.ShortID]map[string]string // owner_uid -> roomID ->  escrow_id
 	// v0-min defaults
 	pocFeeAtoms uint64
 
@@ -295,14 +295,14 @@ func (s *Server) handleDisconnect(clientID zkidentity.ShortID) {
 
 // escrowForRoomPlayer returns the escrow session bound to (wrID, ownerUID)
 // via the roomEscrows mapping. It does not attempt to pick a "newest" escrow.
-func (s *Server) escrowForRoomPlayer(wrID, ownerUID string) *escrowSession {
+func (s *Server) escrowForRoomPlayer(ownerUID zkidentity.ShortID, wrID string) *escrowSession {
 	s.roomEscrowsMu.RLock()
 	defer s.roomEscrowsMu.RUnlock()
-	m := s.roomEscrows[wrID]
+	m := s.roomEscrows[ownerUID]
 	if m == nil {
 		return nil
 	}
-	escrowID := m[ownerUID]
+	escrowID := m[wrID]
 	if escrowID == "" {
 		return nil
 	}
@@ -581,8 +581,8 @@ func (s *Server) handleGameEnd(ctx context.Context, game *ponggame.GameInstance,
 		s.roomEscrowsMu.RLock()
 		var es *escrowSession
 		if wrID != "" && s.roomEscrows != nil {
-			if m := s.roomEscrows[wrID]; m != nil {
-				if eid := m[winnerID]; eid != "" {
+			if m := s.roomEscrows[*winner]; m != nil {
+				if eid := m[wrID]; eid != "" {
 					s.escrowsMu.RLock()
 					es = s.escrows[eid]
 					s.escrowsMu.RUnlock()
@@ -676,12 +676,15 @@ func (s *Server) handleGameEnd(ctx context.Context, game *ponggame.GameInstance,
 			if wr.Cancel != nil {
 				wr.Cancel()
 			}
+
 			// Remove from game manager's waiting rooms list.
 			s.gameManager.RemoveWaitingRoom(wr.ID)
 			// Clean up any escrow bookkeeping for this room to avoid leaks.
 			s.roomEscrowsMu.Lock()
 			if s.roomEscrows != nil {
-				delete(s.roomEscrows, wr.ID)
+				for _, p := range wr.Players {
+					delete(s.roomEscrows, *p.ID)
+				}
 			}
 			s.roomEscrowsMu.Unlock()
 
@@ -732,7 +735,7 @@ func (s *Server) manageWaitingRoom(ctx context.Context, wr *ponggame.WaitingRoom
 			// Non-F2P: require escrow bound and funded for both players.
 			escrowOK := true
 			for _, p := range players {
-				es := s.escrowForRoomPlayer(wr.ID, p.ID.String())
+				es := s.escrowForRoomPlayer(*p.ID, wr.ID)
 				if es == nil {
 					escrowOK = false
 					s.notify(p, &pong.NtfnStreamResponse{NotificationType: pong.NotificationType_MESSAGE, Message: "No escrow bound to this room for you. Bind a funded escrow first."})
@@ -749,8 +752,8 @@ func (s *Server) manageWaitingRoom(ctx context.Context, wr *ponggame.WaitingRoom
 			}
 
 			// Require both players to have completed presign handshakes for the same branch.
-			esA := s.escrowForRoomPlayer(wr.ID, players[0].ID.String())
-			esB := s.escrowForRoomPlayer(wr.ID, players[1].ID.String())
+			esA := s.escrowForRoomPlayer(*players[0].ID, wr.ID)
+			esB := s.escrowForRoomPlayer(*players[1].ID, wr.ID)
 			isComplete := func(winES, loseES *escrowSession) bool {
 				if winES == nil || loseES == nil {
 					return false
