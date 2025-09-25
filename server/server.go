@@ -740,7 +740,7 @@ func (s *Server) manageWaitingRoom(ctx context.Context, wr *ponggame.WaitingRoom
 		select {
 		case <-ctx.Done():
 			s.log.Infof("Exited ManageWaitingRoom: %s (context cancelled)", wr.ID)
-			return nil
+			return ctx.Err()
 
 		case <-ticker.C:
 			players := wr.ReadyPlayers()

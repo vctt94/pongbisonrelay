@@ -286,10 +286,16 @@ func (s *Server) LeaveWaitingRoom(ctx context.Context, req *pong.LeaveWaitingRoo
 	players := wr.Players
 	wr.RUnlock()
 
-	// clean up presign artifacts for all players in the room
 	for _, p := range players {
+		// clean up presign artifacts for all players in the room
 		if es := s.escrowForRoomPlayer(*p.ID, wr.ID); es != nil {
 			es.clearPreSigns()
+		}
+		// clean up active game streams for all players in the room
+		if cancel, ok := s.activeGameStreams.Load(*p.ID); ok {
+			if cancelFn, isCancel := cancel.(context.CancelFunc); isCancel {
+				cancelFn()
+			}
 		}
 	}
 
@@ -315,13 +321,17 @@ func (s *Server) LeaveWaitingRoom(ctx context.Context, req *pong.LeaveWaitingRoo
 	// Non-host: remove the player from the waiting room
 	wr.RemovePlayer(player)
 
+	wr.RLock()
+	wrSnapshot := wr.Marshal()
+	wr.RUnlock()
+
 	// Get remaining players and notify them
 	remainingPlayers := ponggame.GetRemainingPlayersInWaitingRoom(wr, clientID)
 	for _, remainingPlayer := range remainingPlayers {
 		_ = s.notify(remainingPlayer, &pong.NtfnStreamResponse{
 			NotificationType: pong.NotificationType_OPPONENT_DISCONNECTED,
 			Message:          "player left the waiting room",
-			RoomId:           wr.ID,
+			Wr:               wrSnapshot,
 		})
 	}
 

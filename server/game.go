@@ -146,34 +146,34 @@ func (s *Server) UnreadyGameStream(ctx context.Context, req *pong.UnreadyGameStr
 	}
 
 	// Check if the player is in a waiting room
-	if player.WR != nil {
-		player.Ready = false
+	if player.WR == nil {
+		return nil, fmt.Errorf("player not in a waiting room")
+	}
+	player.Ready = false
 
-		// First get the cancel function and call it before deleting
-		if cancel, ok := s.activeGameStreams.Load(clientID); ok {
-			if cancelFn, isCancel := cancel.(context.CancelFunc); isCancel {
-				cancelFn()
-			}
+	// First get the cancel function and call it before deleting
+	if cancel, ok := s.activeGameStreams.Load(clientID); ok {
+		if cancelFn, isCancel := cancel.(context.CancelFunc); isCancel {
+			cancelFn()
 		}
+	}
 
-		// Then delete the entry
-		s.activeGameStreams.Delete(clientID)
-		player.GameStream = nil
+	// Then delete the entry
+	s.activeGameStreams.Delete(clientID)
+	player.GameStream = nil
 
-		// Notify other players in the waiting room
-		pwr := player.WR.Marshal()
+	// Notify other players in the waiting room
+	pwr := player.WR.Marshal()
 
-		for _, p := range player.WR.Players {
-			_ = s.notify(p, &pong.NtfnStreamResponse{
-				NotificationType: pong.NotificationType_ON_PLAYER_READY,
-				Message:          fmt.Sprintf("Player %s is not ready", player.Nick),
-				PlayerId:         player.ID.String(),
-				RoomId:           player.WR.ID,
-				Wr:               pwr,
-				Ready:            false,
-			})
-		}
-
+	for _, p := range player.WR.Players {
+		_ = s.notify(p, &pong.NtfnStreamResponse{
+			NotificationType: pong.NotificationType_ON_PLAYER_READY,
+			Message:          fmt.Sprintf("Player %s is not ready", player.Nick),
+			PlayerId:         player.ID.String(),
+			RoomId:           player.WR.ID,
+			Wr:               pwr,
+			Ready:            false,
+		})
 	}
 
 	return &pong.UnreadyGameStreamResponse{}, nil
