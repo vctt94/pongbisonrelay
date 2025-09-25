@@ -48,6 +48,8 @@ class _MainContentState extends State<MainContent> {
 
       case GameState.playing:
         return _buildGameState(GameState.playing);
+      case GameState.gameEnded:
+        return _buildGameEndedState();
     }
   }
 
@@ -149,6 +151,100 @@ class _MainContentState extends State<MainContent> {
             ),
           ),
         ],
+      ),
+    );
+  }
+
+  // Game ended state UI - shows the final result
+  Widget _buildGameEndedState() {
+    final model = widget.pongModel;
+    final isWin = model.gameEndingMessage.contains("won");
+    final isDraw = model.gameEndingMessage.contains("draw");
+    
+    return Center(
+      child: Container(
+        padding: const EdgeInsets.all(32),
+        margin: const EdgeInsets.symmetric(horizontal: 24),
+        decoration: BoxDecoration(
+          color: const Color(0xFF1B1E2C).withAlpha(240),
+          borderRadius: BorderRadius.circular(20),
+          boxShadow: [
+            BoxShadow(
+              color: (isWin ? Colors.green : isDraw ? Colors.orange : Colors.red)
+                  .withAlpha(76),
+              spreadRadius: 4,
+              blurRadius: 15,
+            ),
+          ],
+        ),
+        child: Column(
+          mainAxisSize: MainAxisSize.min,
+          children: [
+            // Game over icon
+            Icon(
+              isWin ? Icons.emoji_events : isDraw ? Icons.handshake : Icons.sports_tennis,
+              size: 80,
+              color: isWin ? Colors.green : isDraw ? Colors.orange : Colors.red,
+            ),
+            const SizedBox(height: 24),
+            
+            // Game over title
+            Text(
+              "Game End!",
+              style: TextStyle(
+                fontSize: 32,
+                fontWeight: FontWeight.bold,
+                color: isWin ? Colors.green : isDraw ? Colors.orange : Colors.red,
+              ),
+            ),
+            const SizedBox(height: 16),
+            
+            // Result message
+            Text(
+              model.gameEndingMessage,
+              style: const TextStyle(
+                fontSize: 20,
+                color: Colors.white,
+                fontWeight: FontWeight.w500,
+              ),
+              textAlign: TextAlign.center,
+            ),
+            const SizedBox(height: 32),
+            
+            // Action buttons
+            Row(
+              mainAxisAlignment: MainAxisAlignment.spaceEvenly,
+              children: [
+                ElevatedButton.icon(
+                  onPressed: () {
+                    // Reset game state and return to main menu
+                    model.resetGameState();
+                  },
+                  icon: const Icon(Icons.home),
+                  label: const Text("Main Menu"),
+                  style: ElevatedButton.styleFrom(
+                    backgroundColor: Colors.blueAccent,
+                    foregroundColor: Colors.white,
+                    padding: const EdgeInsets.symmetric(horizontal: 24, vertical: 12),
+                  ),
+                ),
+                ElevatedButton.icon(
+                  onPressed: () {
+                    // Reset game state but keep escrow for quick rematch
+                    model.resetGameState();
+                  },
+                  icon: const Icon(Icons.refresh),
+                  label: const Text("Play Again"),
+                  style: ElevatedButton.styleFrom(
+                    backgroundColor: Colors.green,
+                    foregroundColor: Colors.white,
+                    padding: const EdgeInsets.symmetric(horizontal: 24, vertical: 12),
+                  ),
+                ),
+              ],
+            ),
+          ],
+        ),
       ),
     );
   }
