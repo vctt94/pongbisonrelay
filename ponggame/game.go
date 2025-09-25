@@ -16,48 +16,24 @@ import (
 const maxScore = 3
 
 // HandleWaitingRoomDisconnection handles player disconnection from a waiting room.
-func (gm *GameManager) HandleWaitingRoomDisconnection(clientID zkidentity.ShortID, log slog.Logger) {
+func (gm *GameManager) HandleWaitingRoomDisconnection(clientID zkidentity.ShortID, log slog.Logger) error {
 	wr := gm.GetWaitingRoomFromPlayer(clientID)
 	if wr == nil {
-		return
+		// player is not in a waiting room
+		return nil
 	}
 
-	// If host disconnected, remove wr
+	// if the player is the host, remove the waiting room
 	if clientID == *wr.HostID {
-		remainingPlayers := GetRemainingPlayersInWaitingRoom(wr, clientID)
-		for _, player := range remainingPlayers {
-			if player.NotifierStream != nil {
-				player.NotifierStream.Send(&pong.NtfnStreamResponse{
-					NotificationType: pong.NotificationType_OPPONENT_DISCONNECTED,
-					Message:          "Host left the waiting room. Room closed.",
-					Started:          false,
-				})
-			}
-		}
-
-		log.Debugf("Player %s disconnected; removing waiting room %s", clientID, wr.ID)
-		wr.Cancel()
-		return
+		gm.RemoveWaitingRoom(wr.ID)
+		return nil
 	}
 
-	// Handle regular player disconnection
-	wr.RemovePlayer(clientID)
-	remainingPlayers := GetRemainingPlayersInWaitingRoom(wr, clientID)
+	// if not the host, remove the player from the waiting room
+	p := gm.PlayerSessions.GetPlayer(clientID)
+	wr.RemovePlayer(p)
 
-	// Marshal updated waiting room
-	pongwr := wr.Marshal()
-	// Notify remaining players
-	for _, player := range remainingPlayers {
-		if player.NotifierStream != nil {
-			player.NotifierStream.Send(&pong.NtfnStreamResponse{
-				NotificationType: pong.NotificationType_OPPONENT_DISCONNECTED,
-				Message:          "Player left the waiting room",
-				Wr:               pongwr,
-			})
-		}
-	}
-
-	log.Debugf("Player %s disconnected from waiting room %s", clientID, wr.ID)
+	return nil
 }
 
 // HandleGameDisconnection handles player disconnection from an active game.
@@ -158,19 +134,23 @@ func (g *GameManager) GetWaitingRoom(roomID string) *WaitingRoom {
 	return nil
 }
 
-func (gm *GameManager) RemoveWaitingRoom(roomID string) {
+func (gm *GameManager) RemoveWaitingRoom(roomID string) error {
 	gm.waitingRoomsMu.Lock()
 	defer gm.waitingRoomsMu.Unlock()
 
 	for i, room := range gm.WaitingRooms {
 		if room.ID == roomID {
+			// remove player from waiting room
+			for _, p := range room.Players {
+				room.RemovePlayer(p)
+			}
 			// Remove the room by appending the elements before and after it
 			gm.WaitingRooms = append(gm.WaitingRooms[:i], gm.WaitingRooms[i+1:]...)
 			gm.Log.Debugf("Waiting room %s removed successfully", roomID)
-
 			break
 		}
 	}
+	return nil
 }
 
 func (gm *GameManager) GetPlayerGame(clientID zkidentity.ShortID) *GameInstance {

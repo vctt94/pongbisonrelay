@@ -9,17 +9,21 @@ import (
 )
 
 func TestPlayer_Marshal(t *testing.T) {
+	short := func() *zkidentity.ShortID {
+		s := zkidentity.ShortID{}
+		return &s
+	}
+
 	tests := []struct {
-		name    string
-		player  *Player
-		want    *pong.Player
-		wantErr bool
+		name      string
+		player    *Player
+		want      *pong.Player // nil means we expect Marshal() to return nil
+		expectNil bool
 	}{
 		{
-			name:    "nil player",
-			player:  nil,
-			want:    nil,
-			wantErr: true,
+			name:      "nil player",
+			player:    nil,
+			expectNil: true,
 		},
 		{
 			name: "player with nil ID",
@@ -31,22 +35,18 @@ func TestPlayer_Marshal(t *testing.T) {
 				Score:        5,
 				Ready:        true,
 			},
-			want:    nil,
-			wantErr: true,
+			expectNil: true,
 		},
 		{
 			name: "valid player",
-			player: func() *Player {
-				shortID := zkidentity.ShortID{}
-				return &Player{
-					ID:           &shortID,
-					Nick:         "TestPlayer",
-					BetAmt:       250,
-					PlayerNumber: 1,
-					Score:        3,
-					Ready:        true,
-				}
-			}(),
+			player: &Player{
+				ID:           short(),
+				Nick:         "TestPlayer",
+				BetAmt:       250,
+				PlayerNumber: 1,
+				Score:        3,
+				Ready:        true,
+			},
 			want: &pong.Player{
 				Nick:   "TestPlayer",
 				BetAmt: 250,
@@ -54,21 +54,17 @@ func TestPlayer_Marshal(t *testing.T) {
 				Score:  3,
 				Ready:  true,
 			},
-			wantErr: false,
 		},
 		{
 			name: "player with zero values",
-			player: func() *Player {
-				shortID := zkidentity.ShortID{}
-				return &Player{
-					ID:           &shortID,
-					Nick:         "",
-					BetAmt:       0,
-					PlayerNumber: 0,
-					Score:        0,
-					Ready:        false,
-				}
-			}(),
+			player: &Player{
+				ID:           short(),
+				Nick:         "",
+				BetAmt:       0,
+				PlayerNumber: 0,
+				Score:        0,
+				Ready:        false,
+			},
 			want: &pong.Player{
 				Nick:   "",
 				BetAmt: 0,
@@ -76,7 +72,6 @@ func TestPlayer_Marshal(t *testing.T) {
 				Score:  0,
 				Ready:  false,
 			},
-			wantErr: false,
 		},
 	}
 
@@ -84,12 +79,19 @@ func TestPlayer_Marshal(t *testing.T) {
 		t.Run(tt.name, func(t *testing.T) {
 			got := tt.player.Marshal()
 
-			assert.Equal(t, tt.want.Nick, got.Nick)
-			assert.Equal(t, tt.want.BetAmt, got.BetAmt)
-			assert.Equal(t, tt.want.Number, got.Number)
-			assert.Equal(t, tt.want.Score, got.Score)
-			assert.Equal(t, tt.want.Ready, got.Ready)
-			assert.NotEmpty(t, got.Uid) // UID should be set from the player ID
+			if tt.expectNil {
+				assert.Nil(t, got)
+				return
+			}
+
+			if assert.NotNil(t, got) {
+				assert.Equal(t, tt.want.Nick, got.Nick)
+				assert.Equal(t, tt.want.BetAmt, got.BetAmt)
+				assert.EqualValues(t, tt.want.Number, got.Number)
+				assert.EqualValues(t, tt.want.Score, got.Score)
+				assert.Equal(t, tt.want.Ready, got.Ready)
+				assert.NotEmpty(t, got.Uid) // derived from player ID
+			}
 		})
 	}
 }

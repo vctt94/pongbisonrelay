@@ -103,7 +103,7 @@ func TestBasic_WaitingRoomOperations(t *testing.T) {
 	assert.Equal(t, player1, players[0])
 
 	// Test removing players
-	wr.RemovePlayer(player1ID)
+	wr.RemovePlayer(player1)
 	assert.Equal(t, 0, len(wr.Players))
 }
 

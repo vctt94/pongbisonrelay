@@ -12,7 +12,6 @@ import (
 	"syscall"
 	"time"
 
-	"github.com/companyzero/bisonrelay/clientrpc/types"
 	"github.com/companyzero/bisonrelay/zkidentity"
 	"github.com/vctt94/bisonbotkit/logging"
 	"github.com/vctt94/bisonbotkit/utils"
@@ -61,13 +60,6 @@ func realMain() error {
 	if cfg == nil {
 		return fmt.Errorf("failed to load config: %w", err)
 	}
-	// Create channels for tip events
-	tipChan := make(chan types.ReceivedTip)
-	tipProgressChan := make(chan types.TipProgressEvent)
-
-	// Assign channels to the bot config
-	cfg.BotConfig.TipReceivedChan = tipChan
-	cfg.BotConfig.TipProgressChan = tipProgressChan
 
 	logBackend, err := logging.NewLogBackend(logging.LogConfig{
 		LogFile:        filepath.Join(appdata, "logs", "pongbot.log"),

@@ -131,7 +131,7 @@ func (e *CanvasEngine) tick() {
 	case
 		engine.CollBottomRight,
 		engine.CollTopRight:
-		e.Err = engine.ErrP2Win
+		e.Err = engine.ErrP1Win
 		return
 
 	case

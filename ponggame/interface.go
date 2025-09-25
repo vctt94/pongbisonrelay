@@ -5,7 +5,6 @@ import (
 	"sync"
 
 	"github.com/companyzero/bisonrelay/client/clientintf"
-	"github.com/companyzero/bisonrelay/clientrpc/types"
 	"github.com/companyzero/bisonrelay/zkidentity"
 	"github.com/decred/slog"
 	"github.com/ndabAP/ping-pong/engine"
@@ -51,6 +50,9 @@ type Player struct {
 }
 
 func (p *Player) Marshal() *pong.Player {
+	if p == nil || p.ID == nil {
+		return nil
+	}
 	p.RLock()
 	defer p.RUnlock()
 	return &pong.Player{
@@ -59,6 +61,7 @@ func (p *Player) Marshal() *pong.Player {
 		BetAmt: p.BetAmt,
 		Number: p.PlayerNumber,
 		Score:  int32(p.Score),
+		Ready:  p.Ready,
 	}
 }
 
@@ -103,13 +106,12 @@ type GameInstance struct {
 
 type WaitingRoom struct {
 	sync.RWMutex
-	Ctx          context.Context
-	Cancel       context.CancelFunc
-	ID           string
-	HostID       *clientintf.UserID
-	Players      []*Player
-	BetAmount    int64
-	ReservedTips []*types.ReceivedTip
+	Ctx       context.Context
+	Cancel    context.CancelFunc
+	ID        string
+	HostID    *clientintf.UserID
+	Players   []*Player
+	BetAmount int64
 }
 
 func (wr *WaitingRoom) Marshal() *pong.WaitingRoom {

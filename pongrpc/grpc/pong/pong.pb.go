@@ -35,7 +35,6 @@ const (
 	NotificationType_ON_WR_CREATED         NotificationType = 7
 	NotificationType_ON_PLAYER_READY       NotificationType = 8
 	NotificationType_ON_WR_REMOVED         NotificationType = 9
-	NotificationType_PLAYER_LEFT_WR        NotificationType = 10
 	NotificationType_COUNTDOWN_UPDATE      NotificationType = 11
 	NotificationType_GAME_READY_TO_PLAY    NotificationType = 12
 	NotificationType_MATCH_ALLOCATED       NotificationType = 13
@@ -54,7 +53,6 @@ var (
 		7:  "ON_WR_CREATED",
 		8:  "ON_PLAYER_READY",
 		9:  "ON_WR_REMOVED",
-		10: "PLAYER_LEFT_WR",
 		11: "COUNTDOWN_UPDATE",
 		12: "GAME_READY_TO_PLAY",
 		13: "MATCH_ALLOCATED",
@@ -70,7 +68,6 @@ var (
 		"ON_WR_CREATED":         7,
 		"ON_PLAYER_READY":       8,
 		"ON_WR_REMOVED":         9,
-		"PLAYER_LEFT_WR":        10,
 		"COUNTDOWN_UPDATE":      11,
 		"GAME_READY_TO_PLAY":    12,
 		"MATCH_ALLOCATED":       13,
@@ -2806,7 +2803,7 @@ const file_pong_proto_rawDesc = "" +
 	"\agame_id\x18\x02 \x01(\tR\x06gameId\"O\n" +
 	"\x19SignalReadyToPlayResponse\x12\x18\n" +
 	"\asuccess\x18\x01 \x01(\bR\asuccess\x12\x18\n" +
-	"\amessage\x18\x02 \x01(\tR\amessage*\xa4\x02\n" +
+	"\amessage\x18\x02 \x01(\tR\amessage*\x90\x02\n" +
 	"\x10NotificationType\x12\v\n" +
 	"\aUNKNOWN\x10\x00\x12\v\n" +
 	"\aMESSAGE\x10\x01\x12\x0e\n" +
@@ -2818,9 +2815,7 @@ const file_pong_proto_rawDesc = "" +
 	"\x10PLAYER_JOINED_WR\x10\x06\x12\x11\n" +
 	"\rON_WR_CREATED\x10\a\x12\x13\n" +
 	"\x0fON_PLAYER_READY\x10\b\x12\x11\n" +
-	"\rON_WR_REMOVED\x10\t\x12\x12\n" +
-	"\x0ePLAYER_LEFT_WR\x10\n" +
-	"\x12\x14\n" +
+	"\rON_WR_REMOVED\x10\t\x12\x14\n" +
 	"\x10COUNTDOWN_UPDATE\x10\v\x12\x16\n" +
 	"\x12GAME_READY_TO_PLAY\x10\f\x12\x13\n" +
 	"\x0fMATCH_ALLOCATED\x10\r2\x81\x03\n" +

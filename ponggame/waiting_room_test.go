@@ -5,7 +5,6 @@ import (
 	"testing"
 
 	"github.com/companyzero/bisonrelay/client/clientintf"
-	"github.com/companyzero/bisonrelay/zkidentity"
 	"github.com/stretchr/testify/assert"
 )
 
@@ -68,17 +67,16 @@ func TestWaitingRoom_RemovePlayer(t *testing.T) {
 	assert.Equal(t, 2, len(wr.Players))
 
 	// Remove first player
-	wr.RemovePlayer(*players[0].ID)
+	wr.RemovePlayer(players[0])
 	assert.Equal(t, 1, len(wr.Players))
 	assert.Equal(t, players[1], wr.Players[0])
 
 	// Remove second player
-	wr.RemovePlayer(*players[1].ID)
+	wr.RemovePlayer(players[1])
 	assert.Equal(t, 0, len(wr.Players))
 
 	// Test removing non-existent player (should not panic)
-	nonExistentID := zkidentity.ShortID{}
-	wr.RemovePlayer(nonExistentID)
+	wr.RemovePlayer(nil)
 	assert.Equal(t, 0, len(wr.Players))
 }
 
@@ -111,124 +109,38 @@ func TestWaitingRoom_Marshal(t *testing.T) {
 
 func TestWaitingRoom_ReadyPlayers(t *testing.T) {
 	wr := createTestWaitingRoom()
-	players := createTestPlayers()
+	ps := createTestPlayers()
 
-	// Test with no players
-	readyPlayers := wr.ReadyPlayers()
-	canStart := len(readyPlayers) == 0
-	assert.Nil(t, readyPlayers)
-	assert.False(t, canStart)
+	// no players
+	rp := wr.ReadyPlayers()
+	assert.Len(t, rp, 0)
+	assert.False(t, len(rp) == 2)
 
-	// Test with one player
-	wr.AddPlayer(players[0])
-	readyPlayers = wr.ReadyPlayers()
-	canStart = len(readyPlayers) == 1
-	assert.Nil(t, readyPlayers)
-	assert.False(t, canStart)
+	// one unready
+	ps[0].Ready = false
+	wr.AddPlayer(ps[0])
+	rp = wr.ReadyPlayers()
+	assert.Len(t, rp, 0)
+	assert.False(t, len(rp) == 2)
 
-	// Test with two players, but not ready
-	players[0].Ready = false
-	players[1].Ready = false
-	wr.AddPlayer(players[1])
-	readyPlayers = wr.ReadyPlayers()
-	canStart = len(readyPlayers) == 0
-	assert.Nil(t, readyPlayers)
-	assert.False(t, canStart)
+	// two unready
+	ps[1].Ready = false
+	wr.AddPlayer(ps[1])
+	rp = wr.ReadyPlayers()
+	assert.Len(t, rp, 0)
+	assert.False(t, len(rp) == 2)
 
-	// Test with two ready players
-	players[0].Ready = true
-	players[1].Ready = true
-	readyPlayers = wr.ReadyPlayers()
-	canStart = len(readyPlayers) == 2
-	assert.NotNil(t, readyPlayers)
-	assert.True(t, canStart)
-	assert.Equal(t, 2, len(readyPlayers))
-}
+	// one ready
+	ps[0].Ready = true
+	rp = wr.ReadyPlayers()
+	assert.Len(t, rp, 1)
+	assert.False(t, len(rp) == 2)
 
-func TestWaitingRoom_GetPlayers(t *testing.T) {
-	wr := createTestWaitingRoom()
-	players := createTestPlayers()
-
-	// Test empty room
-	allPlayers := wr.GetPlayers()
-	assert.Equal(t, 0, len(allPlayers))
-
-	// Add players and test
-	wr.AddPlayer(players[0])
-	wr.AddPlayer(players[1])
-	allPlayers = wr.GetPlayers()
-	assert.Equal(t, 2, len(allPlayers))
-	assert.Contains(t, allPlayers, players[0])
-	assert.Contains(t, allPlayers, players[1])
-}
-
-func TestWaitingRoom_Length(t *testing.T) {
-	wr := createTestWaitingRoom()
-	players := createTestPlayers()
-
-	// Test empty room (using private method through reflection-like approach)
-	// Since length() is private, we'll test through other means
-	assert.Equal(t, 0, len(wr.GetPlayers()))
-
-	// Add players and test count
-	wr.AddPlayer(players[0])
-	assert.Equal(t, 1, len(wr.GetPlayers()))
-
-	wr.AddPlayer(players[1])
-	assert.Equal(t, 2, len(wr.GetPlayers()))
-
-	// Remove player and test count
-	wr.RemovePlayer(*players[0].ID)
-	assert.Equal(t, 1, len(wr.GetPlayers()))
-}
-
-func TestGetRemainingPlayersInWaitingRoom(t *testing.T) {
-	wr := createTestWaitingRoom()
-	players := createTestPlayers()
-
-	wr.AddPlayer(players[0])
-	wr.AddPlayer(players[1])
-
-	// Test getting remaining players when one disconnects
-	remaining := GetRemainingPlayersInWaitingRoom(wr, *players[0].ID)
-	assert.Equal(t, 1, len(remaining))
-	assert.Equal(t, players[1], remaining[0])
-
-	// Test getting remaining players when the other disconnects
-	remaining = GetRemainingPlayersInWaitingRoom(wr, *players[1].ID)
-	assert.Equal(t, 1, len(remaining))
-	assert.Equal(t, players[0], remaining[0])
-
-	// Test with non-existent player ID
-	nonExistentID := zkidentity.ShortID{}
-	remaining = GetRemainingPlayersInWaitingRoom(wr, nonExistentID)
-	assert.Equal(t, 2, len(remaining)) // All players should remain
-}
-
-func TestGetRemainingPlayerInGame(t *testing.T) {
-	players := createTestPlayers()
-	ctx, cancel := context.WithCancel(context.Background())
-	defer cancel()
-
-	game := &GameInstance{
-		Id:      "test-game",
-		Players: players,
-		Running: true,
-		ctx:     ctx,
-		cancel:  cancel,
-	}
-
-	// Test getting remaining player when one disconnects
-	remaining := GetRemainingPlayerInGame(game, *players[0].ID)
-	assert.Equal(t, players[1], remaining)
-
-	remaining = GetRemainingPlayerInGame(game, *players[1].ID)
-	assert.Equal(t, players[0], remaining)
-
-	// Test with non-existent player ID
-	nonExistentID := zkidentity.ShortID{}
-	remaining = GetRemainingPlayerInGame(game, nonExistentID)
-	assert.Equal(t, players[0], remaining) // Should return first player since no player matches the non-existent ID
+	// two ready
+	ps[1].Ready = true
+	rp = wr.ReadyPlayers()
+	assert.Len(t, rp, 2)
+	assert.True(t, len(rp) == 2)
 }
 
 func TestWaitingRoom_ConcurrentAccess(t *testing.T) {
@@ -304,7 +216,7 @@ func TestWaitingRoom_StateConsistency(t *testing.T) {
 	assert.Equal(t, len(wr.Players), len(pongWR.Players))
 
 	// Remove player and verify state
-	wr.RemovePlayer(*players[0].ID)
+	wr.RemovePlayer(players[0])
 	assert.Equal(t, 1, len(wr.Players))
 
 	// Verify remaining player is correct

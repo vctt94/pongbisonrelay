@@ -104,9 +104,6 @@ func (pc *PongClient) handleNtfn(ntfn *pong.NtfnStreamResponse) {
 	case pong.NotificationType_PLAYER_JOINED_WR:
 		pc.ntfns.notifyPlayerJoinedWR(ntfn.Wr, time.Now())
 
-	case pong.NotificationType_PLAYER_LEFT_WR:
-		pc.ntfns.notifyPlayerLeftWR(ntfn.Wr, ntfn.PlayerId, time.Now())
-
 	case pong.NotificationType_GAME_START:
 		if ntfn.Started {
 			pc.ntfns.notifyGameStarted(ntfn.GameId, time.Now())
@@ -117,7 +114,7 @@ func (pc *PongClient) handleNtfn(ntfn *pong.NtfnStreamResponse) {
 		pc.log.Infof("%s", ntfn.Message)
 
 	case pong.NotificationType_OPPONENT_DISCONNECTED:
-		pc.UpdatesCh <- ntfn
+		pc.ntfns.notifyPlayerLeftWR(ntfn.Wr, ntfn.PlayerId, time.Now())
 
 	case pong.NotificationType_BET_AMOUNT_UPDATE:
 		if ntfn.PlayerId == pc.ID {

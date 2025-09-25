@@ -281,35 +281,42 @@ func (s *Server) LeaveWaitingRoom(ctx context.Context, req *pong.LeaveWaitingRoo
 		}, nil
 	}
 
-	// Remove the player from the waiting room
-	wr.RemovePlayer(clientID)
+	wr.RLock()
+	hostID := wr.HostID.String()
+	wr.RUnlock()
 
-	// If player was the host and there are other players, assign a new host
-	if wr.HostID.String() == clientID.String() && len(wr.Players) > 0 {
-		wr.Lock()
-		wr.HostID = wr.Players[0].ID
-		wr.Unlock()
-	}
+	// If the leaving player is the host, close the room entirely.
+	if hostID == clientID.String() {
 
-	// If the room is now empty, remove it
-	if len(wr.Players) == 0 {
-		s.gameManager.RemoveWaitingRoom(wr.ID)
-	} else {
-		// Notify remaining players that someone left
-		pwrMarshaled := wr.Marshal()
-		for _, p := range wr.Players {
-			// Send notification to remaining players
-			_ = s.notify(p, &pong.NtfnStreamResponse{
-				NotificationType: pong.NotificationType_PLAYER_LEFT_WR,
-				RoomId:           wr.ID,
-				Wr:               pwrMarshaled,
-				PlayerId:         req.ClientId,
-			})
+		// Cancel the room context if present and remove from manager.
+		if wr.Cancel != nil {
+			wr.Cancel()
 		}
-	}
+		s.gameManager.RemoveWaitingRoom(wr.ID)
 
-	// Reset the player's waiting room reference
-	player.WR = nil
+		// Broadcast room removal to all users (for UIs that list rooms).
+		s.notifyallusers(&pong.NtfnStreamResponse{
+			NotificationType: pong.NotificationType_ON_WR_REMOVED,
+			Message:          "host left the waiting room so the room was closed",
+			RoomId:           wr.ID,
+		})
+		return &pong.LeaveWaitingRoomResponse{
+			Success: true,
+			Message: "host left; room closed",
+		}, nil
+	}
+	// Non-host: remove the player from the waiting room
+	wr.RemovePlayer(player)
+
+	// Get remaining players and notify them
+	remainingPlayers := ponggame.GetRemainingPlayersInWaitingRoom(wr, clientID)
+	for _, remainingPlayer := range remainingPlayers {
+		_ = s.notify(remainingPlayer, &pong.NtfnStreamResponse{
+			NotificationType: pong.NotificationType_OPPONENT_DISCONNECTED,
+			Message:          "player left the waiting room",
+			RoomId:           wr.ID,
+		})
+	}
 
 	return &pong.LeaveWaitingRoomResponse{
 		Success: true,

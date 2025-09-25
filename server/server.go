@@ -289,7 +289,6 @@ func (s *Server) handleDisconnect(clientID zkidentity.ShortID) {
 		s.gameManager.PlayerSessions.RemovePlayer(clientID)
 	}
 
-	// These can safely be called multiple times
 	s.gameManager.HandleWaitingRoomDisconnection(clientID, s.log)
 	s.gameManager.HandleGameDisconnection(clientID, s.log)
 }
