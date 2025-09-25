@@ -265,7 +265,6 @@ func (s *Server) SettlementStream(stream pong.PongReferee_SettlementStreamServer
 	return s.settlementStreamForRoom(stream, X, wr, caller, host)
 }
 
-
 // makeSettleInputFromEscrow builds a minimal settlement context from a bound escrow.
 // It requires es.boundInputID and es.boundInput to be set (use ensureBoundFunding first).
 func (s *Server) makeSettleInputFromEscrow(es *escrowSession) (*SettleInput, error) {
@@ -279,7 +278,7 @@ func (s *Server) makeSettleInputFromEscrow(es *escrowSession) (*SettleInput, err
 	}
 	payout := es.payoutPubkey
 	if len(payout) != 33 {
-		payout = es.compPubkey
+		return nil, fmt.Errorf("bad payout pubkey")
 	}
 	return &SettleInput{
 		EscrowID:        es.escrowID,
@@ -403,7 +402,7 @@ func (s *Server) buildTwoInputDrafts(a *escrowSession, au *pong.EscrowUTXO, b *e
 		}
 		payKey := payTo.payoutPubkey
 		if len(payKey) != 33 {
-			payKey = payTo.compPubkey
+			return "", nil, fmt.Errorf("bad payout pubkey")
 		}
 		pkScript, err := buildP2PKScript(payKey)
 		if err != nil {

@@ -476,7 +476,6 @@ class PongModel extends ChangeNotifier {
       currentWR = null;
       _currentGameState = GameState.idle;
       errorMessage = '';
-      clearEscrowState();
       _stopGameStreamAndRenderLoop();
       notifyListeners();
 
