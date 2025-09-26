@@ -217,7 +217,7 @@ func (pc *PongClient) RefStartSettlementStream(ctx context.Context) (pong.PongRe
 // RefGetFinalizeBundle fetches gamma and both presigs for the winning branch.
 func (pc *PongClient) RefGetFinalizeBundle(matchID string) (*pong.GetFinalizeBundleResponse, error) {
 	ctx := context.Background()
-	return pc.rc.GetFinalizeBundle(ctx, &pong.GetFinalizeBundleRequest{MatchId: matchID, WinnerUid: pc.ID})
+	return pc.rc.GetFinalizeBundle(ctx, &pong.GetFinalizeBundleRequest{MatchId: matchID, WinnerUid: pc.id})
 }
 
 // OpenEscrowWithSession opens an escrow using the cached settlement session pubkey.
@@ -232,7 +232,7 @@ func (pc *PongClient) OpenEscrowWithSession(ctx context.Context, payoutPubkey []
 	if err != nil {
 		return nil, fmt.Errorf("bad session pubkey: %w", err)
 	}
-	return pc.RefOpenEscrow(pc.ID, pubBytes, payoutPubkey, betAtoms, csvBlocks)
+	return pc.RefOpenEscrow(pc.id, pubBytes, payoutPubkey, betAtoms, csvBlocks)
 }
 
 // RefStartSettlementHandshake starts a schnorr adaptor pre-sign handshake:

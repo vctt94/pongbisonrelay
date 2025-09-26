@@ -66,20 +66,21 @@ func (p *Player) Marshal() *pong.Player {
 }
 
 func (p *Player) ResetPlayer() {
+	p.Lock()
+	defer p.Unlock()
+
 	p.GameStream = nil
 	p.Score = 0
 	p.PlayerNumber = 0
 	p.BetAmt = 0
 	p.Ready = false
-	if p.FrameCh != nil {
-		close(p.FrameCh)
-		p.FrameCh = nil
-	}
 	p.WR = nil
 }
 
 type GameInstance struct {
 	sync.RWMutex
+	closeOnce sync.Once
+
 	Id          string
 	engine      *CanvasEngine
 	Framesch    chan []byte

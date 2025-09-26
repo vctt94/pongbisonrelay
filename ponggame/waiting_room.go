@@ -28,7 +28,10 @@ func (wr *WaitingRoom) ReadyPlayers() []*Player {
 	// Collect all ready players without mutating room state.
 	var selected []*Player
 	for _, p := range wr.Players {
-		if p.Ready {
+		p.RLock()
+		ready := p.Ready
+		p.RUnlock()
+		if ready {
 			selected = append(selected, p)
 		}
 	}

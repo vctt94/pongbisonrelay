@@ -22,7 +22,7 @@ func (pc *PongClient) RefGetWaitingRooms(ctx context.Context) ([]*pong.WaitingRo
 	if err != nil {
 		return nil, fmt.Errorf("error getting wr: %w", err)
 	}
-	go func() { pc.UpdatesCh <- res.Wr }()
+	go func() { pc.updatesCh <- res.Wr }()
 
 	return res.Wr, nil
 }
@@ -42,7 +42,7 @@ func (pc *PongClient) RefCreateWaitingRoom(clientId string, betAmt int64, escrow
 
 func (pc *PongClient) RefJoinWaitingRoom(roomID string, escrowID string) (*pong.JoinWaitingRoomResponse, error) {
 	ctx := context.Background()
-	req := &pong.JoinWaitingRoomRequest{ClientId: pc.ID, RoomId: roomID}
+	req := &pong.JoinWaitingRoomRequest{ClientId: pc.id, RoomId: roomID}
 	if escrowID != "" {
 		req.EscrowId = escrowID
 	}
@@ -56,7 +56,7 @@ func (pc *PongClient) RefJoinWaitingRoom(roomID string, escrowID string) (*pong.
 func (pc *PongClient) RefLeaveWaitingRoom(roomID string) error {
 	ctx := context.Background()
 	res, err := pc.wr.LeaveWaitingRoom(ctx, &pong.LeaveWaitingRoomRequest{
-		ClientId: pc.ID,
+		ClientId: pc.id,
 		RoomId:   roomID,
 	})
 	if err != nil {

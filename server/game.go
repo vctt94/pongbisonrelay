@@ -110,7 +110,9 @@ func (s *Server) StartGameStream(req *pong.StartGameStreamRequest, stream pong.P
 		}
 	}
 	player.GameStream = stream
+	player.Lock()
 	player.Ready = true
+	player.Unlock()
 
 	// Notify all players in the waiting room that this player is ready
 	if player.WR != nil {
@@ -150,7 +152,9 @@ func (s *Server) UnreadyGameStream(ctx context.Context, req *pong.UnreadyGameStr
 	if player.WR == nil {
 		return nil, fmt.Errorf("player not in a waiting room")
 	}
+	player.Lock()
 	player.Ready = false
+	player.Unlock()
 
 	// First get the cancel function and call it before deleting
 	if cancel, ok := s.activeGameStreams.Load(clientID); ok {

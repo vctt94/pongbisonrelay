@@ -170,10 +170,12 @@ func (gm *GameManager) startNewGame(ctx context.Context, players []*Player, id s
 	// sum of all bets
 	betAmt := int64(0)
 	for _, player := range players {
+		player.Lock()
 		player.Score = 0
 		betAmt += player.BetAmt
 		// Create individual frame buffer for each player with frame dropping capability
 		player.FrameCh = make(chan []byte, INPUT_BUF_SIZE/4) // Smaller buffer per player
+		player.Unlock()
 	}
 
 	newGame := &GameInstance{
@@ -289,7 +291,8 @@ func (g *GameInstance) Run() {
 				allPlayersReady := len(g.PlayersReady) == len(g.Players)
 
 				// If all players are ready and countdown hasn't started yet, start countdown
-				if allPlayersReady && !g.CountdownStarted && !g.GameReady {
+				gameReady := g.GameReady
+				if allPlayersReady && !g.CountdownStarted && !gameReady {
 					g.CountdownStarted = true
 					g.Unlock()
 
@@ -300,16 +303,14 @@ func (g *GameInstance) Run() {
 				}
 
 				// If game is ready, start the actual gameplay
-				if g.GameReady {
-					// Start actual gameplay
+				if gameReady {
+					// Start actual gameplay - single goroutine to handle all rounds
 					go func() {
-						// Run a new round only if the game is still running
+						// Start the first round
 						if g.Running {
 							g.engine.NewRound(g.ctx, g.Framesch, g.Inputch, g.roundResult)
 						}
-					}()
 
-					go func() {
 						for winnerNumber := range g.roundResult {
 							if !g.Running {
 								break
@@ -320,8 +321,6 @@ func (g *GameInstance) Run() {
 
 							// Check if the game should continue or end
 							if g.shouldEndGame() {
-								// clean up the game after ending
-								g.Cleanup()
 								break
 							} else {
 								g.engine.NewRound(g.ctx, g.Framesch, g.Inputch, g.roundResult)
@@ -422,6 +421,8 @@ func (g *GameInstance) startCountdown() {
 	}
 }
 
+// handleRoundResult updates the score of the player who won the round
+// does not hold locks to avoid deadlocks
 func (g *GameInstance) handleRoundResult(winner int32) {
 	// update player score
 	for _, player := range g.Players {
@@ -432,19 +433,14 @@ func (g *GameInstance) handleRoundResult(winner int32) {
 }
 
 func (g *GameInstance) Cleanup() {
-	g.cleanedUp = true
-	g.cancel()
-	close(g.Framesch)
-	close(g.Inputch)
-	close(g.roundResult)
-
-	// Close individual player frame channels
-	for _, player := range g.Players {
-		if player.FrameCh != nil {
-			close(player.FrameCh)
-			player.FrameCh = nil
-		}
-	}
+	g.closeOnce.Do(func() {
+		g.cleanedUp = true
+		g.cancel()
+		// distributeFrames() will close per-player FrameChs.
+		// Close roundResult channel to signal the round handler goroutine to exit
+		close(g.roundResult)
+		// Do NOT close g.Inputch here if others may still send/recv.
+	})
 }
 
 func (g *GameInstance) shouldEndGame() bool {
@@ -454,6 +450,11 @@ func (g *GameInstance) shouldEndGame() bool {
 			g.log.Infof("Game ending: Player %s reached the maximum score of %d", player.ID, player.Score)
 			g.Winner = player.ID
 			g.Running = false
+			// Signal that the game has ended by closing the frame channel
+			// This will cause distributeFrames to exit and close player channels
+			if g.Framesch != nil {
+				close(g.Framesch)
+			}
 			return true
 		}
 	}
@@ -461,6 +462,11 @@ func (g *GameInstance) shouldEndGame() bool {
 	// Add other conditions as needed, e.g., time limit or disconnection
 	if g.isTimeout() {
 		g.log.Info("Game ending: Timeout reached")
+		g.Running = false
+		// Signal that the game has ended by closing the frame channel
+		if g.Framesch != nil {
+			close(g.Framesch)
+		}
 		return true
 	}
 
@@ -486,8 +492,12 @@ func NewEngine(width, height float64, players []*Player, log slog.Logger) *Canva
 		engine.NewBall(15, 15),
 	)
 
+	players[0].Lock()
 	players[0].PlayerNumber = 1
+	players[0].Unlock()
+	players[1].Lock()
 	players[1].PlayerNumber = 2
+	players[1].Unlock()
 
 	canvasEngine := New(game)
 	canvasEngine.SetLogger(log).SetFPS(DEFAULT_FPS)
@@ -507,9 +517,9 @@ func (g *GameInstance) distributeFrames() {
 		case frame, ok := <-g.Framesch:
 			if !ok {
 				// Main frame channel closed, close all player channels
-				for _, player := range g.Players {
-					if player.FrameCh != nil {
-						close(player.FrameCh)
+				for _, p := range g.Players {
+					if p.FrameCh != nil {
+						close(p.FrameCh)
 					}
 				}
 				return
