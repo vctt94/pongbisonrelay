@@ -5,6 +5,7 @@ import (
 	"context"
 	"encoding/hex"
 	"fmt"
+	"io"
 	"net/http"
 	"path/filepath"
 	"sync"
@@ -102,80 +103,6 @@ type escrowSession struct {
 	preSign map[string]*PreSignCtx // presign artifacts by input_id "txid:vout"
 }
 
-// preSignSnapshot returns a consistent snapshot of the presign state while
-// holding a read lock only once. It includes the bound input id, the list of
-// input ids present in presign contexts, whether all contexts agree on the
-// same branch, and the count of presign contexts.
-func (es *escrowSession) preSignSnapshot() (bound string, inputs []string, consistent bool) {
-	es.mu.RLock()
-	defer es.mu.RUnlock()
-
-	bound = es.boundInputID
-	consistent = true
-	var haveBranch bool
-	var branch int32
-	for _, ctx := range es.preSign {
-		if !haveBranch {
-			branch = ctx.Branch
-			haveBranch = true
-		} else if ctx.Branch != branch {
-			consistent = false
-		}
-		inputs = append(inputs, ctx.InputID)
-	}
-	return
-}
-
-// clearPreSigns removes all presign artifacts from the escrow session.
-// This should be called when a player leaves to prevent memory leaks and stale data.
-func (es *escrowSession) clearPreSigns() {
-	es.mu.Lock()
-	defer es.mu.Unlock()
-
-	if es.preSign != nil {
-		es.preSign = make(map[string]*PreSignCtx)
-	}
-}
-
-// cleanupEscrowSessionsForPlayers cleans up all escrow sessions for the given players.
-// This includes canceling trackEscrow goroutines, unsubscribing from chain watcher,
-// clearing presign artifacts, and removing sessions from memory.
-func (s *Server) cleanupEscrowSessionsForPlayers(players []*ponggame.Player) {
-	s.escrowsMu.Lock()
-	var escrowsToDelete []string
-	for _, p := range players {
-		// Find and clean up escrow sessions for this player
-		for escrowID, es := range s.escrows {
-			if es != nil && es.ownerUID == *p.ID {
-				// Cancel the trackEscrow goroutine
-				if es.cancelTrack != nil {
-					es.cancelTrack()
-				}
-				// Unsubscribe from chain watcher
-				if es.unsubW != nil {
-					es.unsubW()
-				}
-				// Clear presign artifacts
-				es.clearPreSigns()
-				// Mark for deletion
-				escrowsToDelete = append(escrowsToDelete, escrowID)
-			}
-		}
-	}
-	// Remove escrow sessions from the map
-	for _, escrowID := range escrowsToDelete {
-		delete(s.escrows, escrowID)
-	}
-	s.escrowsMu.Unlock()
-
-	// Clean up room escrow mappings
-	s.roomEscrowsMu.Lock()
-	for _, p := range players {
-		delete(s.roomEscrows, *p.ID)
-	}
-	s.roomEscrowsMu.Unlock()
-}
-
 type Server struct {
 	pong.UnimplementedPongGameServer
 	pong.UnimplementedPongWaitingRoomServer
@@ -262,10 +189,10 @@ func NewServer(id *zkidentity.ShortID, cfg ServerConfig) (*Server, error) {
 	} else {
 		s.log.Infof("Free-to-Play mode DISABLED (escrow required)")
 	}
+
 	if cfg.DcrdHostPort == "" || cfg.DcrdRPCUser == "" || cfg.DcrdRPCPass == "" || cfg.DcrdRPCCertPath == "" {
 		return nil, fmt.Errorf("incomplete dcrd config: host=%q user=%q pass_set=%t cert=%q", cfg.DcrdHostPort, cfg.DcrdRPCUser, cfg.DcrdRPCPass != "", cfg.DcrdRPCCertPath)
 	}
-
 	b, err := os.ReadFile(cfg.DcrdRPCCertPath)
 	if err != nil {
 		return nil, fmt.Errorf("failed to read dcrd rpc cert at %s: %w", cfg.DcrdRPCCertPath, err)
@@ -316,6 +243,45 @@ func NewServer(id *zkidentity.ShortID, cfg ServerConfig) (*Server, error) {
 	return s, nil
 }
 
+// cleanupEscrowSessionsForPlayers cleans up all escrow sessions for the given players.
+// This includes canceling trackEscrow goroutines, unsubscribing from chain watcher,
+// clearing presign artifacts, and removing sessions from memory.
+func (s *Server) cleanupEscrowSessionsForPlayers(players []*ponggame.Player) {
+	s.escrowsMu.Lock()
+	var escrowsToDelete []string
+	for _, p := range players {
+		// Find and clean up escrow sessions for this player
+		for escrowID, es := range s.escrows {
+			if es != nil && es.ownerUID == *p.ID {
+				// Cancel the trackEscrow goroutine
+				if es.cancelTrack != nil {
+					es.cancelTrack()
+				}
+				// Unsubscribe from chain watcher
+				if es.unsubW != nil {
+					es.unsubW()
+				}
+				// Clear presign artifacts
+				es.clearPreSigns()
+				// Mark for deletion
+				escrowsToDelete = append(escrowsToDelete, escrowID)
+			}
+		}
+	}
+	// Remove escrow sessions from the map
+	for _, escrowID := range escrowsToDelete {
+		delete(s.escrows, escrowID)
+	}
+	s.escrowsMu.Unlock()
+
+	// Clean up room escrow mappings
+	s.roomEscrowsMu.Lock()
+	for _, p := range players {
+		delete(s.roomEscrows, *p.ID)
+	}
+	s.roomEscrowsMu.Unlock()
+}
+
 func (s *Server) handleDisconnect(clientID zkidentity.ShortID) {
 	// Cancel any active streams for this client
 	if cancel, ok := s.activeNtfnStreams.Load(clientID); ok {
@@ -341,156 +307,6 @@ func (s *Server) handleDisconnect(clientID zkidentity.ShortID) {
 	}
 
 	s.gameManager.RemovePlayerFromWaitingRoom(clientID)
-}
-
-// escrowForRoomPlayer returns the escrow session bound to (wrID, ownerUID)
-// via the roomEscrows mapping. It does not attempt to pick a "newest" escrow.
-func (s *Server) escrowForRoomPlayer(ownerUID zkidentity.ShortID, wrID string) *escrowSession {
-	s.roomEscrowsMu.RLock()
-	defer s.roomEscrowsMu.RUnlock()
-	m := s.roomEscrows[ownerUID]
-	if m == nil {
-		return nil
-	}
-	escrowID := m[wrID]
-	if escrowID == "" {
-		return nil
-	}
-	return s.escrows[escrowID]
-}
-
-// ensureBoundFunding either binds the canonical funding input if not yet bound
-// (requiring exactly one UTXO), or verifies the previously-bound input still
-// exists and that no extra deposits were made.
-func (s *Server) ensureBoundFunding(es *escrowSession) error {
-	es.mu.Lock()
-	defer es.mu.Unlock()
-
-	// Must have a watcher snapshot that says "funded".
-	if !es.latest.OK || es.latest.UTXOCount == 0 {
-		return fmt.Errorf("escrow not yet funded")
-	}
-
-	// Normalize current UTXO list.
-	var current []*pong.EscrowUTXO
-	for _, u := range es.lastUTXOs {
-		if u != nil && u.Txid != "" {
-			current = append(current, u)
-		}
-	}
-	// If we haven't cached details yet, we can't bind.
-	if len(current) == 0 {
-		return fmt.Errorf("escrow UTXO details not available yet; wait for index")
-	}
-
-	if es.boundInputID == "" {
-		// Not yet bound: require an exact-value funding UTXO matching betAtoms.
-		var matches []*pong.EscrowUTXO
-		for _, u := range current {
-			if u.Value == es.betAtoms {
-				matches = append(matches, u)
-			}
-		}
-		if len(matches) == 0 {
-			return fmt.Errorf("no funding UTXO with exact amount: want %d atoms", es.betAtoms)
-		}
-		// Fail if there are multiple deposits (of any value) — require exactly one UTXO total.
-		if len(current) != 1 || es.latest.UTXOCount != 1 || len(matches) != 1 {
-			return fmt.Errorf("unexpected deposits present (total=%d, exact-matches=%d); require a single exact %d atoms deposit", len(current), len(matches), es.betAtoms)
-		}
-		u := matches[0]
-		boundID := fmt.Sprintf("%s:%d", u.Txid, u.Vout)
-		es.boundInputID = boundID
-		es.boundInput = u
-		s.notify(es.player, &pong.NtfnStreamResponse{NotificationType: pong.NotificationType_MESSAGE, Message: fmt.Sprintf("Escrow bound to %s (exact %d atoms).", boundID, es.betAtoms)})
-		return nil
-	}
-
-	// Already bound: verify the exact input is still present.
-	var found *pong.EscrowUTXO
-	for _, u := range current {
-		if fmt.Sprintf("%s:%d", u.Txid, u.Vout) == es.boundInputID {
-			found = u
-			break
-		}
-	}
-	if found == nil {
-		// The canonical input disappeared (reorg/spent?) -> invalidate.
-		return fmt.Errorf("bound funding UTXO %s not present", es.boundInputID)
-	}
-	es.boundInput = found
-	// Enforce: only the bound input must exist and must match the exact amount.
-	if len(current) != 1 || es.latest.UTXOCount != 1 {
-		return fmt.Errorf("unexpected additional deposits (%d); only the bound %s with %d atoms is allowed", len(current), es.boundInputID, es.betAtoms)
-	}
-	if es.boundInput != nil && es.boundInput.Value != es.betAtoms {
-		return fmt.Errorf("bound funding amount mismatch: have %d want %d", es.boundInput.Value, es.betAtoms)
-	}
-
-	return nil
-}
-
-func (s *Server) sendGameUpdates(ctx context.Context, player *ponggame.Player, game *ponggame.GameInstance) error {
-	for {
-		select {
-		case <-ctx.Done():
-			// XXX: try reconnecting
-			return ctx.Err()
-		case frame, ok := <-player.FrameCh:
-			if !ok {
-				return ctx.Err() // Player's frame channel closed, exit
-			}
-			if player.GameStream == nil {
-				// XXX something going on with the stream, should try a reconnect.
-				s.log.Errorf("player %s has no game stream", player.ID)
-				continue
-			}
-			err := player.GameStream.Send(&pong.GameUpdateBytes{Data: frame})
-			if err != nil {
-				return err
-			}
-		}
-	}
-}
-
-// notify sends a simple text notification if the stream is live.
-// (Optional: de-dupe by caching the last message per player to avoid spam.)
-func (s *Server) notify(p *ponggame.Player, resp *pong.NtfnStreamResponse) error {
-	if p == nil {
-		return fmt.Errorf("player nil")
-	}
-	if p.ID == nil {
-		return fmt.Errorf("player id nil")
-	}
-	if p.NotifierStream == nil {
-		return fmt.Errorf("player stream nil")
-	}
-	if resp == nil {
-		return fmt.Errorf("nil response")
-	}
-	if err := p.NotifierStream.Send(resp); err != nil {
-		s.log.Warnf("notify: failed to deliver to %s: %v", p.ID.String(), err)
-		return err
-	}
-	return nil
-}
-
-func (s *Server) notifyallusers(resp *pong.NtfnStreamResponse) {
-	// Notify all users.
-	s.usersMu.RLock()
-	usersSnap := make([]*ponggame.Player, 0, len(s.users))
-	for _, u := range s.users {
-		usersSnap = append(usersSnap, u)
-	}
-	s.usersMu.RUnlock()
-
-	for _, user := range usersSnap {
-		if user.NotifierStream == nil {
-			s.log.Errorf("user %s without NotifierStream", user.ID)
-			continue
-		}
-		_ = s.notify(user, resp)
-	}
 }
 
 func (s *Server) Run(ctx context.Context) error {
@@ -751,6 +567,30 @@ func (s *Server) handleGameEnd(ctx context.Context, game *ponggame.GameInstance,
 	}
 }
 
+// preSignSnapshot returns a consistent snapshot of the presign state while
+// holding a read lock only once. It includes the bound input id, the list of
+// input ids present in presign contexts, whether all contexts agree on the
+// same branch, and the count of presign contexts.
+func (es *escrowSession) preSignSnapshot() (bound string, inputs []string, consistent bool) {
+	es.mu.RLock()
+	defer es.mu.RUnlock()
+
+	bound = es.boundInputID
+	consistent = true
+	var haveBranch bool
+	var branch int32
+	for _, ctx := range es.preSign {
+		if !haveBranch {
+			branch = ctx.Branch
+			haveBranch = true
+		} else if ctx.Branch != branch {
+			consistent = false
+		}
+		inputs = append(inputs, ctx.InputID)
+	}
+	return
+}
+
 // ManageWaitingRoom
 func (s *Server) manageWaitingRoom(ctx context.Context, wr *ponggame.WaitingRoom) error {
 	ticker := time.NewTicker(time.Second)
@@ -840,6 +680,33 @@ func (s *Server) manageWaitingRoom(ctx context.Context, wr *ponggame.WaitingRoom
 	}
 }
 
+func (s *Server) sendGameUpdates(ctx context.Context, player *ponggame.Player, game *ponggame.GameInstance) error {
+	ch := player.FrameCh
+	if ch == nil {
+		return fmt.Errorf("nil FrameCh for player %v", player.ID)
+	}
+
+	for {
+		select {
+		case <-ctx.Done():
+			return ctx.Err()
+		case frame, ok := <-ch:
+			if !ok {
+				// Producer closed: normal shutdown
+				return io.EOF
+			}
+			if player.GameStream == nil {
+				s.log.Errorf("player %s has no game stream", player.ID)
+				continue
+			}
+			err := player.GameStream.Send(&pong.GameUpdateBytes{Data: frame})
+			if err != nil {
+				return err
+			}
+		}
+	}
+}
+
 func (s *Server) handleGameLifecycle(ctx context.Context, wr *ponggame.WaitingRoom) {
 	players := wr.ReadyPlayers()[:2]
 	game, err := s.gameManager.StartGame(ctx, players)
@@ -881,6 +748,9 @@ func (s *Server) handleGameLifecycle(ctx context.Context, wr *ponggame.WaitingRo
 	}
 
 	wg.Wait() // Wait for both players' streams to finish
+
+	// Clean up the game after all streams have finished
+	game.Cleanup()
 
 	s.handleGameEnd(ctx, game, wr)
 }

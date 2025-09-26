@@ -3,7 +3,6 @@ package ponggame
 import (
 	"context"
 	"errors"
-	"sync"
 	"time"
 
 	"github.com/decred/slog"
@@ -13,13 +12,6 @@ import (
 
 	"github.com/ndabAP/ping-pong/engine"
 )
-
-// Pool for GameUpdate objects to reduce allocations
-var gameUpdatePool = sync.Pool{
-	New: func() interface{} {
-		return &pong.GameUpdate{}
-	},
-}
 
 // New returns a new Canvas engine for browsers with Canvas support
 func New(g engine.Game) *CanvasEngine {
@@ -71,82 +63,63 @@ func (e *CanvasEngine) NewRound(ctx context.Context, framesch chan<- []byte, inp
 				e.log.Debug("exiting")
 				return
 			case <-frameTimer.C:
+				e.mu.Lock()
+
 				e.tick()
+				// round end check: read Err under lock
+				p1win := errors.Is(e.Err, engine.ErrP1Win)
+				p2win := errors.Is(e.Err, engine.ErrP2Win)
 
-				if errors.Is(e.Err, engine.ErrP1Win) {
-					e.P1Score += 1
+				var winner int32
+				if p1win || p2win {
+					if p1win {
+						e.P1Score++
+						winner = 1
+					} else {
+						e.P2Score++
+						winner = 2
+					}
 
-					// Send the winner's ID through the roundResult channel
+					e.mu.Unlock()
+
+					// Send round result and exit goroutine
 					select {
-					case roundResult <- 1:
+					case roundResult <- winner:
+						e.log.Debugf("Round ended, winner: %d", winner)
 					case <-ctx.Done():
 						return
 					}
+					return // Exit the goroutine after round ends
+				}
 
-					return
-				} else if errors.Is(e.Err, engine.ErrP2Win) {
-					e.P2Score += 1
+				// Build the frame snapshot under lock
+				var gu pong.GameUpdate
+				gu.GameWidth, gu.GameHeight = e.Game.Width, e.Game.Height
+				gu.P1Width, gu.P1Height = e.Game.P1.Width, e.Game.P1.Height
+				gu.P2Width, gu.P2Height = e.Game.P2.Width, e.Game.P2.Height
+				gu.BallWidth, gu.BallHeight = e.Game.Ball.Width, e.Game.Ball.Height
+				gu.P1Score, gu.P2Score = int32(e.P1Score), int32(e.P2Score)
+				gu.BallX, gu.BallY = e.BallPos.X, e.BallPos.Y
+				gu.P1X, gu.P1Y = e.P1Pos.X, e.P1Pos.Y
+				gu.P2X, gu.P2Y = e.P2Pos.X, e.P2Pos.Y
+				gu.P1YVelocity, gu.P2YVelocity = e.P1Vel.Y, e.P2Vel.Y
+				gu.BallXVelocity, gu.BallYVelocity = e.BallVel.X, e.BallVel.Y
+				gu.Fps, gu.Tps = e.FPS, e.TPS
 
-					// Send the winner's ID through the roundResult channel
+				e.mu.Unlock()
+
+				// marshal (no lock held)
+				b, err := proto.Marshal(&gu)
+				if err == nil {
 					select {
-					case roundResult <- 2:
+					case framesch <- b:
+						// Frame sent successfully
 					case <-ctx.Done():
 						return
+					default:
+						// Channel is full, drop this frame to prevent blocking
 					}
-
-					return
 				}
-
-				// Use pooled object to reduce allocations
-				gameUpdateFrame := gameUpdatePool.Get().(*pong.GameUpdate)
-
-				// Reset the object
-				gameUpdateFrame.Reset()
-
-				// Populate the frame data
-				gameUpdateFrame.GameWidth = e.Game.Width
-				gameUpdateFrame.GameHeight = e.Game.Height
-				gameUpdateFrame.P1Width = e.Game.P1.Width
-				gameUpdateFrame.P1Height = e.Game.P1.Height
-				gameUpdateFrame.P2Width = e.Game.P2.Width
-				gameUpdateFrame.P2Height = e.Game.P2.Height
-				gameUpdateFrame.BallWidth = e.Game.Ball.Width
-				gameUpdateFrame.BallHeight = e.Game.Ball.Height
-				gameUpdateFrame.P1Score = int32(e.P1Score)
-				gameUpdateFrame.P2Score = int32(e.P2Score)
-				gameUpdateFrame.BallX = e.BallPos.X
-				gameUpdateFrame.BallY = e.BallPos.Y
-				gameUpdateFrame.P1X = e.P1Pos.X
-				gameUpdateFrame.P1Y = e.P1Pos.Y
-				gameUpdateFrame.P2X = e.P2Pos.X
-				gameUpdateFrame.P2Y = e.P2Pos.Y
-				gameUpdateFrame.P1YVelocity = e.P1Vel.Y
-				gameUpdateFrame.P2YVelocity = e.P2Vel.Y
-				gameUpdateFrame.BallXVelocity = e.BallVel.X
-				gameUpdateFrame.BallYVelocity = e.BallVel.Y
-				gameUpdateFrame.Fps = e.FPS
-				gameUpdateFrame.Tps = e.TPS
-
-				protoTick, err := proto.Marshal(gameUpdateFrame)
-				if err != nil {
-					e.log.Errorf("Error marshaling protobuf: %v", err)
-				}
-				// Return object to pool
-				gameUpdatePool.Put(gameUpdateFrame)
-
-				select {
-				case framesch <- protoTick:
-				case <-ctx.Done():
-					return
-				}
-			}
-		}
-	}()
-
-	// Reads user input and moves player one according to it
-	go func() {
-		for {
-			select {
 			case key, ok := <-inputch:
 				if !ok {
 					// Input channel is closed; exit goroutine
@@ -167,44 +140,37 @@ func (e *CanvasEngine) NewRound(ctx context.Context, framesch chan<- []byte, inp
 					continue
 				}
 
-				// Process the valid input
-				if in.PlayerNumber == int32(1) {
-					switch k := in.Input; k {
+				if in.PlayerNumber == 1 {
+					switch in.Input {
 					case "ArrowUp":
 						e.p1Up()
 					case "ArrowDown":
 						e.p1Down()
 					case "ArrowUpStop":
-						// Stop upward movement
 						if e.P1Vel.Y < 0 {
 							e.P1Vel.Y = 0
 						}
 					case "ArrowDownStop":
-						// Stop downward movement
 						if e.P1Vel.Y > 0 {
 							e.P1Vel.Y = 0
 						}
 					}
 				} else {
-					switch k := in.Input; k {
+					switch in.Input {
 					case "ArrowUp":
 						e.p2Up()
 					case "ArrowDown":
 						e.p2Down()
 					case "ArrowUpStop":
-						// Stop upward movement
 						if e.P2Vel.Y < 0 {
 							e.P2Vel.Y = 0
 						}
 					case "ArrowDownStop":
-						// Stop downward movement
 						if e.P2Vel.Y > 0 {
 							e.P2Vel.Y = 0
 						}
 					}
 				}
-			case <-ctx.Done():
-				return
 			}
 		}
 	}()

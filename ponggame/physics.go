@@ -79,78 +79,51 @@ func (e *CanvasEngine) bottomRect() Rect {
 }
 
 // tick calculates the next frame
+// Make sure to call this function under lock
 func (e *CanvasEngine) tick() {
-	// Apply paddle movement based on current velocity
 	dt := 1.0 / e.FPS
 
-	e.mu.Lock()
-
-	// Update positions directly (avoid extra vector allocations)
+	// 1) integrate paddles
 	e.P1Pos.X += e.P1Vel.X * dt
 	e.P1Pos.Y += e.P1Vel.Y * dt
 	e.P2Pos.X += e.P2Vel.X * dt
 	e.P2Pos.Y += e.P2Vel.Y * dt
 
-	// Update velocity multiplier
+	// 2) integrate ball
 	if e.VelocityIncrease > 0 {
 		e.VelocityMultiplier += e.VelocityIncrease
 	} else {
 		e.VelocityMultiplier += DEFAULT_VEL_INCR
 	}
-
-	// Apply the velocity multiplier to the ball movement
 	velocityMultiplier := e.VelocityMultiplier * dt
 	e.BallPos.X += e.BallVel.X * velocityMultiplier
 	e.BallPos.Y += e.BallVel.Y * velocityMultiplier
 
-	// Detect collision with cached calculations
-	collision := e.detectColl()
-
-	e.mu.Unlock()
-
-	// Process collision result (outside of lock)
-	switch collision {
-	case engine.CollP1Top,
-		engine.CollP1Bottom,
-		engine.CollP2Top,
-		engine.CollP2Bottom:
+	// 3) collisions
+	switch e.detectColl() {
+	case engine.CollP1Top, engine.CollP1Bottom, engine.CollP2Top, engine.CollP2Bottom:
 		e.handlePaddleEdgeHit().deOutOfBoundsBall()
-	case
-		engine.CollP1,
-		engine.CollP2:
+	case engine.CollP1, engine.CollP2:
 		e.inverseBallXVelocity().deOutOfBoundsBall()
-
-	case
-		engine.CollBottomLeft,
-		engine.CollTopLeft:
+	case engine.CollBottomLeft, engine.CollTopLeft:
 		e.Err = engine.ErrP2Win
 		return
-
-	case
-		engine.CollBottomRight,
-		engine.CollTopRight:
+	case engine.CollBottomRight, engine.CollTopRight:
 		e.Err = engine.ErrP1Win
 		return
-
-	case
-		engine.CollTop,
-		engine.CollBottom:
+	case engine.CollTop, engine.CollBottom:
 		e.inverseBallYVelocity().deOutOfBoundsBall()
-
 	case engine.CollLeft:
 		e.Err = engine.ErrP2Win
 		return
-
 	case engine.CollRight:
 		e.Err = engine.ErrP1Win
 		return
-
 	case engine.CollNone:
-		fallthrough
-	default:
+		// no-op
 	}
 
-	// Final boundary check
+	// 4) final bounds
 	e.advanceBall().deOutOfBoundsPlayers()
 }
 
@@ -316,19 +289,25 @@ func (e *CanvasEngine) p1Up() *CanvasEngine {
 
 func (e *CanvasEngine) p1Down() *CanvasEngine {
 	speed := y_vel_ratio * e.Game.Height
+	e.mu.Lock()
 	e.P1Vel = Vec2{0, speed}
+	e.mu.Unlock()
 	return e
 }
 
 func (e *CanvasEngine) p2Up() *CanvasEngine {
 	speed := y_vel_ratio * e.Game.Height
+	e.mu.Lock()
 	e.P2Vel = Vec2{0, -speed}
+	e.mu.Unlock()
 	return e
 }
 
 func (e *CanvasEngine) p2Down() *CanvasEngine {
 	speed := y_vel_ratio * e.Game.Height
+	e.mu.Lock()
 	e.P2Vel = Vec2{0, speed}
+	e.mu.Unlock()
 	return e
 }
 
