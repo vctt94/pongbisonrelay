@@ -34,7 +34,7 @@ func (m *appstate) listenForUpdates() tea.Cmd {
 	return func() tea.Msg {
 		// Start a goroutine to listen for updates
 		go func() {
-			for msg := range m.pc.UpdatesCh {
+			for msg := range m.pc.UpdatesCh() {
 				m.msgCh <- msg
 			}
 		}()
@@ -45,7 +45,7 @@ func (m *appstate) listenForUpdates() tea.Cmd {
 func (m *appstate) listenForErrors() tea.Cmd {
 	return func() tea.Msg {
 		go func() {
-			for err := range m.pc.ErrorsCh {
+			for err := range m.pc.ErrorsCh() {
 				m.msgCh <- fmt.Sprintf("Error: %v", err)
 			}
 		}()
@@ -54,7 +54,7 @@ func (m *appstate) listenForErrors() tea.Cmd {
 }
 
 func (m *appstate) Init() tea.Cmd {
-	m.msgCh = make(chan tea.Msg)
+	m.msgCh = make(chan tea.Msg, 64)
 	m.viewport = viewport.New(0, 0)
 	m.logViewport = viewport.New(0, 0)
 	m.logBuffer = make([]string, 0)
@@ -101,7 +101,7 @@ func (m *appstate) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		case pong.NotificationType_COUNTDOWN_UPDATE:
 			m.notification = msg.Message
 		case pong.NotificationType_ON_PLAYER_READY:
-			if msg.PlayerId != m.pc.ID {
+			if msg.PlayerId != m.pc.ID() {
 				m.notification = "Opponent is ready to play"
 			}
 		case pong.NotificationType_MESSAGE:
@@ -333,7 +333,7 @@ func (m *appstate) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 				}
 				go func() {
 					pubBytes, _ := hex.DecodeString(m.settle.sessionPubHex)
-					res, err := m.pc.RefOpenEscrow(m.pc.ID, pubBytes, payoutBytes, m.settle.betAtoms, m.settle.csvBlocks)
+					res, err := m.pc.RefOpenEscrow(m.pc.ID(), pubBytes, payoutBytes, m.settle.betAtoms, m.settle.csvBlocks)
 					if err != nil {
 						m.notification = err.Error()
 						m.msgCh <- client.UpdatedMsg{}
@@ -403,7 +403,7 @@ func (m *appstate) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 					m.notification = fmt.Sprintf("Error signaling ready: %v", err)
 				}
 				return m, nil
-			} else if m.pc.IsReady {
+			} else if m.pc.IsReady() {
 				// If already ready in waiting room, set to unready
 				err := m.makeClientUnready()
 				if err != nil {
@@ -497,7 +497,7 @@ func (m *appstate) createRoom() error {
 			return nil
 		}
 	}
-	wr, err := m.pc.RefCreateWaitingRoom(m.pc.ID, bet, escrowID)
+	wr, err := m.pc.RefCreateWaitingRoom(m.pc.ID(), bet, escrowID)
 	if err != nil {
 		m.log.Errorf("Error creating room: %v", err)
 		return err
@@ -686,9 +686,9 @@ func (m *appstate) View() string {
 			b.WriteString("🔔 No new notifications.\n\n")
 		}
 
-		b.WriteString(fmt.Sprintf("👤 Player ID: %s\n", m.pc.ID))
+		b.WriteString(fmt.Sprintf("👤 Player ID: %s\n", m.pc.ID()))
 		b.WriteString(fmt.Sprintf("💵 Bet Amount: %.8f\n", m.betAmount))
-		b.WriteString(fmt.Sprintf("✅ Status Ready: %t\n", m.pc.IsReady))
+		b.WriteString(fmt.Sprintf("✅ Status Ready: %t\n", m.pc.IsReady()))
 
 		// Display the current room or show a placeholder if not in a room
 		if m.currentWR != nil {
@@ -711,7 +711,7 @@ func (m *appstate) View() string {
 		b.WriteString("====================\n\n")
 
 		if !m.isGameRunning && m.currentWR != nil {
-			if m.pc.IsReady {
+			if m.pc.IsReady() {
 				b.WriteString("[Space] - Toggle ready status (currently READY)\n")
 			} else {
 				b.WriteString("[Space] - Toggle ready status (currently NOT READY)\n")
@@ -824,7 +824,7 @@ func (m *appstate) View() string {
 			gameView.WriteString(fmt.Sprintf("Score: %d - %d\n", m.gameState.P1Score, m.gameState.P2Score))
 
 			// Add ready status information with clear visibility
-			if m.pc.IsReady {
+			if m.pc.IsReady() {
 				gameView.WriteString("\n*** You are READY to play! ***\n")
 			} else {
 				gameView.WriteString("\n*** Press 'r' or SPACE to signal you're ready to play ***\n")

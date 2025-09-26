@@ -16,7 +16,7 @@ func (pc *PongClient) RefSignalReadyToPlay(gameID string) error {
 	ctx := context.Background()
 
 	resp, err := pc.gc.SignalReadyToPlay(ctx, &pong.SignalReadyToPlayRequest{
-		ClientId: pc.ID,
+		ClientId: pc.id,
 		GameId:   gameID,
 	})
 	if err != nil {
@@ -37,7 +37,7 @@ func (pc *PongClient) RefUnreadyGameStream() error {
 
 	// Call the unready RPC method
 	_, err := pc.gc.UnreadyGameStream(ctx, &pong.UnreadyGameStreamRequest{
-		ClientId: pc.ID,
+		ClientId: pc.id,
 	})
 	if err != nil {
 		return fmt.Errorf("error signaling not ready: %w", err)
@@ -49,8 +49,8 @@ func (pc *PongClient) RefUnreadyGameStream() error {
 	}
 
 	// Notify UI of state change
-	pc.IsReady = false
-	pc.UpdatesCh <- UpdatedMsg{}
+	pc.isReady = false
+	pc.updatesCh <- UpdatedMsg{}
 
 	return nil
 }
@@ -60,7 +60,7 @@ func (pc *PongClient) RefUnreadyGameStream() error {
 // read until ctx is canceled or the stream returns a terminal error.
 func (pc *PongClient) RefStartNtfnStream(ctx context.Context) error {
 	stream, err := pc.gc.StartNtfnStream(ctx, &pong.StartNtfnStreamRequest{
-		ClientId: pc.ID,
+		ClientId: pc.id,
 	})
 	if err != nil {
 		return fmt.Errorf("start ntfn stream: %w", err)
@@ -86,7 +86,7 @@ func (pc *PongClient) runNtfnRecv(ctx context.Context, stream pong.PongGame_Star
 			}
 			// Propagate the error once and exit. If gRPC reconnects, the call
 			// that created this stream should be re-run by the caller.
-			pc.ErrorsCh <- fmt.Errorf("ntfn stream recv: %w", err)
+			pc.errorsCh <- fmt.Errorf("ntfn stream recv: %w", err)
 			return
 		}
 		pc.handleNtfn(ntfn)
@@ -99,7 +99,7 @@ func (pc *PongClient) handleNtfn(ntfn *pong.NtfnStreamResponse) {
 		pc.ntfns.notifyOnWRCreated(ntfn.Wr, time.Now())
 
 	case pong.NotificationType_MESSAGE:
-		pc.UpdatesCh <- ntfn
+		pc.updatesCh <- ntfn
 
 	case pong.NotificationType_PLAYER_JOINED_WR:
 		pc.ntfns.notifyPlayerJoinedWR(ntfn.Wr, time.Now())
@@ -117,24 +117,24 @@ func (pc *PongClient) handleNtfn(ntfn *pong.NtfnStreamResponse) {
 		pc.ntfns.notifyPlayerLeftWR(ntfn.Wr, ntfn.PlayerId, time.Now())
 
 	case pong.NotificationType_BET_AMOUNT_UPDATE:
-		if ntfn.PlayerId == pc.ID {
+		if ntfn.PlayerId == pc.id {
 			// If pc.BetAmt is read elsewhere concurrently, guard with a mutex.
-			pc.BetAmt = ntfn.BetAmt
+			pc.betAmt = ntfn.BetAmt
 			pc.ntfns.notifyBetAmtChanged(ntfn.PlayerId, ntfn.BetAmt, time.Now())
 		}
 		// Forward for UI if you want:
-		pc.UpdatesCh <- ntfn
+		pc.updatesCh <- ntfn
 
 	case pong.NotificationType_ON_PLAYER_READY:
-		if ntfn.PlayerId == pc.ID {
-			pc.IsReady = ntfn.Ready // guard with a mutex if needed
-			pc.UpdatesCh <- true    // preserves your existing UI signal
+		if ntfn.PlayerId == pc.id {
+			pc.isReady = ntfn.Ready
+			pc.updatesCh <- true
 		}
-		pc.UpdatesCh <- ntfn
+		pc.updatesCh <- ntfn
 
 	case pong.NotificationType_COUNTDOWN_UPDATE,
 		pong.NotificationType_GAME_READY_TO_PLAY:
-		pc.UpdatesCh <- ntfn
+		pc.updatesCh <- ntfn
 
 	default:
 		// no-op
@@ -146,7 +146,7 @@ func (pc *PongClient) RefStartGameStream() error {
 
 	// Signal readiness after stream is initialized
 	stream, err := pc.gc.StartGameStream(ctx, &pong.StartGameStreamRequest{
-		ClientId: pc.ID,
+		ClientId: pc.id,
 	})
 	if err != nil {
 		return fmt.Errorf("error signaling readiness: %w", err)
@@ -170,7 +170,7 @@ func (pc *PongClient) RefStartGameStream() error {
 							pc.log.Infof("game stream restart canceled")
 							return
 						case <-time.After(backoff):
-							ns, nerr := pc.gc.StartGameStream(context.Background(), &pong.StartGameStreamRequest{ClientId: pc.ID})
+							ns, nerr := pc.gc.StartGameStream(context.Background(), &pong.StartGameStreamRequest{ClientId: pc.id})
 							if nerr == nil {
 								pc.stream = ns
 								pc.log.Infof("game stream restarted")
@@ -187,11 +187,11 @@ func (pc *PongClient) RefStartGameStream() error {
 					}
 				}
 
-				pc.ErrorsCh <- fmt.Errorf("game stream error: %v", err)
+				pc.errorsCh <- fmt.Errorf("game stream error: %v", err)
 				return
 			}
 			// Forward updates to UpdatesCh
-			go func() { pc.UpdatesCh <- update }()
+			go func() { pc.updatesCh <- update }()
 		}
 	}()
 
@@ -203,7 +203,7 @@ func (pc *PongClient) RefSendInput(input string) error {
 
 	_, err := pc.gc.SendInput(ctx, &pong.PlayerInput{
 		Input:        input,
-		PlayerId:     pc.ID,
+		PlayerId:     pc.id,
 		PlayerNumber: pc.playerNumber,
 	})
 	if err != nil {

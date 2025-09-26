@@ -29,11 +29,11 @@ type UpdatedMsg struct{}
 
 type PongClient struct {
 	sync.RWMutex
-	ID string
+	id string
 
-	IsReady bool
+	isReady bool
 
-	BetAmt       int64 // bet amt in mAtoms
+	betAmt       int64 // bet amt in mAtoms
 	playerNumber int32
 	conn         *grpc.ClientConn
 	appCfg       *AppConfig
@@ -53,9 +53,8 @@ type PongClient struct {
 	ctx    context.Context
 	cancel context.CancelFunc
 
-	UpdatesCh chan tea.Msg
-	GameCh    chan *pong.GameUpdateBytes
-	ErrorsCh  chan error
+	updatesCh chan tea.Msg
+	errorsCh  chan error
 
 	// Settlement session key (in-memory, per-process)
 	settlePrivHex string
@@ -95,14 +94,14 @@ func NewPongClient(clientID string, cfg *PongClientCfg) (*PongClient, error) {
 
 	ctx, cancel := context.WithCancel(context.Background())
 	pc := &PongClient{
-		ID:        clientID,
+		id:        clientID,
 		conn:      conn,
 		appCfg:    cfg.AppCfg,
 		gc:        pong.NewPongGameClient(conn),
 		wr:        pong.NewPongWaitingRoomClient(conn),
 		rc:        pong.NewPongRefereeClient(conn),
-		UpdatesCh: make(chan tea.Msg, 64),
-		ErrorsCh:  make(chan error, 4),
+		updatesCh: make(chan tea.Msg, 64),
+		errorsCh:  make(chan error, 4),
 		log:       cfg.Log,
 		ntfns:     ntfns,
 		ctx:       ctx,
@@ -122,6 +121,14 @@ func NewPongClient(clientID string, cfg *PongClientCfg) (*PongClient, error) {
 	}
 
 	return pc, nil
+}
+
+func (pc *PongClient) ID() string {
+	return pc.id
+}
+
+func (pc *PongClient) IsReady() bool {
+	return pc.isReady
 }
 
 // ResolveClientID starts a short-lived BR RPC client to fetch the local
@@ -388,6 +395,16 @@ func (pc *PongClient) currentOrLoadSettlementSessionKey() (string, string, bool,
 		}
 	}
 	return "", "", false, nil
+}
+
+// UpdatesCh returns the updates channel for receiving UI updates.
+func (pc *PongClient) UpdatesCh() <-chan tea.Msg {
+	return pc.updatesCh
+}
+
+// ErrorsCh returns the errors channel for receiving error messages.
+func (pc *PongClient) ErrorsCh() <-chan error {
+	return pc.errorsCh
 }
 
 // Close terminates background streams and closes the gRPC connection.
