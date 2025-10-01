@@ -35,7 +35,6 @@ func (e *CanvasEngine) SetFPS(fps uint) *CanvasEngine {
 	if fps <= 0 {
 		panic("fps must be greater zero")
 	}
-	e.log.Debugf("fps %d", fps)
 	e.FPS = float64(fps)
 	e.TPS = 1000.0 / e.FPS
 	return e
@@ -60,11 +59,63 @@ func (e *CanvasEngine) NewRound(ctx context.Context, framesch chan<- []byte, inp
 		for {
 			select {
 			case <-ctx.Done():
-				e.log.Debug("exiting")
 				return
 			case <-frameTimer.C:
+				// Apply any pending inputs for this frame, then advance physics once.
+				// Drain input channel without blocking to coalesce inputs.
+				drained := false
+				for !drained {
+					select {
+					case key, ok := <-inputch:
+						if !ok {
+							// Input channel closed; stop draining
+							inputch = nil
+							drained = true
+							continue
+						}
+						if len(key) == 0 {
+							continue
+						}
+						in := &pong.PlayerInput{}
+						if err := proto.Unmarshal(key, in); err != nil {
+							continue
+						}
+						if in.PlayerNumber == 1 {
+							switch in.Input {
+							case "ArrowUp":
+								e.P1Vel = Vec2{0, -y_vel_ratio * e.Game.Height}
+							case "ArrowDown":
+								e.P1Vel = Vec2{0, y_vel_ratio * e.Game.Height}
+							case "ArrowUpStop":
+								if e.P1Vel.Y < 0 {
+									e.P1Vel.Y = 0
+								}
+							case "ArrowDownStop":
+								if e.P1Vel.Y > 0 {
+									e.P1Vel.Y = 0
+								}
+							}
+						} else if in.PlayerNumber == 2 {
+							switch in.Input {
+							case "ArrowUp":
+								e.P2Vel = Vec2{0, -y_vel_ratio * e.Game.Height}
+							case "ArrowDown":
+								e.P2Vel = Vec2{0, y_vel_ratio * e.Game.Height}
+							case "ArrowUpStop":
+								if e.P2Vel.Y < 0 {
+									e.P2Vel.Y = 0
+								}
+							case "ArrowDownStop":
+								if e.P2Vel.Y > 0 {
+									e.P2Vel.Y = 0
+								}
+							}
+						}
+					default:
+						drained = true
+					}
+				}
 				e.mu.Lock()
-
 				e.tick()
 				// round end check: read Err under lock
 				p1win := errors.Is(e.Err, engine.ErrP1Win)
@@ -85,7 +136,6 @@ func (e *CanvasEngine) NewRound(ctx context.Context, framesch chan<- []byte, inp
 					// Send round result and exit goroutine
 					select {
 					case roundResult <- winner:
-						e.log.Debugf("Round ended, winner: %d", winner)
 					case <-ctx.Done():
 						return
 					}
@@ -104,7 +154,7 @@ func (e *CanvasEngine) NewRound(ctx context.Context, framesch chan<- []byte, inp
 				gu.P2X, gu.P2Y = e.P2Pos.X, e.P2Pos.Y
 				gu.P1YVelocity, gu.P2YVelocity = e.P1Vel.Y, e.P2Vel.Y
 				gu.BallXVelocity, gu.BallYVelocity = e.BallVel.X, e.BallVel.Y
-				gu.Fps, gu.Tps = e.FPS, e.TPS
+				// Do not send server FPS/TPS; clients control render FPS
 
 				e.mu.Unlock()
 
@@ -118,57 +168,6 @@ func (e *CanvasEngine) NewRound(ctx context.Context, framesch chan<- []byte, inp
 						return
 					default:
 						// Channel is full, drop this frame to prevent blocking
-					}
-				}
-			case key, ok := <-inputch:
-				if !ok {
-					// Input channel is closed; exit goroutine
-					e.log.Debug("Input channel closed; exiting input reader goroutine")
-					return
-				}
-				if len(key) == 0 {
-					// Empty input received; possibly due to closed channel
-					e.log.Debug("Received empty input data; exiting")
-					return
-				}
-
-				in := &pong.PlayerInput{}
-				err := proto.Unmarshal(key, in)
-				if err != nil {
-					e.log.Errorf("Failed to unmarshal input: %v", err)
-					// Decide whether to continue or exit; here we'll continue
-					continue
-				}
-
-				if in.PlayerNumber == 1 {
-					switch in.Input {
-					case "ArrowUp":
-						e.p1Up()
-					case "ArrowDown":
-						e.p1Down()
-					case "ArrowUpStop":
-						if e.P1Vel.Y < 0 {
-							e.P1Vel.Y = 0
-						}
-					case "ArrowDownStop":
-						if e.P1Vel.Y > 0 {
-							e.P1Vel.Y = 0
-						}
-					}
-				} else {
-					switch in.Input {
-					case "ArrowUp":
-						e.p2Up()
-					case "ArrowDown":
-						e.p2Down()
-					case "ArrowUpStop":
-						if e.P2Vel.Y < 0 {
-							e.P2Vel.Y = 0
-						}
-					case "ArrowDownStop":
-						if e.P2Vel.Y > 0 {
-							e.P2Vel.Y = 0
-						}
 					}
 				}
 			}

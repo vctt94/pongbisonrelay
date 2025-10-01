@@ -3,6 +3,11 @@ package server
 import (
 	"context"
 	"fmt"
+	"strconv"
+	"sync/atomic"
+	"time"
+
+	"google.golang.org/grpc/metadata"
 
 	"github.com/companyzero/bisonrelay/zkidentity"
 
@@ -37,13 +42,72 @@ func (s *Server) runNtfnSender(ctx context.Context, p *ponggame.Player, stream p
 
 // runGameSender consumes the player's game bytes queue and sends over the gRPC stream.
 func (s *Server) runGameSender(ctx context.Context, p *ponggame.Player, stream pong.PongGame_StartGameStreamServer) {
+	// Determine desired per-client FPS from incoming metadata (optional).
+	// Supports keys: "desired-fps" or "x-desired-fps" (string number).
+	desiredFPS := ponggame.DEFAULT_FPS
+	if md, ok := metadata.FromIncomingContext(ctx); ok {
+		if vals := md.Get("desired-fps"); len(vals) > 0 {
+			if v, err := strconv.ParseFloat(vals[0], 64); err == nil && v > 0 {
+				desiredFPS = v
+			}
+		} else if vals := md.Get("x-desired-fps"); len(vals) > 0 {
+			if v, err := strconv.ParseFloat(vals[0], 64); err == nil && v > 0 {
+				desiredFPS = v
+			}
+		}
+	}
+	// Clamp to sensible bounds.
+	if desiredFPS < 10 {
+		desiredFPS = 10
+	}
+	if desiredFPS > 144 {
+		desiredFPS = 144
+	}
+
+	s.log.Debugf("game sender for %s using desired FPS: %.2f", p.ID, desiredFPS)
+	tick := time.NewTicker(time.Duration(float64(time.Second) / desiredFPS))
+	defer tick.Stop()
+
+	// Atomic holder for latest frame; initialize with a typed nil.
+	var latest atomic.Value
+	latest.Store([]byte(nil))
+
+	// Drainer goroutine: read frames as they arrive and stash the latest.
+	go func() {
+		for {
+			select {
+			case <-ctx.Done():
+				return
+			case b, ok := <-p.GameQueue():
+				if !ok {
+					return
+				}
+				latest.Store(b)
+				// Opportunistically drain additional backlog without blocking.
+				for i := 0; i < 16; i++ {
+					select {
+					case b2, ok2 := <-p.GameQueue():
+						if !ok2 {
+							return
+						}
+						latest.Store(b2)
+					default:
+						i = 16
+					}
+				}
+			}
+		}
+	}()
+
+	// Sender loop: on each tick, read latest and send.
 	for {
 		select {
 		case <-ctx.Done():
 			return
-		case b, ok := <-p.GameQueue():
-			if !ok {
-				return
+		case <-tick.C:
+			b, _ := latest.Load().([]byte)
+			if len(b) == 0 {
+				continue
 			}
 			if err := stream.Send(&pong.GameUpdateBytes{Data: b}); err != nil {
 				s.log.Warnf("game send failed for %s: %v", p.ID, err)
