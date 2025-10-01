@@ -258,7 +258,7 @@ func (gm *GameManager) startNewGame(ctx context.Context, players []*Player, id s
 
 		// Notify all players that the game has started
 		if player.NotifierStream != nil {
-			player.NotifierStream.Send(&pong.NtfnStreamResponse{
+			_ = player.SendNotif(&pong.NtfnStreamResponse{
 				NotificationType: pong.NotificationType_GAME_READY_TO_PLAY,
 				Message:          "Game created! Signal when ready to play.",
 				Started:          true,
@@ -380,7 +380,7 @@ func (g *GameInstance) startCountdown() {
 			// Send countdown updates and current state without holding g's lock.
 			for _, player := range playersSnap {
 				if player.NotifierStream != nil {
-					player.NotifierStream.Send(&pong.NtfnStreamResponse{
+					_ = player.SendNotif(&pong.NtfnStreamResponse{
 						NotificationType: pong.NotificationType_COUNTDOWN_UPDATE,
 						Message:          fmt.Sprintf("Game starting in %d...", countdownVal),
 						GameId:           gameID,
@@ -407,7 +407,7 @@ func (g *GameInstance) startCountdown() {
 				// Notify players game is starting now (no g lock held).
 				for _, p := range startPlayers {
 					if p.NotifierStream != nil {
-						p.NotifierStream.Send(&pong.NtfnStreamResponse{
+						_ = p.SendNotif(&pong.NtfnStreamResponse{
 							NotificationType: pong.NotificationType_GAME_START,
 							Message:          "Game is starting now!",
 							Started:          true,
@@ -585,5 +585,5 @@ func sendInitialGameState(player *Player, gameUpdate *pong.GameUpdate) {
 	}
 
 	// Use the bytes variable by sending it
-	player.GameStream.Send(&pong.GameUpdateBytes{Data: bytes})
+	_ = player.SendGameBytes(bytes)
 }

@@ -1,9 +1,11 @@
 package ponggame
 
 import (
+	"fmt"
 	"sync"
 
 	"github.com/companyzero/bisonrelay/zkidentity"
+	"github.com/vctt94/pongbisonrelay/pongrpc/grpc/pong"
 )
 
 type PlayerSessions struct {
@@ -39,4 +41,32 @@ func (ps *PlayerSessions) CreateSession(clientID zkidentity.ShortID) *Player {
 	}
 
 	return player
+}
+
+// SendNotif serializes sends on the player's NotifierStream to avoid
+// concurrent Send races on the same gRPC stream.
+func (p *Player) SendNotif(resp *pong.NtfnStreamResponse) error {
+	if p == nil {
+		return fmt.Errorf("nil player")
+	}
+	if p.NotifierStream == nil {
+		return fmt.Errorf("player stream nil")
+	}
+	p.ntfnSendMu.Lock()
+	defer p.ntfnSendMu.Unlock()
+	return p.NotifierStream.Send(resp)
+}
+
+// SendGameBytes serializes sends on the player's GameStream to avoid
+// concurrent Send races on the same gRPC stream.
+func (p *Player) SendGameBytes(b []byte) error {
+	if p == nil {
+		return fmt.Errorf("nil player")
+	}
+	if p.GameStream == nil {
+		return fmt.Errorf("player game stream nil")
+	}
+	p.gameSendMu.Lock()
+	defer p.gameSendMu.Unlock()
+	return p.GameStream.Send(&pong.GameUpdateBytes{Data: b})
 }
