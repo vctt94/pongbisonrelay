@@ -17,6 +17,42 @@ func (s *Server) SendInput(ctx context.Context, req *pong.PlayerInput) (*pong.Ga
 	return s.gameManager.HandlePlayerInput(clientID, req)
 }
 
+// runNtfnSender consumes the player's notification queue and sends over the gRPC stream.
+func (s *Server) runNtfnSender(ctx context.Context, p *ponggame.Player, stream pong.PongGame_StartNtfnStreamServer) {
+	for {
+		select {
+		case <-ctx.Done():
+			return
+		case msg, ok := <-p.NtfnQueue():
+			if !ok {
+				return
+			}
+			if err := stream.Send(msg); err != nil {
+				s.log.Warnf("ntfn send failed for %s: %v", p.ID, err)
+				return
+			}
+		}
+	}
+}
+
+// runGameSender consumes the player's game bytes queue and sends over the gRPC stream.
+func (s *Server) runGameSender(ctx context.Context, p *ponggame.Player, stream pong.PongGame_StartGameStreamServer) {
+	for {
+		select {
+		case <-ctx.Done():
+			return
+		case b, ok := <-p.GameQueue():
+			if !ok {
+				return
+			}
+			if err := stream.Send(&pong.GameUpdateBytes{Data: b}); err != nil {
+				s.log.Warnf("game send failed for %s: %v", p.ID, err)
+				return
+			}
+		}
+	}
+}
+
 func (s *Server) StartNtfnStream(req *pong.StartNtfnStreamRequest, stream pong.PongGame_StartNtfnStreamServer) error {
 	ctx, cancel := context.WithCancel(stream.Context())
 	defer cancel()
@@ -27,12 +63,20 @@ func (s *Server) StartNtfnStream(req *pong.StartNtfnStreamRequest, stream pong.P
 	defer s.activeNtfnStreams.Delete(clientID)
 	s.log.Debugf("StartNtfnStream called by client %s", clientID)
 
-	// Add to active streams
-	s.activeNtfnStreams.Store(clientID, cancel)
+	// Add to active streams: cancel any previous sender and store the new one
 
-	// Create player session
+	// Create player session and ensure queues are initialized
 	player := s.gameManager.PlayerSessions.CreateSession(clientID)
-	player.NotifierStream = stream
+
+	// Start dedicated ntfn sender for this player's stream.
+	// Cancel any previous one for this player if present.
+	if prev, ok := s.activeNtfnStreams.Load(clientID); ok {
+		if prevFn, is := prev.(context.CancelFunc); is {
+			prevFn()
+		}
+	}
+	s.activeNtfnStreams.Store(clientID, cancel)
+	go s.runNtfnSender(ctx, player, stream)
 
 	// Track connected user so broadcast notifications (e.g. ON_WR_CREATED)
 	// are delivered to all clients with active notifier streams.
@@ -59,7 +103,7 @@ func (s *Server) StartNtfnStream(req *pong.StartNtfnStreamRequest, stream pong.P
 	s.escrowsMu.RUnlock()
 
 	// Escrow-first: remove legacy tips-based bet sync
-	// Wait for disconnection
+	// Wait for disconnection (sender goroutine exits on ctx.Done as well)
 	<-ctx.Done()
 	s.log.Debugf("Notifier stream ended for client %s", clientID)
 	s.handleDisconnect(clientID)
@@ -74,8 +118,7 @@ func (s *Server) StartGameStream(req *pong.StartGameStreamRequest, stream pong.P
 	clientID.FromString(req.ClientId)
 	defer s.activeGameStreams.Delete(clientID)
 
-	// Store the cancel function
-	s.activeGameStreams.Store(clientID, cancel)
+	// Store the cancel function after canceling any previous sender
 
 	s.log.Debugf("Client %s called StartGameStream", req.ClientId)
 
@@ -83,8 +126,9 @@ func (s *Server) StartGameStream(req *pong.StartGameStreamRequest, stream pong.P
 	if player == nil {
 		return fmt.Errorf("player not found for client ID %s", clientID)
 	}
-	if player.NotifierStream == nil {
-		return fmt.Errorf("player notifier nil %s", clientID)
+	// Require an active notifier sender for this player.
+	if _, ok := s.activeNtfnStreams.Load(clientID); !ok {
+		return fmt.Errorf("player notifier not active %s", clientID)
 	}
 
 	// Require being in a waiting room
@@ -109,10 +153,18 @@ func (s *Server) StartGameStream(req *pong.StartGameStreamRequest, stream pong.P
 			return fmt.Errorf("no escrow bound to waiting room for player")
 		}
 	}
-	player.GameStream = stream
 	player.Lock()
 	player.Ready = true
 	player.Unlock()
+
+	// Start dedicated game sender for this player's stream.
+	if prev, ok := s.activeGameStreams.Load(clientID); ok {
+		if prevFn, is := prev.(context.CancelFunc); is {
+			prevFn()
+		}
+	}
+	s.activeGameStreams.Store(clientID, cancel)
+	go s.runGameSender(ctx, player, stream)
 
 	// Notify all players in the waiting room that this player is ready
 	if player.WR != nil {
@@ -162,10 +214,8 @@ func (s *Server) UnreadyGameStream(ctx context.Context, req *pong.UnreadyGameStr
 			cancelFn()
 		}
 	}
-
 	// Then delete the entry
 	s.activeGameStreams.Delete(clientID)
-	player.GameStream = nil
 
 	// Notify other players in the waiting room
 	pwr := player.WR.Marshal()
@@ -218,9 +268,6 @@ func (s *Server) SignalReadyToPlay(ctx context.Context, req *pong.SignalReadyToP
 
 	if allReady {
 		for _, p := range playersSnap {
-			if p.NotifierStream == nil {
-				continue
-			}
 			_ = s.notify(p, &pong.NtfnStreamResponse{
 				NotificationType: pong.NotificationType_ON_PLAYER_READY,
 				Message:          "all players ready to start the game",
