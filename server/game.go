@@ -230,21 +230,6 @@ func (s *Server) StartGameStream(req *pong.StartGameStreamRequest, stream pong.P
 	s.activeGameStreams.Store(clientID, cancel)
 	go s.runGameSender(ctx, player, stream)
 
-	// Notify all players in the waiting room that this player is ready
-	if player.WR != nil {
-		// Marshal the waiting room state to include in notifications
-		pwr := player.WR.Marshal()
-		for _, p := range player.WR.Players {
-			_ = s.notify(p, &pong.NtfnStreamResponse{
-				NotificationType: pong.NotificationType_ON_PLAYER_READY,
-				Message:          fmt.Sprintf("Player %s is ready", player.Nick),
-				PlayerId:         player.ID.String(),
-				Wr:               pwr,
-				Ready:            true,
-			})
-		}
-	}
-
 	// Wait for context to end and handle disconnection
 	<-ctx.Done()
 	s.log.Debugf("Client %s disconnected from game stream", clientID)
