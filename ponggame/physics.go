@@ -8,7 +8,7 @@ import (
 )
 
 const (
-	DEFAULT_FPS      = 60
+	DEFAULT_FPS      = 60.0
 	DEFAULT_VEL_INCR = 0.0005
 	INPUT_BUF_SIZE   = 2 << 8
 

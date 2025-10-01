@@ -238,7 +238,7 @@ func (gm *GameManager) startNewGame(ctx context.Context, players []*Player, id s
 		gameUpdate.BallX, gameUpdate.BallY = engineState.BallPosX, engineState.BallPosY
 		gameUpdate.P1YVelocity, gameUpdate.P2YVelocity = 0, 0
 		gameUpdate.BallXVelocity, gameUpdate.BallYVelocity = engineState.BallVelX, engineState.BallVelY
-		gameUpdate.Fps, gameUpdate.Tps = engineState.FPS, engineState.TPS
+		// Do not set Fps/Tps here; client controls render FPS
 		sendInitialGameState(player, gameUpdate)
 
 		// Notify all players that the game has started (best effort).
@@ -356,8 +356,7 @@ func (g *GameInstance) startCountdown() {
 				P2YVelocity:   0,
 				BallXVelocity: 0,
 				BallYVelocity: 0,
-				Fps:           engineState.FPS,
-				Tps:           engineState.TPS,
+				// Omit Fps/Tps in updates; clients drive rendering FPS
 			}
 
 			// Send countdown updates and current state without holding g's lock.
