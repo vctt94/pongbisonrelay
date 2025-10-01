@@ -17,16 +17,13 @@ func (s *Server) notify(p *ponggame.Player, resp *pong.NtfnStreamResponse) error
 	if p.ID == nil {
 		return fmt.Errorf("player id nil")
 	}
-	if p.NotifierStream == nil {
-		return fmt.Errorf("player stream nil")
-	}
 	if resp == nil {
 		return fmt.Errorf("nil response")
 	}
-	// Serialize send per-player to avoid concurrent Stream.Send races.
-	if err := p.SendNotif(resp); err != nil {
-		s.log.Warnf("notify: failed to deliver to %s: %v", p.ID.String(), err)
-		return err
+	// Enqueue for the per-player sender goroutine.
+	if ok := p.EnqueueNotif(resp); !ok {
+		// Queue full or unavailable; drop and log at debug level to avoid spam.
+		s.log.Debugf("notify: dropped for %s (queue full or no stream)", p.ID.String())
 	}
 	return nil
 }
@@ -41,10 +38,6 @@ func (s *Server) notifyallusers(resp *pong.NtfnStreamResponse) {
 	s.usersMu.RUnlock()
 
 	for _, user := range usersSnap {
-		if user.NotifierStream == nil {
-			s.log.Errorf("user %s without NotifierStream", user.ID)
-			continue
-		}
 		_ = s.notify(user, resp)
 	}
 }

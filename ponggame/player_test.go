@@ -120,7 +120,6 @@ func TestPlayer_ResetPlayer(t *testing.T) {
 	assert.Equal(t, int32(0), player.PlayerNumber)
 	assert.Equal(t, 0, player.Score)
 	assert.False(t, player.Ready)
-	assert.Nil(t, player.GameStream)
 	assert.Nil(t, player.WR)
 }
 

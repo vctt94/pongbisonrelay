@@ -31,56 +31,6 @@ func (v Vec2) Scale(s float64) Vec2 {
 	return Vec2{v.X * s, v.Y * s}
 }
 
-type Player struct {
-	sync.RWMutex
-	ID *zkidentity.ShortID
-
-	Nick           string
-	BetAmt         int64
-	PlayerNumber   int32 // 1 for player 1, 2 for player 2
-	Score          int
-	GameStream     pong.PongGame_StartGameStreamServer
-	NotifierStream pong.PongGame_StartNtfnStreamServer
-	Ready          bool
-
-	// Per-player frame buffer to prevent one slow client from affecting others
-	FrameCh chan []byte
-
-	// Serialize gRPC sends per stream to avoid concurrent Send races.
-	gameSendMu sync.Mutex
-	ntfnSendMu sync.Mutex
-
-	WR *WaitingRoom
-}
-
-func (p *Player) Marshal() *pong.Player {
-	if p == nil || p.ID == nil {
-		return nil
-	}
-	p.RLock()
-	defer p.RUnlock()
-	return &pong.Player{
-		Uid:    p.ID.String(),
-		Nick:   p.Nick,
-		BetAmt: p.BetAmt,
-		Number: p.PlayerNumber,
-		Score:  int32(p.Score),
-		Ready:  p.Ready,
-	}
-}
-
-func (p *Player) ResetPlayer() {
-	p.Lock()
-	defer p.Unlock()
-
-	p.GameStream = nil
-	p.Score = 0
-	p.PlayerNumber = 0
-	p.BetAmt = 0
-	p.Ready = false
-	p.WR = nil
-}
-
 type GameInstance struct {
 	sync.RWMutex
 	closeOnce sync.Once

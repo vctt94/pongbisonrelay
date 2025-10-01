@@ -219,53 +219,36 @@ func (gm *GameManager) startNewGame(ctx context.Context, players []*Player, id s
 		gm.playerGameMapMu.Lock()
 		gm.PlayerGameMap[*player.ID] = newGame
 		gm.playerGameMapMu.Unlock()
-		if player.GameStream != nil {
-			// Send initial dimensions
-			engineState := newGame.engine.State()
-			gameUpdate := &pong.GameUpdate{
-				GameWidth:  swidth,
-				GameHeight: sheight,
-				P1Width:    engineState.PaddleWidth,
-				P1Height:   engineState.PaddleHeight,
-				P2Width:    engineState.PaddleWidth,
-				P2Height:   engineState.PaddleHeight,
-				BallWidth:  engineState.BallWidth,
-				BallHeight: engineState.BallHeight,
-			}
 
-			// Set paddle positions
-			gameUpdate.P1X = engineState.P1PosX
-			gameUpdate.P1Y = engineState.P1PosY
-			gameUpdate.P2X = engineState.P2PosX
-			gameUpdate.P2Y = engineState.P2PosY
-
-			// Set ball position
-			gameUpdate.BallX = engineState.BallPosX
-			gameUpdate.BallY = engineState.BallPosY
-
-			// Set velocities
-			gameUpdate.P1YVelocity = 0
-			gameUpdate.P2YVelocity = 0
-			gameUpdate.BallXVelocity = engineState.BallVelX
-			gameUpdate.BallYVelocity = engineState.BallVelY
-
-			// Set FPS and TPS
-			gameUpdate.Fps = engineState.FPS
-			gameUpdate.Tps = engineState.TPS
-
-			sendInitialGameState(player, gameUpdate)
+		// Send initial dimensions via per-player queue (best effort).
+		engineState := newGame.engine.State()
+		gameUpdate := &pong.GameUpdate{
+			GameWidth:  swidth,
+			GameHeight: sheight,
+			P1Width:    engineState.PaddleWidth,
+			P1Height:   engineState.PaddleHeight,
+			P2Width:    engineState.PaddleWidth,
+			P2Height:   engineState.PaddleHeight,
+			BallWidth:  engineState.BallWidth,
+			BallHeight: engineState.BallHeight,
 		}
+		// Set positions and velocities
+		gameUpdate.P1X, gameUpdate.P1Y = engineState.P1PosX, engineState.P1PosY
+		gameUpdate.P2X, gameUpdate.P2Y = engineState.P2PosX, engineState.P2PosY
+		gameUpdate.BallX, gameUpdate.BallY = engineState.BallPosX, engineState.BallPosY
+		gameUpdate.P1YVelocity, gameUpdate.P2YVelocity = 0, 0
+		gameUpdate.BallXVelocity, gameUpdate.BallYVelocity = engineState.BallVelX, engineState.BallVelY
+		gameUpdate.Fps, gameUpdate.Tps = engineState.FPS, engineState.TPS
+		sendInitialGameState(player, gameUpdate)
 
-		// Notify all players that the game has started
-		if player.NotifierStream != nil {
-			_ = player.SendNotif(&pong.NtfnStreamResponse{
-				NotificationType: pong.NotificationType_GAME_READY_TO_PLAY,
-				Message:          "Game created! Signal when ready to play.",
-				Started:          true,
-				GameId:           id,
-				PlayerNumber:     player.PlayerNumber,
-			})
-		}
+		// Notify all players that the game has started (best effort).
+		_ = player.EnqueueNotif(&pong.NtfnStreamResponse{
+			NotificationType: pong.NotificationType_GAME_READY_TO_PLAY,
+			Message:          "Game created! Signal when ready to play.",
+			Started:          true,
+			GameId:           id,
+			PlayerNumber:     player.PlayerNumber,
+		})
 	}
 
 	return newGame
@@ -379,16 +362,12 @@ func (g *GameInstance) startCountdown() {
 
 			// Send countdown updates and current state without holding g's lock.
 			for _, player := range playersSnap {
-				if player.NotifierStream != nil {
-					_ = player.SendNotif(&pong.NtfnStreamResponse{
-						NotificationType: pong.NotificationType_COUNTDOWN_UPDATE,
-						Message:          fmt.Sprintf("Game starting in %d...", countdownVal),
-						GameId:           gameID,
-					})
-				}
-				if player.GameStream != nil {
-					sendInitialGameState(player, gameUpdate)
-				}
+				_ = player.EnqueueNotif(&pong.NtfnStreamResponse{
+					NotificationType: pong.NotificationType_COUNTDOWN_UPDATE,
+					Message:          fmt.Sprintf("Game starting in %d...", countdownVal),
+					GameId:           gameID,
+				})
+				sendInitialGameState(player, gameUpdate)
 			}
 
 			// Apply countdown state change under lock.
@@ -406,14 +385,12 @@ func (g *GameInstance) startCountdown() {
 			if finished {
 				// Notify players game is starting now (no g lock held).
 				for _, p := range startPlayers {
-					if p.NotifierStream != nil {
-						_ = p.SendNotif(&pong.NtfnStreamResponse{
-							NotificationType: pong.NotificationType_GAME_START,
-							Message:          "Game is starting now!",
-							Started:          true,
-							GameId:           gameID,
-						})
-					}
+					_ = p.EnqueueNotif(&pong.NtfnStreamResponse{
+						NotificationType: pong.NotificationType_GAME_START,
+						Message:          "Game is starting now!",
+						Started:          true,
+						GameId:           gameID,
+					})
 				}
 				return
 			}
@@ -575,15 +552,10 @@ func (g *GameInstance) distributeFrames() {
 
 // Fix the code that was causing "bytes declared and not used" and "select case must be send or receive" errors
 func sendInitialGameState(player *Player, gameUpdate *pong.GameUpdate) {
-	if player.GameStream == nil {
-		return
-	}
-
 	bytes, err := proto.Marshal(gameUpdate)
 	if err != nil {
 		return
 	}
-
-	// Use the bytes variable by sending it
-	_ = player.SendGameBytes(bytes)
+	// Enqueue bytes for sending via the per-player game sender.
+	_ = player.EnqueueGameBytes(bytes)
 }

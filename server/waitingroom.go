@@ -190,10 +190,6 @@ func (s *Server) JoinWaitingRoom(ctx context.Context, req *pong.JoinWaitingRoomR
 
 		pwr := wr.Marshal()
 		for _, p := range wr.Players {
-			if p.NotifierStream == nil {
-				s.log.Errorf("player %s has nil NotifierStream", p.ID.String())
-				continue
-			}
 			_ = s.notify(p, &pong.NtfnStreamResponse{
 				NotificationType: pong.NotificationType_PLAYER_JOINED_WR,
 				Message:          fmt.Sprintf("New player joined Waiting Room: %s", player.Nick),
@@ -235,10 +231,6 @@ func (s *Server) JoinWaitingRoom(ctx context.Context, req *pong.JoinWaitingRoomR
 
 	pwr := wr.Marshal()
 	for _, p := range wr.Players {
-		if p.NotifierStream == nil {
-			s.log.Errorf("player %s has nil NotifierStream", p.ID.String())
-			continue
-		}
 		_ = s.notify(p, &pong.NtfnStreamResponse{
 			NotificationType: pong.NotificationType_PLAYER_JOINED_WR,
 			Message:          fmt.Sprintf("New player joined Waiting Room: %s", player.Nick),

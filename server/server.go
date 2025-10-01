@@ -506,7 +506,7 @@ func (s *Server) handleGameEnd(ctx context.Context, game *ponggame.GameInstance,
 		hexTx, err := pongbisonrelay.FinalizeWinner(gammaHex, chosen.DraftHex, inputs, presigs)
 		if err != nil {
 			s.log.Warnf("finalize: failed to finalize tx: %v", err)
-			if w := s.gameManager.PlayerSessions.GetPlayer(*winner); w != nil && w.NotifierStream != nil {
+			if w := s.gameManager.PlayerSessions.GetPlayer(*winner); w != nil {
 				_ = s.notify(w, &pong.NtfnStreamResponse{NotificationType: pong.NotificationType_MESSAGE, Message: "Settlement failed to finalize; please contact support."})
 			}
 			return
@@ -529,7 +529,7 @@ func (s *Server) handleGameEnd(ctx context.Context, game *ponggame.GameInstance,
 		if err != nil {
 			s.log.Warnf("broadcast failed: %v", err)
 			// Include hex for manual broadcast/debugging.
-			if w := s.gameManager.PlayerSessions.GetPlayer(*winner); w != nil && w.NotifierStream != nil {
+			if w := s.gameManager.PlayerSessions.GetPlayer(*winner); w != nil {
 				_ = s.notify(w, &pong.NtfnStreamResponse{NotificationType: pong.NotificationType_MESSAGE, Message: fmt.Sprintf("Settlement broadcast failed: %v. You may broadcast manually with this hex: %s", err, hexTx)})
 			}
 			return
@@ -695,14 +695,10 @@ func (s *Server) sendGameUpdates(ctx context.Context, player *ponggame.Player, g
 				// Producer closed: normal shutdown
 				return io.EOF
 			}
-			if player.GameStream == nil {
-				s.log.Errorf("player %s has no game stream", player.ID)
+			// Enqueue to per-player sender goroutine; drop if queue full.
+			if ok := player.EnqueueGameBytes(frame); !ok {
+				// Best effort: if queue is full, drop this frame and continue.
 				continue
-			}
-			// Serialize per-player sends to avoid concurrent Stream.Send.
-			err := player.SendGameBytes(frame)
-			if err != nil {
-				return err
 			}
 		}
 	}
@@ -733,16 +729,14 @@ func (s *Server) handleGameLifecycle(ctx context.Context, wr *ponggame.WaitingRo
 		wg.Add(1)
 		go func(player *ponggame.Player) {
 			defer wg.Done()
-			if player.NotifierStream != nil {
-				err := s.notify(player, &pong.NtfnStreamResponse{
-					NotificationType: pong.NotificationType_GAME_START,
-					Message:          "Game started with ID: " + game.Id,
-					Started:          true,
-					GameId:           game.Id,
-				})
-				if err != nil {
-					s.log.Warnf("Failed to notify player %s: %v", player.ID, err)
-				}
+			err := s.notify(player, &pong.NtfnStreamResponse{
+				NotificationType: pong.NotificationType_GAME_START,
+				Message:          "Game started with ID: " + game.Id,
+				Started:          true,
+				GameId:           game.Id,
+			})
+			if err != nil {
+				s.log.Warnf("Failed to notify player %s: %v", player.ID, err)
 			}
 			s.sendGameUpdates(ctx, player, game)
 		}(player)
