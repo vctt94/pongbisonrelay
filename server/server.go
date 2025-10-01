@@ -699,7 +699,8 @@ func (s *Server) sendGameUpdates(ctx context.Context, player *ponggame.Player, g
 				s.log.Errorf("player %s has no game stream", player.ID)
 				continue
 			}
-			err := player.GameStream.Send(&pong.GameUpdateBytes{Data: frame})
+			// Serialize per-player sends to avoid concurrent Stream.Send.
+			err := player.SendGameBytes(frame)
 			if err != nil {
 				return err
 			}

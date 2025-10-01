@@ -23,7 +23,8 @@ func (s *Server) notify(p *ponggame.Player, resp *pong.NtfnStreamResponse) error
 	if resp == nil {
 		return fmt.Errorf("nil response")
 	}
-	if err := p.NotifierStream.Send(resp); err != nil {
+	// Serialize send per-player to avoid concurrent Stream.Send races.
+	if err := p.SendNotif(resp); err != nil {
 		s.log.Warnf("notify: failed to deliver to %s: %v", p.ID.String(), err)
 		return err
 	}

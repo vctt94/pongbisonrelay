@@ -46,6 +46,10 @@ type Player struct {
 	// Per-player frame buffer to prevent one slow client from affecting others
 	FrameCh chan []byte
 
+	// Serialize gRPC sends per stream to avoid concurrent Send races.
+	gameSendMu sync.Mutex
+	ntfnSendMu sync.Mutex
+
 	WR *WaitingRoom
 }
 
