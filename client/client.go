@@ -109,15 +109,17 @@ func NewPongClient(clientID string, cfg *PongClientCfg) (*PongClient, error) {
 	}
 
 	// quick check (fail fast on bad addr/cert), with timeout.
-	if func() error {
+	err = func() error {
 		cctx, ccancel := context.WithTimeout(ctx, 5*time.Second)
 		defer ccancel()
 		_, err := pc.RefGetWaitingRooms(cctx) // or your existing method with ctx
 		return err
-	}() != nil {
+	}()
+	if err != nil {
 		cancel()
 		_ = conn.Close()
-		return nil, fmt.Errorf("gRPC server connection failed")
+		fmt.Fprintf(os.Stderr, "gRPC server connection failed: %v\n", err)
+		return nil, fmt.Errorf("gRPC server connection failed: %w", err)
 	}
 
 	return pc, nil

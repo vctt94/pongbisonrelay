@@ -1,6 +1,3 @@
-import 'dart:convert';
-import 'dart:io';
-
 import 'package:flutter/material.dart';
 import 'package:pongui/models/pong.dart';
 import 'package:provider/provider.dart';
@@ -19,31 +16,12 @@ class _WalletAuthDialogState extends State<WalletAuthDialog> {
   String _status = '';
   bool _loading = false;
 
-  String _httpBase(PongModel m) {
-    final parts = m.cfg.serverAddr.split(":");
-    final host = parts.isNotEmpty ? parts[0] : '127.0.0.1';
-    int port = 8080;
-    if (parts.length > 1) {
-      final p = int.tryParse(parts[1]);
-      if (p != null) port = p + 1; // http runs on grpc+1
-    }
-    return "http://$host:$port";
-  }
 
   Future<void> _requestNonce(PongModel m) async {
     setState(() { _loading = true; _status = ''; });
     try {
-      final client = HttpClient();
-      final req = await client.postUrl(Uri.parse("${_httpBase(m)}/auth/request"));
-      req.headers.set(HttpHeaders.contentTypeHeader, 'application/json');
-      req.add(utf8.encode(jsonEncode({"user_id": ""})));
-      final res = await req.close();
-      final body = await res.transform(utf8.decoder).join();
-      if (res.statusCode != 200) {
-        throw Exception('Request failed: ${res.statusCode} ${res.reasonPhrase}');
-      }
-      final data = jsonDecode(body) as Map<String, dynamic>;
-      setState(() { _nonce = (data['nonce'] as String?) ?? ''; });
+      final res = await m.grpcClient.requestNonce();
+      setState(() { _nonce = res.nonce; });
     } catch (e) {
       setState(() { _status = 'Error: $e'; });
     } finally {
@@ -61,30 +39,23 @@ class _WalletAuthDialogState extends State<WalletAuthDialog> {
     }
     setState(() { _loading = true; _status = ''; });
     try {
-      final client = HttpClient();
-      final req = await client.postUrl(Uri.parse("${_httpBase(m)}/auth/verify"));
-      req.headers.set(HttpHeaders.contentTypeHeader, 'application/json');
-      req.add(utf8.encode(jsonEncode({
-        "address": addr,
-        "nonce": nonce,
-        "signature": sig,
-      })));
-      final res = await req.close();
-      final body = await res.transform(utf8.decoder).join();
-      if (res.statusCode != 200) {
-        throw Exception('Verify failed: ${res.statusCode} ${res.reasonPhrase} ${body}');
-      }
-      final data = jsonDecode(body) as Map<String, dynamic>;
-      final ok = (data['ok'] == true);
-      if (!ok) {
+      final res = await m.grpcClient.verifyLogin(addr, nonce, sig);
+      if (!res.ok) {
         throw Exception('Invalid response');
       }
-      final token = (data['token'] as String?) ?? '';
-      final clientId = (data['client_id'] as String?) ?? '';
+      final token = res.token;
+      final clientId = res.clientId;
       if (clientId.isEmpty) {
         throw Exception('Missing client_id');
       }
-      m.applyWalletAuth(newClientId: clientId, token: token);
+      // Apply new identity and store payout address from recovered P2PK.
+      // Pass p2pkAddr directly to applyWalletAuth so it's set before _initPongClient runs
+      m.applyWalletAuth(
+        newClientId: clientId,
+        token: token,
+        address: addr,
+        p2pkAddr: res.p2pkAddr,
+      );
       if (!mounted) return;
       Navigator.of(context).pop();
       ScaffoldMessenger.of(context).showSnackBar(

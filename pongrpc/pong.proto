@@ -4,6 +4,38 @@ option go_package = "grpc/pong";
 
 package pong;
 
+// Wallet authentication (Decred signmessage over gRPC)
+service PongAuth {
+  // Request a one-time nonce to sign in the wallet
+  rpc RequestNonce (RequestNonceRequest) returns (RequestNonceResponse);
+  // Verify a wallet signature and establish a session
+  rpc VerifyLogin (VerifyLoginRequest) returns (VerifyLoginResponse);
+}
+
+message RequestNonceRequest {
+  string user_id = 1; // optional hint (unused)
+}
+
+message RequestNonceResponse {
+  string nonce = 1;
+  int32 ttl_sec = 2;
+  string address_hint = 3; // optional, usually empty
+}
+
+message VerifyLoginRequest {
+  string address = 1;   // P2PKH address used to sign
+  string nonce = 2;     // server-provided one-time code
+  string signature = 3; // base64 compact ECDSA signature
+}
+
+message VerifyLoginResponse {
+  bool ok = 1;
+  string token = 2;      // session token
+  string client_id = 3;  // stable uid derived from address
+  bytes comp_pubkey = 4; // 33-byte compressed pubkey recovered from sig
+  string p2pk_addr = 5;  // Decred P2PK address matching comp_pubkey
+}
+
 service PongGame {
   // pong game
   rpc SendInput (PlayerInput) returns (GameUpdate) {}

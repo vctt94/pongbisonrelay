@@ -7,6 +7,7 @@ part of 'definitions.dart';
 // **************************************************************************
 
 InitClient _$InitClientFromJson(Map<String, dynamic> json) => InitClient(
+      json['client_id'] as String,
       json['server_addr'] as String,
       json['grpc_cert_path'] as String,
       json['datadir'] as String,
@@ -24,6 +25,7 @@ InitClient _$InitClientFromJson(Map<String, dynamic> json) => InitClient(
 
 Map<String, dynamic> _$InitClientToJson(InitClient instance) =>
     <String, dynamic>{
+      'client_id': instance.clientId,
       'server_addr': instance.serverAddr,
       'grpc_cert_path': instance.grpcCertPath,
       'datadir': instance.dataDir,

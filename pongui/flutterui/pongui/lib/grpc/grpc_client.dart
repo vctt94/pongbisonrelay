@@ -5,6 +5,7 @@ import 'package:grpc/grpc.dart';
 class GrpcPongClient {
   late ClientChannel _channel;
   late PongGameClient _client;
+  late PongAuthClient _auth;
 
   GrpcPongClient(String serverAddress, int port, {String? tlsCertPath}) {
     // Set up credentials based on whether TLS is being used
@@ -21,6 +22,7 @@ class GrpcPongClient {
       ),
     );
     _client = PongGameClient(_channel);
+    _auth = PongAuthClient(_channel);
   }
 
   // Helper method to create secure credentials
@@ -34,6 +36,21 @@ class GrpcPongClient {
     } catch (e) {
       throw Exception('Failed to read TLS certificate: $e');
     }
+  }
+
+  // Wallet Auth: request a nonce to sign
+  Future<RequestNonceResponse> requestNonce() async {
+    final req = RequestNonceRequest();
+    return _auth.requestNonce(req);
+  }
+
+  // Wallet Auth: verify signed nonce and return session + keys
+  Future<VerifyLoginResponse> verifyLogin(String address, String nonce, String signature) async {
+    final req = VerifyLoginRequest()
+      ..address = address
+      ..nonce = nonce
+      ..signature = signature;
+    return _auth.verifyLogin(req);
   }
 
   // Call Init on the PluginService and listen to the stream

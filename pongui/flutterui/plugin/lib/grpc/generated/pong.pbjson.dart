@@ -1,13 +1,14 @@
+// This is a generated file - do not edit.
 //
-//  Generated code. Do not modify.
-//  source: pong.proto
-//
-// @dart = 2.12
+// Generated from pong.proto.
+
+// @dart = 3.3
 
 // ignore_for_file: annotate_overrides, camel_case_types, comment_references
-// ignore_for_file: constant_identifier_names, library_prefixes
-// ignore_for_file: non_constant_identifier_names, prefer_final_fields
-// ignore_for_file: unnecessary_import, unnecessary_this, unused_import
+// ignore_for_file: constant_identifier_names
+// ignore_for_file: curly_braces_in_flow_control_structures
+// ignore_for_file: deprecated_member_use_from_same_package, library_prefixes
+// ignore_for_file: non_constant_identifier_names, unused_import
 
 import 'dart:convert' as $convert;
 import 'dart:core' as $core;
@@ -41,14 +42,99 @@ final $typed_data.Uint8List notificationTypeDescriptor = $convert.base64Decode(
     'MKD09OX1BMQVlFUl9SRUFEWRAIEhEKDU9OX1dSX1JFTU9WRUQQCRIUChBDT1VOVERPV05fVVBE'
     'QVRFEAsSFgoSR0FNRV9SRUFEWV9UT19QTEFZEAwSEwoPTUFUQ0hfQUxMT0NBVEVEEA0=');
 
+@$core.Deprecated('Use requestNonceRequestDescriptor instead')
+const RequestNonceRequest$json = {
+  '1': 'RequestNonceRequest',
+  '2': [
+    {'1': 'user_id', '3': 1, '4': 1, '5': 9, '10': 'userId'},
+  ],
+};
+
+/// Descriptor for `RequestNonceRequest`. Decode as a `google.protobuf.DescriptorProto`.
+final $typed_data.Uint8List requestNonceRequestDescriptor =
+    $convert.base64Decode(
+        'ChNSZXF1ZXN0Tm9uY2VSZXF1ZXN0EhcKB3VzZXJfaWQYASABKAlSBnVzZXJJZA==');
+
+@$core.Deprecated('Use requestNonceResponseDescriptor instead')
+const RequestNonceResponse$json = {
+  '1': 'RequestNonceResponse',
+  '2': [
+    {'1': 'nonce', '3': 1, '4': 1, '5': 9, '10': 'nonce'},
+    {'1': 'ttl_sec', '3': 2, '4': 1, '5': 5, '10': 'ttlSec'},
+    {'1': 'address_hint', '3': 3, '4': 1, '5': 9, '10': 'addressHint'},
+  ],
+};
+
+/// Descriptor for `RequestNonceResponse`. Decode as a `google.protobuf.DescriptorProto`.
+final $typed_data.Uint8List requestNonceResponseDescriptor = $convert.base64Decode(
+    'ChRSZXF1ZXN0Tm9uY2VSZXNwb25zZRIUCgVub25jZRgBIAEoCVIFbm9uY2USFwoHdHRsX3NlYx'
+    'gCIAEoBVIGdHRsU2VjEiEKDGFkZHJlc3NfaGludBgDIAEoCVILYWRkcmVzc0hpbnQ=');
+
+@$core.Deprecated('Use verifyLoginRequestDescriptor instead')
+const VerifyLoginRequest$json = {
+  '1': 'VerifyLoginRequest',
+  '2': [
+    {'1': 'address', '3': 1, '4': 1, '5': 9, '10': 'address'},
+    {'1': 'nonce', '3': 2, '4': 1, '5': 9, '10': 'nonce'},
+    {'1': 'signature', '3': 3, '4': 1, '5': 9, '10': 'signature'},
+  ],
+};
+
+/// Descriptor for `VerifyLoginRequest`. Decode as a `google.protobuf.DescriptorProto`.
+final $typed_data.Uint8List verifyLoginRequestDescriptor = $convert.base64Decode(
+    'ChJWZXJpZnlMb2dpblJlcXVlc3QSGAoHYWRkcmVzcxgBIAEoCVIHYWRkcmVzcxIUCgVub25jZR'
+    'gCIAEoCVIFbm9uY2USHAoJc2lnbmF0dXJlGAMgASgJUglzaWduYXR1cmU=');
+
+@$core.Deprecated('Use verifyLoginResponseDescriptor instead')
+const VerifyLoginResponse$json = {
+  '1': 'VerifyLoginResponse',
+  '2': [
+    {'1': 'ok', '3': 1, '4': 1, '5': 8, '10': 'ok'},
+    {'1': 'token', '3': 2, '4': 1, '5': 9, '10': 'token'},
+    {'1': 'client_id', '3': 3, '4': 1, '5': 9, '10': 'clientId'},
+    {'1': 'comp_pubkey', '3': 4, '4': 1, '5': 12, '10': 'compPubkey'},
+    {'1': 'p2pk_addr', '3': 5, '4': 1, '5': 9, '10': 'p2pkAddr'},
+  ],
+};
+
+/// Descriptor for `VerifyLoginResponse`. Decode as a `google.protobuf.DescriptorProto`.
+final $typed_data.Uint8List verifyLoginResponseDescriptor = $convert.base64Decode(
+    'ChNWZXJpZnlMb2dpblJlc3BvbnNlEg4KAm9rGAEgASgIUgJvaxIUCgV0b2tlbhgCIAEoCVIFdG'
+    '9rZW4SGwoJY2xpZW50X2lkGAMgASgJUghjbGllbnRJZBIfCgtjb21wX3B1YmtleRgEIAEoDFIK'
+    'Y29tcFB1YmtleRIbCglwMnBrX2FkZHIYBSABKAlSCHAycGtBZGRy');
+
 @$core.Deprecated('Use clientMsgDescriptor instead')
 const ClientMsg$json = {
   '1': 'ClientMsg',
   '2': [
     {'1': 'match_id', '3': 1, '4': 1, '5': 9, '10': 'matchId'},
-    {'1': 'hello', '3': 10, '4': 1, '5': 11, '6': '.pong.Hello', '9': 0, '10': 'hello'},
-    {'1': 'ack', '3': 12, '4': 1, '5': 11, '6': '.pong.Ack', '9': 0, '10': 'ack'},
-    {'1': 'verify_ok', '3': 13, '4': 1, '5': 11, '6': '.pong.VerifyOk', '9': 0, '10': 'verifyOk'},
+    {
+      '1': 'hello',
+      '3': 10,
+      '4': 1,
+      '5': 11,
+      '6': '.pong.Hello',
+      '9': 0,
+      '10': 'hello'
+    },
+    {
+      '1': 'ack',
+      '3': 12,
+      '4': 1,
+      '5': 11,
+      '6': '.pong.Ack',
+      '9': 0,
+      '10': 'ack'
+    },
+    {
+      '1': 'verify_ok',
+      '3': 13,
+      '4': 1,
+      '5': 11,
+      '6': '.pong.VerifyOk',
+      '9': 0,
+      '10': 'verifyOk'
+    },
   ],
   '8': [
     {'1': 'kind'},
@@ -66,9 +152,33 @@ const ServerMsg$json = {
   '1': 'ServerMsg',
   '2': [
     {'1': 'match_id', '3': 1, '4': 1, '5': 9, '10': 'matchId'},
-    {'1': 'req', '3': 11, '4': 1, '5': 11, '6': '.pong.NeedPreSigs', '9': 0, '10': 'req'},
-    {'1': 'info', '3': 13, '4': 1, '5': 11, '6': '.pong.Info', '9': 0, '10': 'info'},
-    {'1': 'ok', '3': 14, '4': 1, '5': 11, '6': '.pong.ServerOk', '9': 0, '10': 'ok'},
+    {
+      '1': 'req',
+      '3': 11,
+      '4': 1,
+      '5': 11,
+      '6': '.pong.NeedPreSigs',
+      '9': 0,
+      '10': 'req'
+    },
+    {
+      '1': 'info',
+      '3': 13,
+      '4': 1,
+      '5': 11,
+      '6': '.pong.Info',
+      '9': 0,
+      '10': 'info'
+    },
+    {
+      '1': 'ok',
+      '3': 14,
+      '4': 1,
+      '5': 11,
+      '6': '.pong.ServerOk',
+      '9': 0,
+      '10': 'ok'
+    },
   ],
   '8': [
     {'1': 'kind'},
@@ -101,7 +211,14 @@ const NeedPreSigs$json = {
   '1': 'NeedPreSigs',
   '2': [
     {'1': 'draft_tx_hex', '3': 2, '4': 1, '5': 9, '10': 'draftTxHex'},
-    {'1': 'inputs', '3': 4, '4': 3, '5': 11, '6': '.pong.NeedPreSigs.PerInput', '10': 'inputs'},
+    {
+      '1': 'inputs',
+      '3': 4,
+      '4': 3,
+      '5': 11,
+      '6': '.pong.NeedPreSigs.PerInput',
+      '10': 'inputs'
+    },
   ],
   '3': [NeedPreSigs_PerInput$json],
 };
@@ -130,7 +247,14 @@ const VerifyOk$json = {
   '1': 'VerifyOk',
   '2': [
     {'1': 'ack_digest', '3': 1, '4': 1, '5': 12, '10': 'ackDigest'},
-    {'1': 'presigs', '3': 2, '4': 3, '5': 11, '6': '.pong.PreSig', '10': 'presigs'},
+    {
+      '1': 'presigs',
+      '3': 2,
+      '4': 3,
+      '5': 11,
+      '6': '.pong.PreSig',
+      '10': 'presigs'
+    },
   ],
 };
 
@@ -163,8 +287,8 @@ const Ack$json = {
 };
 
 /// Descriptor for `Ack`. Decode as a `google.protobuf.DescriptorProto`.
-final $typed_data.Uint8List ackDescriptor = $convert.base64Decode(
-    'CgNBY2sSEgoEbm90ZRgBIAEoCVIEbm90ZQ==');
+final $typed_data.Uint8List ackDescriptor =
+    $convert.base64Decode('CgNBY2sSEgoEbm90ZRgBIAEoCVIEbm90ZQ==');
 
 @$core.Deprecated('Use infoDescriptor instead')
 const Info$json = {
@@ -175,8 +299,8 @@ const Info$json = {
 };
 
 /// Descriptor for `Info`. Decode as a `google.protobuf.DescriptorProto`.
-final $typed_data.Uint8List infoDescriptor = $convert.base64Decode(
-    'CgRJbmZvEhIKBHRleHQYASABKAlSBHRleHQ=');
+final $typed_data.Uint8List infoDescriptor =
+    $convert.base64Decode('CgRJbmZvEhIKBHRleHQYASABKAlSBHRleHQ=');
 
 @$core.Deprecated('Use serverOkDescriptor instead')
 const ServerOk$json = {
@@ -187,8 +311,8 @@ const ServerOk$json = {
 };
 
 /// Descriptor for `ServerOk`. Decode as a `google.protobuf.DescriptorProto`.
-final $typed_data.Uint8List serverOkDescriptor = $convert.base64Decode(
-    'CghTZXJ2ZXJPaxIdCgphY2tfZGlnZXN0GAEgASgMUglhY2tEaWdlc3Q=');
+final $typed_data.Uint8List serverOkDescriptor = $convert
+    .base64Decode('CghTZXJ2ZXJPaxIdCgphY2tfZGlnZXN0GAEgASgMUglhY2tEaWdlc3Q=');
 
 @$core.Deprecated('Use getFinalizeBundleRequestDescriptor instead')
 const GetFinalizeBundleRequest$json = {
@@ -200,9 +324,10 @@ const GetFinalizeBundleRequest$json = {
 };
 
 /// Descriptor for `GetFinalizeBundleRequest`. Decode as a `google.protobuf.DescriptorProto`.
-final $typed_data.Uint8List getFinalizeBundleRequestDescriptor = $convert.base64Decode(
-    'ChhHZXRGaW5hbGl6ZUJ1bmRsZVJlcXVlc3QSGQoIbWF0Y2hfaWQYASABKAlSB21hdGNoSWQSHQ'
-    'oKd2lubmVyX3VpZBgCIAEoCVIJd2lubmVyVWlk');
+final $typed_data.Uint8List getFinalizeBundleRequestDescriptor =
+    $convert.base64Decode(
+        'ChhHZXRGaW5hbGl6ZUJ1bmRsZVJlcXVlc3QSGQoIbWF0Y2hfaWQYASABKAlSB21hdGNoSWQSHQ'
+        'oKd2lubmVyX3VpZBgCIAEoCVIJd2lubmVyVWlk');
 
 @$core.Deprecated('Use finalizeInputDescriptor instead')
 const FinalizeInput$json = {
@@ -227,7 +352,14 @@ const GetFinalizeBundleResponse$json = {
   '2': [
     {'1': 'draft_tx_hex', '3': 1, '4': 1, '5': 9, '10': 'draftTxHex'},
     {'1': 'gamma32', '3': 2, '4': 1, '5': 12, '10': 'gamma32'},
-    {'1': 'inputs', '3': 3, '4': 3, '5': 11, '6': '.pong.FinalizeInput', '10': 'inputs'},
+    {
+      '1': 'inputs',
+      '3': 3,
+      '4': 3,
+      '5': 11,
+      '6': '.pong.FinalizeInput',
+      '10': 'inputs'
+    },
   ],
 };
 
@@ -321,9 +453,10 @@ const UnreadyGameStreamRequest$json = {
 };
 
 /// Descriptor for `UnreadyGameStreamRequest`. Decode as a `google.protobuf.DescriptorProto`.
-final $typed_data.Uint8List unreadyGameStreamRequestDescriptor = $convert.base64Decode(
-    'ChhVbnJlYWR5R2FtZVN0cmVhbVJlcXVlc3QSGwoJY2xpZW50X2lkGAEgASgJUghjbGllbnRJZA'
-    '==');
+final $typed_data.Uint8List unreadyGameStreamRequestDescriptor =
+    $convert.base64Decode(
+        'ChhVbnJlYWR5R2FtZVN0cmVhbVJlcXVlc3QSGwoJY2xpZW50X2lkGAEgASgJUghjbGllbnRJZA'
+        '==');
 
 @$core.Deprecated('Use unreadyGameStreamResponseDescriptor instead')
 const UnreadyGameStreamResponse$json = {
@@ -331,8 +464,8 @@ const UnreadyGameStreamResponse$json = {
 };
 
 /// Descriptor for `UnreadyGameStreamResponse`. Decode as a `google.protobuf.DescriptorProto`.
-final $typed_data.Uint8List unreadyGameStreamResponseDescriptor = $convert.base64Decode(
-    'ChlVbnJlYWR5R2FtZVN0cmVhbVJlc3BvbnNl');
+final $typed_data.Uint8List unreadyGameStreamResponseDescriptor =
+    $convert.base64Decode('ChlVbnJlYWR5R2FtZVN0cmVhbVJlc3BvbnNl');
 
 @$core.Deprecated('Use startNtfnStreamRequestDescriptor instead')
 const StartNtfnStreamRequest$json = {
@@ -343,14 +476,22 @@ const StartNtfnStreamRequest$json = {
 };
 
 /// Descriptor for `StartNtfnStreamRequest`. Decode as a `google.protobuf.DescriptorProto`.
-final $typed_data.Uint8List startNtfnStreamRequestDescriptor = $convert.base64Decode(
-    'ChZTdGFydE50Zm5TdHJlYW1SZXF1ZXN0EhsKCWNsaWVudF9pZBgBIAEoCVIIY2xpZW50SWQ=');
+final $typed_data.Uint8List startNtfnStreamRequestDescriptor =
+    $convert.base64Decode(
+        'ChZTdGFydE50Zm5TdHJlYW1SZXF1ZXN0EhsKCWNsaWVudF9pZBgBIAEoCVIIY2xpZW50SWQ=');
 
 @$core.Deprecated('Use ntfnStreamResponseDescriptor instead')
 const NtfnStreamResponse$json = {
   '1': 'NtfnStreamResponse',
   '2': [
-    {'1': 'notification_type', '3': 1, '4': 1, '5': 14, '6': '.pong.NotificationType', '10': 'notificationType'},
+    {
+      '1': 'notification_type',
+      '3': 1,
+      '4': 1,
+      '5': 14,
+      '6': '.pong.NotificationType',
+      '10': 'notificationType'
+    },
     {'1': 'started', '3': 2, '4': 1, '5': 8, '10': 'started'},
     {'1': 'game_id', '3': 3, '4': 1, '5': 9, '10': 'gameId'},
     {'1': 'message', '3': 4, '4': 1, '5': 9, '10': 'message'},
@@ -360,7 +501,14 @@ const NtfnStreamResponse$json = {
     {'1': 'room_id', '3': 8, '4': 1, '5': 9, '10': 'roomId'},
     {'1': 'wr', '3': 9, '4': 1, '5': 11, '6': '.pong.WaitingRoom', '10': 'wr'},
     {'1': 'ready', '3': 10, '4': 1, '5': 8, '10': 'ready'},
-    {'1': 'match_alloc', '3': 11, '4': 1, '5': 11, '6': '.pong.MatchAllocatedNtfn', '10': 'matchAlloc'},
+    {
+      '1': 'match_alloc',
+      '3': 11,
+      '4': 1,
+      '5': 11,
+      '6': '.pong.MatchAllocatedNtfn',
+      '10': 'matchAlloc'
+    },
     {'1': 'confs', '3': 12, '4': 1, '5': 13, '10': 'confs'},
   ],
 };
@@ -385,8 +533,9 @@ const WaitingRoomsRequest$json = {
 };
 
 /// Descriptor for `WaitingRoomsRequest`. Decode as a `google.protobuf.DescriptorProto`.
-final $typed_data.Uint8List waitingRoomsRequestDescriptor = $convert.base64Decode(
-    'ChNXYWl0aW5nUm9vbXNSZXF1ZXN0EhcKB3Jvb21faWQYASABKAlSBnJvb21JZA==');
+final $typed_data.Uint8List waitingRoomsRequestDescriptor =
+    $convert.base64Decode(
+        'ChNXYWl0aW5nUm9vbXNSZXF1ZXN0EhcKB3Jvb21faWQYASABKAlSBnJvb21JZA==');
 
 @$core.Deprecated('Use waitingRoomsResponseDescriptor instead')
 const WaitingRoomsResponse$json = {
@@ -425,9 +574,10 @@ const JoinWaitingRoomResponse$json = {
 };
 
 /// Descriptor for `JoinWaitingRoomResponse`. Decode as a `google.protobuf.DescriptorProto`.
-final $typed_data.Uint8List joinWaitingRoomResponseDescriptor = $convert.base64Decode(
-    'ChdKb2luV2FpdGluZ1Jvb21SZXNwb25zZRIhCgJ3chgBIAEoCzIRLnBvbmcuV2FpdGluZ1Jvb2'
-    '1SAndy');
+final $typed_data.Uint8List joinWaitingRoomResponseDescriptor =
+    $convert.base64Decode(
+        'ChdKb2luV2FpdGluZ1Jvb21SZXNwb25zZRIhCgJ3chgBIAEoCzIRLnBvbmcuV2FpdGluZ1Jvb2'
+        '1SAndy');
 
 @$core.Deprecated('Use createWaitingRoomRequestDescriptor instead')
 const CreateWaitingRoomRequest$json = {
@@ -440,9 +590,10 @@ const CreateWaitingRoomRequest$json = {
 };
 
 /// Descriptor for `CreateWaitingRoomRequest`. Decode as a `google.protobuf.DescriptorProto`.
-final $typed_data.Uint8List createWaitingRoomRequestDescriptor = $convert.base64Decode(
-    'ChhDcmVhdGVXYWl0aW5nUm9vbVJlcXVlc3QSFwoHaG9zdF9pZBgBIAEoCVIGaG9zdElkEhYKBm'
-    'JldEFtdBgCIAEoA1IGYmV0QW10EhsKCWVzY3Jvd19pZBgDIAEoCVIIZXNjcm93SWQ=');
+final $typed_data.Uint8List createWaitingRoomRequestDescriptor =
+    $convert.base64Decode(
+        'ChhDcmVhdGVXYWl0aW5nUm9vbVJlcXVlc3QSFwoHaG9zdF9pZBgBIAEoCVIGaG9zdElkEhYKBm'
+        'JldEFtdBgCIAEoA1IGYmV0QW10EhsKCWVzY3Jvd19pZBgDIAEoCVIIZXNjcm93SWQ=');
 
 @$core.Deprecated('Use createWaitingRoomResponseDescriptor instead')
 const CreateWaitingRoomResponse$json = {
@@ -453,9 +604,10 @@ const CreateWaitingRoomResponse$json = {
 };
 
 /// Descriptor for `CreateWaitingRoomResponse`. Decode as a `google.protobuf.DescriptorProto`.
-final $typed_data.Uint8List createWaitingRoomResponseDescriptor = $convert.base64Decode(
-    'ChlDcmVhdGVXYWl0aW5nUm9vbVJlc3BvbnNlEiEKAndyGAEgASgLMhEucG9uZy5XYWl0aW5nUm'
-    '9vbVICd3I=');
+final $typed_data.Uint8List createWaitingRoomResponseDescriptor =
+    $convert.base64Decode(
+        'ChlDcmVhdGVXYWl0aW5nUm9vbVJlc3BvbnNlEiEKAndyGAEgASgLMhEucG9uZy5XYWl0aW5nUm'
+        '9vbVICd3I=');
 
 @$core.Deprecated('Use waitingRoomDescriptor instead')
 const WaitingRoom$json = {
@@ -463,7 +615,14 @@ const WaitingRoom$json = {
   '2': [
     {'1': 'id', '3': 1, '4': 1, '5': 9, '10': 'id'},
     {'1': 'host_id', '3': 2, '4': 1, '5': 9, '10': 'hostId'},
-    {'1': 'players', '3': 3, '4': 3, '5': 11, '6': '.pong.Player', '10': 'players'},
+    {
+      '1': 'players',
+      '3': 3,
+      '4': 3,
+      '5': 11,
+      '6': '.pong.Player',
+      '10': 'players'
+    },
     {'1': 'bet_amt', '3': 4, '4': 1, '5': 3, '10': 'betAmt'},
   ],
 };
@@ -483,8 +642,9 @@ const WaitingRoomRequest$json = {
 };
 
 /// Descriptor for `WaitingRoomRequest`. Decode as a `google.protobuf.DescriptorProto`.
-final $typed_data.Uint8List waitingRoomRequestDescriptor = $convert.base64Decode(
-    'ChJXYWl0aW5nUm9vbVJlcXVlc3QSFwoHcm9vbV9pZBgBIAEoCVIGcm9vbUlk');
+final $typed_data.Uint8List waitingRoomRequestDescriptor =
+    $convert.base64Decode(
+        'ChJXYWl0aW5nUm9vbVJlcXVlc3QSFwoHcm9vbV9pZBgBIAEoCVIGcm9vbUlk');
 
 @$core.Deprecated('Use waitingRoomResponseDescriptor instead')
 const WaitingRoomResponse$json = {
@@ -527,8 +687,9 @@ const StartGameStreamRequest$json = {
 };
 
 /// Descriptor for `StartGameStreamRequest`. Decode as a `google.protobuf.DescriptorProto`.
-final $typed_data.Uint8List startGameStreamRequestDescriptor = $convert.base64Decode(
-    'ChZTdGFydEdhbWVTdHJlYW1SZXF1ZXN0EhsKCWNsaWVudF9pZBgBIAEoCVIIY2xpZW50SWQ=');
+final $typed_data.Uint8List startGameStreamRequestDescriptor =
+    $convert.base64Decode(
+        'ChZTdGFydEdhbWVTdHJlYW1SZXF1ZXN0EhsKCWNsaWVudF9pZBgBIAEoCVIIY2xpZW50SWQ=');
 
 @$core.Deprecated('Use gameUpdateBytesDescriptor instead')
 const GameUpdateBytes$json = {
@@ -539,8 +700,8 @@ const GameUpdateBytes$json = {
 };
 
 /// Descriptor for `GameUpdateBytes`. Decode as a `google.protobuf.DescriptorProto`.
-final $typed_data.Uint8List gameUpdateBytesDescriptor = $convert.base64Decode(
-    'Cg9HYW1lVXBkYXRlQnl0ZXMSEgoEZGF0YRgBIAEoDFIEZGF0YQ==');
+final $typed_data.Uint8List gameUpdateBytesDescriptor = $convert
+    .base64Decode('Cg9HYW1lVXBkYXRlQnl0ZXMSEgoEZGF0YRgBIAEoDFIEZGF0YQ==');
 
 @$core.Deprecated('Use playerInputDescriptor instead')
 const PlayerInput$json = {
@@ -613,9 +774,10 @@ const LeaveWaitingRoomRequest$json = {
 };
 
 /// Descriptor for `LeaveWaitingRoomRequest`. Decode as a `google.protobuf.DescriptorProto`.
-final $typed_data.Uint8List leaveWaitingRoomRequestDescriptor = $convert.base64Decode(
-    'ChdMZWF2ZVdhaXRpbmdSb29tUmVxdWVzdBIbCgljbGllbnRfaWQYASABKAlSCGNsaWVudElkEh'
-    'cKB3Jvb21faWQYAiABKAlSBnJvb21JZA==');
+final $typed_data.Uint8List leaveWaitingRoomRequestDescriptor =
+    $convert.base64Decode(
+        'ChdMZWF2ZVdhaXRpbmdSb29tUmVxdWVzdBIbCgljbGllbnRfaWQYASABKAlSCGNsaWVudElkEh'
+        'cKB3Jvb21faWQYAiABKAlSBnJvb21JZA==');
 
 @$core.Deprecated('Use leaveWaitingRoomResponseDescriptor instead')
 const LeaveWaitingRoomResponse$json = {
@@ -627,9 +789,10 @@ const LeaveWaitingRoomResponse$json = {
 };
 
 /// Descriptor for `LeaveWaitingRoomResponse`. Decode as a `google.protobuf.DescriptorProto`.
-final $typed_data.Uint8List leaveWaitingRoomResponseDescriptor = $convert.base64Decode(
-    'ChhMZWF2ZVdhaXRpbmdSb29tUmVzcG9uc2USGAoHc3VjY2VzcxgBIAEoCFIHc3VjY2VzcxIYCg'
-    'dtZXNzYWdlGAIgASgJUgdtZXNzYWdl');
+final $typed_data.Uint8List leaveWaitingRoomResponseDescriptor =
+    $convert.base64Decode(
+        'ChhMZWF2ZVdhaXRpbmdSb29tUmVzcG9uc2USGAoHc3VjY2VzcxgBIAEoCFIHc3VjY2VzcxIYCg'
+        'dtZXNzYWdlGAIgASgJUgdtZXNzYWdl');
 
 @$core.Deprecated('Use signalReadyToPlayRequestDescriptor instead')
 const SignalReadyToPlayRequest$json = {
@@ -641,9 +804,10 @@ const SignalReadyToPlayRequest$json = {
 };
 
 /// Descriptor for `SignalReadyToPlayRequest`. Decode as a `google.protobuf.DescriptorProto`.
-final $typed_data.Uint8List signalReadyToPlayRequestDescriptor = $convert.base64Decode(
-    'ChhTaWduYWxSZWFkeVRvUGxheVJlcXVlc3QSGwoJY2xpZW50X2lkGAEgASgJUghjbGllbnRJZB'
-    'IXCgdnYW1lX2lkGAIgASgJUgZnYW1lSWQ=');
+final $typed_data.Uint8List signalReadyToPlayRequestDescriptor =
+    $convert.base64Decode(
+        'ChhTaWduYWxSZWFkeVRvUGxheVJlcXVlc3QSGwoJY2xpZW50X2lkGAEgASgJUghjbGllbnRJZB'
+        'IXCgdnYW1lX2lkGAIgASgJUgZnYW1lSWQ=');
 
 @$core.Deprecated('Use signalReadyToPlayResponseDescriptor instead')
 const SignalReadyToPlayResponse$json = {
@@ -655,7 +819,7 @@ const SignalReadyToPlayResponse$json = {
 };
 
 /// Descriptor for `SignalReadyToPlayResponse`. Decode as a `google.protobuf.DescriptorProto`.
-final $typed_data.Uint8List signalReadyToPlayResponseDescriptor = $convert.base64Decode(
-    'ChlTaWduYWxSZWFkeVRvUGxheVJlc3BvbnNlEhgKB3N1Y2Nlc3MYASABKAhSB3N1Y2Nlc3MSGA'
-    'oHbWVzc2FnZRgCIAEoCVIHbWVzc2FnZQ==');
-
+final $typed_data.Uint8List signalReadyToPlayResponseDescriptor =
+    $convert.base64Decode(
+        'ChlTaWduYWxSZWFkeVRvUGxheVJlc3BvbnNlEhgKB3N1Y2Nlc3MYASABKAhSB3N1Y2Nlc3MSGA'
+        'oHbWVzc2FnZRgCIAEoCVIHbWVzc2FnZQ==');

@@ -13,6 +13,7 @@ import 'package:window_manager/window_manager.dart';
 import 'package:pongui/config.dart';
 import 'package:pongui/models/pong.dart';
 import 'package:pongui/screens/home.dart';
+import 'package:pongui/screens/login.dart';
 import 'package:pongui/screens/newconfig.dart';
 import 'package:pongui/screens/logs.dart';
 
@@ -104,21 +105,54 @@ class MyApp extends StatelessWidget {
           ],
         );
       },
-      routes: {
-        '/': (context) => const HomeScreen(),
-        '/settings': (context) => NewConfigScreen(
-              model: NewConfigModel.fromConfig(cfg),
-              onConfigSaved: () async {
-                try {
-                  // Reload the config from disk to get the updated values
-                  Config updatedCfg = await configFromArgs([]);
-                  runMainApp(updatedCfg);
-                } catch (e) {
-                  rethrow;
-                }
-              },
-            ),
-        '/logs': (context) => const LogsScreen(),
+      onGenerateRoute: (settings) {
+        // Check authentication state for protected routes
+        final pongModel = Provider.of<PongModel>(context, listen: false);
+        
+        switch (settings.name) {
+          case '/':
+          case '/login':
+            return MaterialPageRoute(
+              builder: (_) => const LoginScreen(),
+              settings: settings,
+            );
+          case '/home':
+            if (!pongModel.isWalletAuthenticated) {
+              return MaterialPageRoute(
+                builder: (_) => const LoginScreen(),
+                settings: settings,
+              );
+            }
+            return MaterialPageRoute(
+              builder: (_) => const HomeScreen(),
+              settings: settings,
+            );
+          case '/settings':
+            return MaterialPageRoute(
+              builder: (_) => NewConfigScreen(
+                model: NewConfigModel.fromConfig(cfg),
+                onConfigSaved: () async {
+                  try {
+                    Config updatedCfg = await configFromArgs([]);
+                    runMainApp(updatedCfg);
+                  } catch (e) {
+                    rethrow;
+                  }
+                },
+              ),
+              settings: settings,
+            );
+          case '/logs':
+            return MaterialPageRoute(
+              builder: (_) => const LogsScreen(),
+              settings: settings,
+            );
+          default:
+            return MaterialPageRoute(
+              builder: (_) => const LoginScreen(),
+              settings: settings,
+            );
+        }
       },
       initialRoute: '/',
     );

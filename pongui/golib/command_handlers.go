@@ -3,7 +3,6 @@ package golib
 import (
 	"bytes"
 	"context"
-	"crypto/rand"
 	"encoding/json"
 	"fmt"
 	"net/http"
@@ -177,14 +176,16 @@ func handleInitClient(handle uint32, args initClient) (*localInfo, error) {
 	// Start the bot client
 	// g.Go(func() error { return c.RPCClient.Run(gctx) })
 
-	// Initialize clientID using a random 32-byte value (avoid BR dependency for ID).
-	var rnd [32]byte
-	if _, err := rand.Read(rnd[:]); err != nil {
+	// Require wallet-authenticated clientID (no random ID generation).
+	if strings.TrimSpace(args.ClientID) == "" {
 		cancel()
-		return nil, fmt.Errorf("failed to generate random id: %v", err)
+		return nil, fmt.Errorf("client_id is required - wallet authentication must be completed before initializing client")
 	}
 	var id zkidentity.ShortID
-	id.FromBytes(rnd[:])
+	if err := id.FromString(args.ClientID); err != nil {
+		cancel()
+		return nil, fmt.Errorf("invalid client_id format: %v", err)
+	}
 	localInfo := &localInfo{ID: id, Nick: "anon"}
 
 	// Build consolidated AppConfig for the pong client (without BR auth)
@@ -194,7 +195,7 @@ func handleInitClient(handle uint32, args initClient) (*localInfo, error) {
 		ServerAddr:   args.ServerAddr,
 		GRPCCertPath: args.GRPCCertPath,
 	}
-	pc, err := client.NewPongClient(localInfo.ID.String(), &client.PongClientCfg{
+	pc, err := client.NewPongClient(args.ClientID, &client.PongClientCfg{
 		AppCfg: appCfg,
 		Log:    logBackend.Logger("client"),
 	})
@@ -356,16 +357,15 @@ func handleClientCmd(cc *clientCtx, cmd *cmd) (interface{}, error) {
 		if err := json.Unmarshal(cmd.Payload, &req); err != nil {
 			return nil, fmt.Errorf("bad open escrow payload: %v", err)
 		}
-		// Accept 33/65B hex pubkey, Decred P2PK address, or xpub (tpub/dpub).
-		payoutPK33, err := pongbisonrelay.ResolvePayoutKey(req.Payout)
-		if err != nil {
-			return nil, fmt.Errorf("payout key parse failed: %v", err)
+		// Reject xpub inputs - require wallet authentication for P2PK address
+		payout := strings.TrimSpace(req.Payout)
+		if strings.HasPrefix(payout, "tpub") || strings.HasPrefix(payout, "dpub") {
+			return nil, fmt.Errorf("xpub not allowed - please login with wallet to use authenticated P2PK address")
 		}
-		// If an xpub was provided, also log the derived pubkey address at m/0/0 for clarity.
-		if strings.HasPrefix(strings.TrimSpace(req.Payout), "tpub") || strings.HasPrefix(strings.TrimSpace(req.Payout), "dpub") {
-			if addr, derr := pongbisonrelay.PubKeyAddressFromXPub(strings.TrimSpace(req.Payout), 0); derr == nil {
-				fmt.Printf("derived payout pubkey address (m/0/0): %s\n", addr)
-			}
+		// Accept only 33/65B hex pubkey or Decred P2PK address from wallet auth
+		payoutPK33, err := pongbisonrelay.PayoutPubkeyFromConfHex(req.Payout)
+		if err != nil {
+			return nil, fmt.Errorf("payout key parse failed (expected P2PK address from wallet login): %v", err)
 		}
 
 		res, err := cc.c.OpenEscrowWithSession(cc.ctx, payoutPK33, req.BetAtoms, req.CSVBlocks)
