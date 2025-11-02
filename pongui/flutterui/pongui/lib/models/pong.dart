@@ -26,6 +26,7 @@ enum GameState {
 }
 
 class PongModel extends ChangeNotifier {
+  final Config cfg;
   late GrpcPongClient grpcClient;
   late PongGame pongGame;
   final NotificationModel notificationModel;
@@ -100,7 +101,9 @@ class PongModel extends ChangeNotifier {
       _currentGameState == GameState.playing;
   bool get countdownStarted => _currentGameState == GameState.countdown;
 
-  PongModel(Config cfg, this.notificationModel) {
+  String authToken = '';
+
+  PongModel(this.cfg, this.notificationModel) {
     _initPongClient(cfg);
   }
 
@@ -156,6 +159,16 @@ class PongModel extends ChangeNotifier {
       isConnected = false;
       notifyListeners();
     }
+  }
+
+  // Apply wallet-based auth: replace clientId and restart notifier stream.
+  void applyWalletAuth({required String newClientId, String token = ''}) {
+    clientId = newClientId;
+    authToken = token;
+    // Start an additional Ntfn stream bound to the new identity.
+    // Existing stream (if any) will continue until its connection drops.
+    startListeningToNtfn(grpcClient, clientId);
+    notifyListeners();
   }
 
   void startListeningToNtfn(GrpcPongClient grpcClient, String clientId) {

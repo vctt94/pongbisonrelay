@@ -142,6 +142,9 @@ type Server struct {
 
 	// Secret seed for adaptor gamma derivation.
 	adaptorSecret string
+
+	// In-memory auth/session state and HTTP auth server
+	auth authState
 }
 
 func NewServer(id *zkidentity.ShortID, cfg ServerConfig) (*Server, error) {

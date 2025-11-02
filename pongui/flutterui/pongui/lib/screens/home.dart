@@ -3,6 +3,7 @@ import 'package:flutter/services.dart';
 import 'package:golib_plugin/golib_plugin.dart';
 import 'package:pongui/components/home/main_content.dart';
 import 'package:pongui/components/shared_layout.dart';
+import 'package:pongui/components/wallet_auth.dart';
 import 'package:pongui/models/pong.dart';
 import 'package:provider/provider.dart';
 
@@ -60,6 +61,20 @@ class _HomeScreenState extends State<HomeScreen> {
                               ),
                             ),
                             const Spacer(),
+                            ElevatedButton.icon(
+                              onPressed: () async {
+                                await showDialog(
+                                  context: context,
+                                  builder: (ctx) => const WalletAuthDialog(),
+                                );
+                              },
+                              icon: const Icon(Icons.login),
+                              label: const Text('Wallet Login'),
+                              style: ElevatedButton.styleFrom(
+                                backgroundColor: Colors.deepPurple,
+                              ),
+                            ),
+                            const SizedBox(width: 8),
                             if (pongModel.escrowFunded) ...[
                               Tooltip(
                                 message: pongModel.fundingStatus.isNotEmpty ? pongModel.fundingStatus : (pongModel.escrowConfirmed ? 'Deposit confirmed (${pongModel.escrowConfs})' : 'Deposit seen (mempool)'),

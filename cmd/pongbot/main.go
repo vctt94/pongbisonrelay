@@ -9,6 +9,7 @@ import (
 	"os"
 	"os/signal"
 	"path/filepath"
+	"strconv"
 	"syscall"
 	"time"
 
@@ -205,6 +206,21 @@ func realMain() error {
 	pong.RegisterPongRefereeServer(grpcServer, srv)
 	// Register waiting room service (required by clients calling GetWaitingRooms, etc.)
 	pong.RegisterPongWaitingRoomServer(grpcServer, srv)
+
+	// Start lightweight HTTP auth server on host:grpcPort+1
+	httpHost := cfg.GRPCHost
+	if httpHost == "" {
+		httpHost = "127.0.0.1"
+	}
+	var httpPort int
+	if p, err := strconv.Atoi(cfg.GRPCPort); err == nil {
+		httpPort = p + 1
+	} else {
+		httpPort = 8080
+	}
+	if err := srv.StartAuthHTTP(fmt.Sprintf("%s:%d", httpHost, httpPort)); err != nil {
+		return fmt.Errorf("failed starting auth http server: %w", err)
+	}
 
 	g.Go(func() error {
 		<-gctx.Done()
