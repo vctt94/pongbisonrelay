@@ -106,9 +106,6 @@ func (s *Server) OpenEscrow(ctx context.Context, req *pong.OpenEscrowRequest) (*
 	if len(req.CompPubkey) != 33 {
 		return nil, status.Errorf(codes.InvalidArgument, "invalid compressed pubkey")
 	}
-	if len(req.PayoutPubkey) != 33 {
-		return nil, status.Errorf(codes.InvalidArgument, "invalid payout address")
-	}
 
 	// Canonicalize compressed pubkey.
 	pub, err := secp256k1.ParsePubKey(req.CompPubkey)
@@ -116,12 +113,40 @@ func (s *Server) OpenEscrow(ctx context.Context, req *pong.OpenEscrowRequest) (*
 		return nil, status.Errorf(codes.InvalidArgument, "bad compressed pubkey: %v", err)
 	}
 	comp := pub.SerializeCompressed()
-	// Canonicalize payout compressed pubkey.
-	pp, err := secp256k1.ParsePubKey(req.PayoutPubkey)
-	if err != nil {
-		return nil, status.Errorf(codes.InvalidArgument, "bad payout compressed pubkey: %v", err)
+
+	// Require authenticated wallet pubkey - no fallback allowed since wallet
+	// authentication is mandatory for opening escrow.
+	// Ignore req.PayoutPubkey if present - we always use authenticated wallet pubkey from login.
+	if len(req.PayoutPubkey) > 0 {
+		s.log.Debugf("OpenEscrow: ignoring PayoutPubkey in request (using authenticated wallet pubkey from login for uid %s)", req.OwnerUid)
 	}
-	payoutPubkey := pp.SerializeCompressed()
+	var payoutPubkey []byte
+	var ownerShort zkidentity.ShortID
+	if err := ownerShort.FromString(req.OwnerUid); err != nil {
+		return nil, status.Errorf(codes.InvalidArgument, "invalid owner uid: %v", err)
+	}
+	s.auth.mu.RLock()
+	if pk := s.auth.uidToPubkey[ownerShort]; len(pk) == 33 {
+		payoutPubkey = append([]byte(nil), pk...)
+		s.log.Infof("OpenEscrow: using authenticated wallet pubkey for uid %s (payoutPubkeyHex=%x)", req.OwnerUid, payoutPubkey)
+	} else {
+		s.log.Warnf("OpenEscrow: no authenticated wallet pubkey found for uid %s (have %d keys in auth map)", req.OwnerUid, len(s.auth.uidToPubkey))
+		// Log all stored UIDs for debugging
+		if len(s.auth.uidToPubkey) > 0 {
+			uids := make([]string, 0, len(s.auth.uidToPubkey))
+			for uid := range s.auth.uidToPubkey {
+				uids = append(uids, uid.String())
+			}
+			s.log.Warnf("OpenEscrow: stored UIDs: %v", uids)
+		}
+		if p2pk := s.auth.uidToP2PK[ownerShort]; p2pk != "" {
+			s.log.Infof("OpenEscrow: found P2PK address %s for uid %s but no pubkey", p2pk, req.OwnerUid)
+		}
+	}
+	s.auth.mu.RUnlock()
+	if len(payoutPubkey) != 33 {
+		return nil, status.Errorf(codes.Unauthenticated, "no authenticated wallet found for uid %s - please login with wallet first", req.OwnerUid)
+	}
 
 	// Prepare escrow without holding server-wide locks; only lock when touching maps.
 
@@ -171,6 +196,7 @@ func (s *Server) OpenEscrow(ctx context.Context, req *pong.OpenEscrowRequest) (*
 	}
 	s.escrows[eid] = es
 	s.escrowsMu.Unlock()
+	s.log.Infof("OpenEscrow: stored escrow eid=%s ownerUID=%s payoutPubkeyLen=%d payoutPubkeyHex=%x", eid, ownerUID.String(), len(es.payoutPubkey), es.payoutPubkey)
 
 	// Subscribe right here; trackEscrow updates es.latest and es.lastUTXOs.
 	if s.watcher != nil {
@@ -280,8 +306,10 @@ func (s *Server) makeSettleInputFromEscrow(es *escrowSession) (*SettleInput, err
 	}
 	payout := es.payoutPubkey
 	if len(payout) != 33 {
-		return nil, fmt.Errorf("bad payout pubkey")
+		s.log.Errorf("makeSettleInputFromEscrow: bad payout pubkey - escrowID=%s ownerUID=%s payoutLen=%d payoutHex=%x", es.escrowID, es.ownerUID.String(), len(payout), payout)
+		return nil, fmt.Errorf("bad payout pubkey (len=%d, expected 33)", len(payout))
 	}
+	s.log.Debugf("makeSettleInputFromEscrow: escrowID=%s ownerUID=%s payoutPubkeyLen=%d payoutPubkeyHex=%x", es.escrowID, es.ownerUID.String(), len(payout), payout)
 	return &SettleInput{
 		EscrowID:        es.escrowID,
 		OwnerUID:        es.ownerUID,
@@ -366,7 +394,7 @@ func buildP2PKScript(comp33 []byte) ([]byte, error) {
 }
 
 // buildTwoInputDrafts builds two drafts spending one UTXO from each escrow and
-// paying the sum minus fee to winner's P2PK address. Inputs are deterministically
+// paying the sum minus fee to winner's P2PKH address. Inputs are deterministically
 // ordered by (txid asc, vout asc). Branch 0 pays to a, branch 1 pays to b.
 func (s *Server) buildTwoInputDrafts(a *escrowSession, au *pong.EscrowUTXO, b *escrowSession, bu *pong.EscrowUTXO) (*twoBranchDrafts, error) {
 	// Deterministic order
@@ -404,12 +432,18 @@ func (s *Server) buildTwoInputDrafts(a *escrowSession, au *pong.EscrowUTXO, b *e
 		}
 		payKey := payTo.payoutPubkey
 		if len(payKey) != 33 {
-			return "", nil, fmt.Errorf("bad payout pubkey")
+			s.log.Errorf("buildTwoInputDrafts: bad payout pubkey - escrowID=%s ownerUID=%s payoutLen=%d payoutHex=%x", payTo.escrowID, payTo.ownerUID.String(), len(payKey), payKey)
+			return "", nil, fmt.Errorf("bad payout pubkey (len=%d, expected 33) for escrow %s", len(payKey), payTo.escrowID)
 		}
-		pkScript, err := buildP2PKScript(payKey)
+		s.log.Debugf("buildTwoInputDrafts: using payoutPubkey for escrowID=%s ownerUID=%s payoutPubkeyLen=%d", payTo.escrowID, payTo.ownerUID.String(), len(payKey))
+		// Build P2PKH script from the login pubkey
+		params := chaincfg.TestNet3Params() // TODO: use server-configured params
+		h160 := stdaddr.Hash160(payKey)
+		addr, err := stdaddr.NewAddressPubKeyHashEcdsaSecp256k1V0(h160, params)
 		if err != nil {
 			return "", nil, err
 		}
+		_, pkScript := addr.PaymentScript()
 		tx.AddTxOut(&wire.TxOut{Value: payout, PkScript: pkScript})
 
 		// Derive a single adaptor point T per branch and reuse across inputs so a single

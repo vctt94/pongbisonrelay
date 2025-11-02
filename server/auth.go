@@ -5,7 +5,6 @@ import (
 	"context"
 	"crypto/sha256"
 	"encoding/base64"
-	"encoding/json"
 	"errors"
 	"fmt"
 	"math/rand"
@@ -20,6 +19,7 @@ import (
 	"github.com/decred/dcrd/dcrec/secp256k1/v4/ecdsa"
 	"github.com/decred/dcrd/txscript/v4/stdaddr"
 	"github.com/decred/dcrd/wire"
+	"github.com/vctt94/pongbisonrelay/pongrpc/grpc/pong"
 )
 
 // nonceTTL defines how long a nonce is valid for login.
@@ -31,9 +31,11 @@ type nonceInfo struct {
 }
 
 type sessionInfo struct {
-	address string
-	uid     zkidentity.ShortID
-	created time.Time
+	address    string
+	uid        zkidentity.ShortID
+	created    time.Time
+	compPubkey []byte
+	p2pkAddr   string
 }
 
 // Auth state kept in-memory (short lived).
@@ -42,6 +44,9 @@ type authState struct {
 	nonces    map[string]nonceInfo
 	sessions  map[string]sessionInfo // token -> session
 	addrToUID map[string]zkidentity.ShortID
+	// Fast lookup of authenticated wallet keys per uid.
+	uidToPubkey map[zkidentity.ShortID][]byte // 33B compressed
+	uidToP2PK   map[zkidentity.ShortID]string // P2PK address string
 }
 
 // initAuth initializes the in-memory auth state maps.
@@ -56,6 +61,12 @@ func (s *Server) initAuth() {
 	}
 	if s.auth.addrToUID == nil {
 		s.auth.addrToUID = make(map[string]zkidentity.ShortID)
+	}
+	if s.auth.uidToPubkey == nil {
+		s.auth.uidToPubkey = make(map[zkidentity.ShortID][]byte)
+	}
+	if s.auth.uidToP2PK == nil {
+		s.auth.uidToP2PK = make(map[zkidentity.ShortID]string)
 	}
 }
 
@@ -115,130 +126,136 @@ func VerifySignMessage(addrStr, b64sig, msg string) (bool, error) {
 	return true, nil
 }
 
-// StartAuthHTTP starts a small HTTP server that implements /auth/request and
-// /auth/verify for Decred sign-message authentication.
-func (s *Server) StartAuthHTTP(addr string) error {
+// RequestNonce implements gRPC nonce issuance for wallet auth.
+func (s *Server) RequestNonce(ctx context.Context, _ *pong.RequestNonceRequest) (*pong.RequestNonceResponse, error) {
 	s.initAuth()
-
-	mux := http.NewServeMux()
-
-	mux.HandleFunc("/auth/request", func(w http.ResponseWriter, r *http.Request) {
-		if r.Method != http.MethodPost {
-			http.Error(w, "method not allowed", http.StatusMethodNotAllowed)
-			return
-		}
-		// Generate one-time nonce.
-		nonce := fmt.Sprintf("login:%d-%08x", time.Now().Unix(), rand.Uint32())
-		s.auth.mu.Lock()
-		s.auth.nonces[nonce] = nonceInfo{expiresAt: time.Now().Add(nonceTTL)}
-		s.auth.mu.Unlock()
-
-		resp := map[string]interface{}{
-			"nonce":        nonce,
-			"ttl_sec":      int(nonceTTL.Seconds()),
-			"address_hint": "",
-		}
-		_ = json.NewEncoder(w).Encode(resp)
-	})
-
-	mux.HandleFunc("/auth/verify", func(w http.ResponseWriter, r *http.Request) {
-		if r.Method != http.MethodPost {
-			http.Error(w, "method not allowed", http.StatusMethodNotAllowed)
-			return
-		}
-		var req struct {
-			Address   string `json:"address"`
-			Nonce     string `json:"nonce"`
-			Signature string `json:"signature"`
-		}
-		if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
-			http.Error(w, "bad request", http.StatusBadRequest)
-			return
-		}
-		req.Address = strings.TrimSpace(req.Address)
-		req.Nonce = strings.TrimSpace(req.Nonce)
-		req.Signature = strings.TrimSpace(req.Signature)
-		if req.Address == "" || req.Nonce == "" || req.Signature == "" {
-			http.Error(w, "missing fields", http.StatusBadRequest)
-			return
-		}
-
-		// Validate nonce.
-		s.auth.mu.Lock()
-		ni, ok := s.auth.nonces[req.Nonce]
-		if !ok || ni.used || time.Now().After(ni.expiresAt) {
-			s.auth.mu.Unlock()
-			http.Error(w, "invalid or expired nonce", http.StatusUnauthorized)
-			return
-		}
-		// Tentatively mark used; will stay used regardless of verify result to prevent oracle scans.
-		ni.used = true
-		s.auth.nonces[req.Nonce] = ni
-		s.auth.mu.Unlock()
-
-		// Verify signature.
-		s.log.Infof("Verifying signature - Address: %s, Nonce: %s, Signature: %s", req.Address, req.Nonce, req.Signature)
-		okSig, err := VerifySignMessage(req.Address, req.Signature, req.Nonce)
-		if err != nil || !okSig {
-			s.log.Errorf("Signature verification failed - okSig: %v, err: %v", okSig, err)
-			http.Error(w, "invalid signature", http.StatusUnauthorized)
-			return
-		}
-		s.log.Infof("Signature verified successfully for address: %s", req.Address)
-
-		// Establish session and client id derived from recovered key/address.
-		// Use stable mapping per address when possible.
-		s.auth.mu.Lock()
-		uid, has := s.auth.addrToUID[req.Address]
-		if !has {
-			// Derive uid deterministically from address string hash.
-			sum := sha256.Sum256([]byte(req.Address))
-			var sid zkidentity.ShortID
-			sid.FromBytes(sum[:])
-			uid = sid
-			s.auth.addrToUID[req.Address] = uid
-		}
-		// Create a random token.
-		tok := fmt.Sprintf("sess_%d_%08x", time.Now().Unix(), rand.Uint32())
-		s.auth.sessions[tok] = sessionInfo{address: req.Address, uid: uid, created: time.Now()}
-		s.auth.mu.Unlock()
-
-		resp := map[string]interface{}{
-			"ok":        true,
-			"token":     tok,
-			"client_id": uid.String(),
-		}
-		_ = json.NewEncoder(w).Encode(resp)
-	})
-
-	// Basic CORS for local testing; adjust as needed.
-	handler := http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		w.Header().Set("Access-Control-Allow-Origin", "*")
-		w.Header().Set("Access-Control-Allow-Headers", "Content-Type, Authorization")
-		w.Header().Set("Access-Control-Allow-Methods", "POST, OPTIONS")
-		if r.Method == http.MethodOptions {
-			w.WriteHeader(http.StatusNoContent)
-			return
-		}
-		mux.ServeHTTP(w, r)
-	})
-
-	srv := &http.Server{Addr: addr, Handler: handler}
-	s.httpServer = srv
-
-	go func() {
-		s.log.Infof("Auth HTTP server listening on http://%s", addr)
-		if err := srv.ListenAndServe(); err != nil && !errors.Is(err, http.ErrServerClosed) {
-			s.log.Errorf("auth http server error: %v", err)
-		}
-	}()
-	return nil
+	// Generate one-time nonce with TTL.
+	nonce := fmt.Sprintf("login:%d-%08x", time.Now().Unix(), rand.Uint32())
+	s.auth.mu.Lock()
+	s.auth.nonces[nonce] = nonceInfo{expiresAt: time.Now().Add(nonceTTL)}
+	s.auth.mu.Unlock()
+	return &pong.RequestNonceResponse{Nonce: nonce, TtlSec: int32(nonceTTL.Seconds()), AddressHint: ""}, nil
 }
 
-// StopAuthHTTP gracefully shuts down the auth HTTP server.
-func (s *Server) StopAuthHTTP(ctx context.Context) error {
-	if s.httpServer == nil {
-		return nil
+// VerifyLogin verifies the signed nonce and establishes a session, also
+// returning the recovered 33-byte compressed pubkey and its P2PK address.
+func (s *Server) VerifyLogin(ctx context.Context, req *pong.VerifyLoginRequest) (*pong.VerifyLoginResponse, error) {
+	if req == nil || strings.TrimSpace(req.Address) == "" || strings.TrimSpace(req.Nonce) == "" || strings.TrimSpace(req.Signature) == "" {
+		return nil, statusError(http.StatusBadRequest, "missing fields")
 	}
-	return s.httpServer.Shutdown(ctx)
+
+	addrStr := strings.TrimSpace(req.Address)
+	b64sig := strings.TrimSpace(req.Signature)
+	msg := strings.TrimSpace(req.Nonce)
+
+	// Validate nonce.
+	s.auth.mu.Lock()
+	ni, ok := s.auth.nonces[msg]
+	if !ok || ni.used || time.Now().After(ni.expiresAt) {
+		s.auth.mu.Unlock()
+		return nil, statusError(http.StatusUnauthorized, "invalid or expired nonce")
+	}
+	// Mark used to prevent oracle scans, regardless of result.
+	ni.used = true
+	s.auth.nonces[msg] = ni
+	s.auth.mu.Unlock()
+
+	// Detect network from address string.
+	var params *chaincfg.Params
+	if _, err := stdaddr.DecodeAddress(addrStr, chaincfg.MainNetParams()); err == nil {
+		params = chaincfg.MainNetParams()
+	} else if _, err := stdaddr.DecodeAddress(addrStr, chaincfg.TestNet3Params()); err == nil {
+		params = chaincfg.TestNet3Params()
+	} else if _, err := stdaddr.DecodeAddress(addrStr, chaincfg.SimNetParams()); err == nil {
+		params = chaincfg.SimNetParams()
+	} else {
+		return nil, statusError(http.StatusUnauthorized, "invalid or unsupported address")
+	}
+
+	addr, err := stdaddr.DecodeAddress(addrStr, params)
+	if err != nil {
+		return nil, statusError(http.StatusUnauthorized, fmt.Sprintf("decode address: %v", err))
+	}
+
+	// Build Decred signed message digest.
+	var buf bytes.Buffer
+	const header = "Decred Signed Message:\n"
+	if err := wire.WriteVarString(&buf, 0, header); err != nil {
+		return nil, statusError(http.StatusUnauthorized, fmt.Sprintf("header write failed: %v", err))
+	}
+	if err := wire.WriteVarString(&buf, 0, msg); err != nil {
+		return nil, statusError(http.StatusUnauthorized, fmt.Sprintf("msg write failed: %v", err))
+	}
+	digest := chainhash.HashB(buf.Bytes())
+
+	// Recover pubkey and verify it maps to the provided P2PKH.
+	sig, err := base64.StdEncoding.DecodeString(b64sig)
+	if err != nil {
+		return nil, statusError(http.StatusUnauthorized, fmt.Sprintf("base64 decode failed: %v", err))
+	}
+	pub, _, err := ecdsa.RecoverCompact(sig, digest)
+	if err != nil {
+		return nil, statusError(http.StatusUnauthorized, fmt.Sprintf("recover compact failed: %v", err))
+	}
+	got, _ := stdaddr.NewAddressPubKeyHashEcdsaSecp256k1V0(stdaddr.Hash160(pub.SerializeCompressed()), params)
+	if got.String() != addr.String() {
+		return nil, statusError(http.StatusUnauthorized, fmt.Sprintf("address mismatch: got %s, want %s", got.String(), addr.String()))
+	}
+
+	// Also compute P2PK address for payout convenience.
+	p2pkAddr, err := stdaddr.NewAddressPubKeyEcdsaSecp256k1V0(pub, params)
+	if err != nil {
+		return nil, statusError(http.StatusUnauthorized, fmt.Sprintf("p2pk encode failed: %v", err))
+	}
+
+	// Establish session and stable client id derived from address.
+	s.auth.mu.Lock()
+	uid, has := s.auth.addrToUID[addrStr]
+	if !has {
+		sum := sha256.Sum256([]byte(addrStr))
+		var sid zkidentity.ShortID
+		sid.FromBytes(sum[:])
+		uid = sid
+		s.auth.addrToUID[addrStr] = uid
+	}
+	// Create token and store session with recovered pubkey + p2pk address.
+	tok := fmt.Sprintf("sess_%d_%08x", time.Now().Unix(), rand.Uint32())
+	s.auth.sessions[tok] = sessionInfo{
+		address:    addrStr,
+		uid:        uid,
+		created:    time.Now(),
+		compPubkey: pub.SerializeCompressed(),
+		p2pkAddr:   p2pkAddr.String(),
+	}
+	s.auth.mu.Unlock()
+
+	// Persist uid -> wallet key mappings for payout defaults.
+	// Prevent overwriting existing payout pubkey to avoid changing escrow payouts.
+	s.auth.mu.Lock()
+	if existing, exists := s.auth.uidToPubkey[uid]; exists {
+		// Verify the pubkey matches - same uid should have same pubkey
+		if !bytes.Equal(existing, pub.SerializeCompressed()) {
+			uidStr := uid.String()
+			s.auth.mu.Unlock()
+			return nil, statusError(http.StatusConflict, "uid "+uidStr+" already authenticated with different pubkey")
+		}
+		// Same pubkey, keep existing entry (no overwrite needed)
+	} else {
+		// First time authentication for this uid - store it
+		s.auth.uidToPubkey[uid] = append([]byte(nil), pub.SerializeCompressed()...)
+		s.auth.uidToP2PK[uid] = p2pkAddr.String()
+	}
+	s.auth.mu.Unlock()
+
+	return &pong.VerifyLoginResponse{
+		Ok:         true,
+		Token:      tok,
+		ClientId:   uid.String(),
+		CompPubkey: pub.SerializeCompressed(),
+		P2PkAddr:   p2pkAddr.String(),
+	}, nil
 }
+
+// statusError converts an auth error to a generic error; in a full gRPC setup
+// you'd use status codes, but we avoid a hard dependency here.
+func statusError(_ int, msg string) error { return errors.New(msg) }

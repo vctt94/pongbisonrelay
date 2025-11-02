@@ -107,6 +107,7 @@ type Server struct {
 	pong.UnimplementedPongGameServer
 	pong.UnimplementedPongWaitingRoomServer
 	pong.UnimplementedPongRefereeServer
+	pong.UnimplementedPongAuthServer
 
 	log                slog.Logger
 	isF2P              bool
