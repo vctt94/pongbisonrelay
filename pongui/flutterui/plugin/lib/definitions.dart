@@ -11,6 +11,8 @@ part 'definitions.g.dart';
 
 @JsonSerializable()
 class InitClient {
+  @JsonKey(name: 'client_id')
+  final String clientId; // Wallet-authenticated clientID (required)
   @JsonKey(name: 'server_addr')
   final String serverAddr;
   @JsonKey(name: 'grpc_cert_path')
@@ -41,6 +43,7 @@ class InitClient {
   final String rpcPass;
 
   InitClient(
+    this.clientId,
     this.serverAddr,
     this.grpcCertPath,
     this.dataDir,

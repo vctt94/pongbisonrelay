@@ -8,6 +8,7 @@ import (
 )
 
 type initClient struct {
+	ClientID       string `json:"client_id"`        // Wallet-authenticated clientID (required)
 	ServerAddr     string `json:"server_addr"`
 	GRPCCertPath   string `json:"grpc_cert_path"`
 	DBRoot         string `json:"dbroot"`

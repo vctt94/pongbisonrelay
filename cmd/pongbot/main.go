@@ -205,6 +205,8 @@ func realMain() error {
 	pong.RegisterPongRefereeServer(grpcServer, srv)
 	// Register waiting room service (required by clients calling GetWaitingRooms, etc.)
 	pong.RegisterPongWaitingRoomServer(grpcServer, srv)
+	// Register wallet auth over gRPC
+	pong.RegisterPongAuthServer(grpcServer, srv)
 
 	g.Go(func() error {
 		<-gctx.Done()

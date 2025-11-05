@@ -107,6 +107,7 @@ type Server struct {
 	pong.UnimplementedPongGameServer
 	pong.UnimplementedPongWaitingRoomServer
 	pong.UnimplementedPongRefereeServer
+	pong.UnimplementedPongAuthServer
 
 	log                slog.Logger
 	isF2P              bool
@@ -142,6 +143,9 @@ type Server struct {
 
 	// Secret seed for adaptor gamma derivation.
 	adaptorSecret string
+
+	// In-memory auth/session state and HTTP auth server
+	auth authState
 }
 
 func NewServer(id *zkidentity.ShortID, cfg ServerConfig) (*Server, error) {

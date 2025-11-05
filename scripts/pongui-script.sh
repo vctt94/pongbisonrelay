@@ -25,7 +25,7 @@ tmux kill-session -t "$SESSION" 2>/dev/null || true
 # Window 0 – brclient
 ###############################################################################
 tmux new-session -d -s "$SESSION" -n brclient "
-until nc -z localhost $BRSERVER_PORT; do
+until timeout 1 bash -c \"</dev/tcp/localhost/$BRSERVER_PORT\" 2>/dev/null; do
     echo 'waiting for brserver on :$BRSERVER_PORT'; sleep 3
 done
 cd \"$BRCLIENT_DIR\"
@@ -39,7 +39,7 @@ go build -o brclient
 tmux new-window  -t "$SESSION":1 -n pongui "$SHELL"
 
 tmux send-keys  -t "$SESSION":1 "
-until nc -z localhost $BR_RPC_PORT; do
+until timeout 1 bash -c \"</dev/tcp/localhost/$BR_RPC_PORT\" 2>/dev/null; do
     echo 'waiting for WS on :$BR_RPC_PORT'; sleep 3
 done
 cd \"$PONGCLIENT_DIR\"

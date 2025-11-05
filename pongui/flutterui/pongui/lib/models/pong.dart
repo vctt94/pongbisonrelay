@@ -26,6 +26,7 @@ enum GameState {
 }
 
 class PongModel extends ChangeNotifier {
+  final Config cfg;
   late GrpcPongClient grpcClient;
   late PongGame pongGame;
   final NotificationModel notificationModel;
@@ -100,21 +101,49 @@ class PongModel extends ChangeNotifier {
       _currentGameState == GameState.playing;
   bool get countdownStarted => _currentGameState == GameState.countdown;
 
-  PongModel(Config cfg, this.notificationModel) {
-    _initPongClient(cfg);
+  String authToken = '';
+  bool isWalletAuthenticated = false;
+  String walletAddress = '';
+
+  PongModel(this.cfg, this.notificationModel) {
+    // Initialize GrpcPongClient early (just network connection, doesn't require clientId)
+    // This allows login/auth operations before we have a wallet-authenticated clientId
+    _initGrpcClient(cfg);
   }
 
+  // Initialize GrpcPongClient early - only needs server address and cert
+  // This just creates the client channel; actual connection happens on first RPC call
+  // No clientId required for this - allows login/auth operations before wallet authentication
+  void _initGrpcClient(Config cfg) {
+    try {
+      List<String> parts = cfg.serverAddr.split(":");
+      String ipAddress = parts[0];
+      int port = int.parse(parts[1]);
+      grpcClient = GrpcPongClient(ipAddress, port, tlsCertPath: cfg.grpcCertPath);
+      print("Set up gRPC client for $ipAddress:$port (connection will be established on first call)");
+    } catch (exception) {
+      errorMessage = "Failed to set up gRPC client: ${exception.toString()}";
+      notifyListeners();
+    }
+  }
+
+  // Initialize golib PongClient after wallet authentication (requires clientId)
   Future<void> _initPongClient(Config cfg) async {
     try {
-      if (clientId.isNotEmpty) {
-        return;
+      if (clientId.isEmpty) {
+        throw Exception("clientId is required - wallet authentication must be completed first");
+      }
+      if (isConnected) {
+        return; // Already initialized
       }
       
       final appDataDir = await defaultAppDataDir();
       final logFilePath = path.join(appDataDir, "logs", "pongui.log");
 
       // Let golib load the authoritative BR config from disk; pass UI config as overrides only.
+      // Pass wallet-authenticated clientId as required parameter.
       InitClient initArgs = InitClient(
+        clientId, // Wallet-authenticated clientID (required)
         cfg.serverAddr,
         cfg.grpcCertPath,
         appDataDir,
@@ -134,17 +163,17 @@ class PongModel extends ChangeNotifier {
 
       var localInfo = await Golib.initClient(initArgs);
 
-      clientId = localInfo.id;
+      // clientId should match what we passed in
+      if (localInfo.id != clientId) {
+        throw Exception("clientId mismatch: expected $clientId, got ${localInfo.id}");
+      }
       nick = localInfo.nick;
-      payoutAddressOrPubkey = cfg.address;
+
       // Query initial waiting rooms via golib
       waitingRooms = await Golib.getWaitingRooms();
-      List<String> parts = cfg.serverAddr.split(":");
-      String ipAddress = parts[0];
-      int port = int.parse(parts[1]);
-      grpcClient =
-          GrpcPongClient(ipAddress, port, tlsCertPath: cfg.grpcCertPath);
-      print("Connecting to gRPC server: $ipAddress:$port");
+      
+      // grpcClient is already initialized, just need to set up game and notification stream
+      print("Initializing game client with clientId: $clientId");
       pongGame = PongGame(clientId, grpcClient);
 
       isConnected = true;
@@ -156,6 +185,39 @@ class PongModel extends ChangeNotifier {
       isConnected = false;
       notifyListeners();
     }
+  }
+
+  // Apply wallet-based auth: set clientId and initialize client.
+  // p2pkAddr: P2PK address from wallet authentication (if provided)
+  Future<void> applyWalletAuth({required String newClientId, String token = '', String address = '', String p2pkAddr = ''}) async {
+    clientId = newClientId;
+    authToken = token;
+    isWalletAuthenticated = true;
+    walletAddress = address;
+    // Set P2PK address from wallet authentication BEFORE initializing client
+    // This ensures the authenticated P2PK address is used instead of config xpub
+    if (p2pkAddr.isNotEmpty) {
+      payoutAddressOrPubkey = p2pkAddr;
+    }
+    // Initialize the client with wallet-authenticated clientId
+    await _initPongClient(cfg);
+    notifyListeners();
+  }
+
+  void logout() {
+    isWalletAuthenticated = false;
+    walletAddress = '';
+    authToken = '';
+    payoutAddressOrPubkey = '';
+    escrowId = '';
+    escrowDepositAddress = '';
+    escrowPkScriptHex = '';
+    escrowBetAtoms = 0;
+    escrowFunded = false;
+    escrowConfirmed = false;
+    currentWR = null;
+    _currentGameState = GameState.idle;
+    notifyListeners();
   }
 
   void startListeningToNtfn(GrpcPongClient grpcClient, String clientId) {

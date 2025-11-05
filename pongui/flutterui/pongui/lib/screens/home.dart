@@ -60,6 +60,45 @@ class _HomeScreenState extends State<HomeScreen> {
                               ),
                             ),
                             const Spacer(),
+                            // Show logged in address
+                            if (pongModel.walletAddress.isNotEmpty)
+                              Tooltip(
+                                message: pongModel.walletAddress,
+                                child: Container(
+                                  padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 6),
+                                  decoration: BoxDecoration(
+                                    color: Colors.green.withOpacity(0.15),
+                                    borderRadius: BorderRadius.circular(8),
+                                    border: Border.all(color: Colors.greenAccent, width: 1),
+                                  ),
+                                  child: Row(
+                                    mainAxisSize: MainAxisSize.min,
+                                    children: [
+                                      const Icon(Icons.check_circle, color: Colors.greenAccent, size: 16),
+                                      const SizedBox(width: 6),
+                                      Text(
+                                        '${pongModel.walletAddress.substring(0, 8)}...${pongModel.walletAddress.substring(pongModel.walletAddress.length - 6)}',
+                                        style: const TextStyle(color: Colors.greenAccent, fontFamily: 'monospace'),
+                                      ),
+                                    ],
+                                  ),
+                                ),
+                              ),
+                            const SizedBox(width: 8),
+                            // Logout button
+                            ElevatedButton.icon(
+                              onPressed: () {
+                                pongModel.logout();
+                                Navigator.of(context).pushReplacementNamed('/login');
+                              },
+                              icon: const Icon(Icons.logout, size: 18),
+                              label: const Text('Logout'),
+                              style: ElevatedButton.styleFrom(
+                                backgroundColor: Colors.red.shade700,
+                                padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 8),
+                              ),
+                            ),
+                            const SizedBox(width: 8),
                             if (pongModel.escrowFunded) ...[
                               Tooltip(
                                 message: pongModel.fundingStatus.isNotEmpty ? pongModel.fundingStatus : (pongModel.escrowConfirmed ? 'Deposit confirmed (${pongModel.escrowConfs})' : 'Deposit seen (mempool)'),
@@ -94,11 +133,18 @@ class _HomeScreenState extends State<HomeScreen> {
                                 ElevatedButton.icon(
                                   onPressed: () async {
                                     try {
+                                      // Ensure user is authenticated
+                                      if (!pongModel.isWalletAuthenticated) {
+                                        ScaffoldMessenger.of(context).showSnackBar(
+                                          const SnackBar(content: Text('Please login first')),
+                                        );
+                                        return;
+                                      }
                                       await Golib.generateSettlementSessionKey();
                                       final payout = pongModel.payoutAddressOrPubkey;
                                       if (payout.trim().isEmpty) {
                                         ScaffoldMessenger.of(context).showSnackBar(
-                                          const SnackBar(content: Text('Set payout address in Settings first.')),
+                                          const SnackBar(content: Text('Payout address not set. Please login again.')),
                                         );
                                         return;
                                       }

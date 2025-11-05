@@ -20,7 +20,7 @@ BOT_DIR=$HOME/projects/BR/pongbisonrelay/cmd/pongbot
 ###############################################################################
 tmux kill-session -t "$SESSION" 2>/dev/null || true
 tmux new-session  -d -s "$SESSION" -n brclient \
-  "until nc -z localhost $BRSERVER_PORT; do
+  "until timeout 1 bash -c \"</dev/tcp/localhost/$BRSERVER_PORT\" 2>/dev/null; do
        echo 'waiting for brserver on :$BRSERVER_PORT'; sleep 3
    done
    cd \"$BRCLIENT_DIR\"
@@ -34,7 +34,7 @@ tmux new-window -t "$SESSION":1 -n bot "$SHELL"
 
 # build-and-run block – written as one multiline string to keep it readable
 tmux send-keys -t "$SESSION":1 "
-until nc -z localhost $BR_RPC_PORT; do
+until timeout 1 bash -c \"</dev/tcp/localhost/$BR_RPC_PORT\" 2>/dev/null; do
     echo 'waiting for WS on :$BR_RPC_PORT'; sleep 3
 done
 cd \"$BOT_DIR\"
