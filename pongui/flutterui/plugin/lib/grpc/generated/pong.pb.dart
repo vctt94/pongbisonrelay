@@ -60,8 +60,6 @@ class RequestNonceRequest extends $pb.GeneratedMessage {
   static RequestNonceRequest create() => RequestNonceRequest._();
   @$core.override
   RequestNonceRequest createEmptyInstance() => create();
-  static $pb.PbList<RequestNonceRequest> createRepeated() =>
-      $pb.PbList<RequestNonceRequest>();
   @$core.pragma('dart2js:noInline')
   static RequestNonceRequest getDefault() => _defaultInstance ??=
       $pb.GeneratedMessage.$_defaultFor<RequestNonceRequest>(create);
@@ -122,8 +120,6 @@ class RequestNonceResponse extends $pb.GeneratedMessage {
   static RequestNonceResponse create() => RequestNonceResponse._();
   @$core.override
   RequestNonceResponse createEmptyInstance() => create();
-  static $pb.PbList<RequestNonceResponse> createRepeated() =>
-      $pb.PbList<RequestNonceResponse>();
   @$core.pragma('dart2js:noInline')
   static RequestNonceResponse getDefault() => _defaultInstance ??=
       $pb.GeneratedMessage.$_defaultFor<RequestNonceResponse>(create);
@@ -202,8 +198,6 @@ class VerifyLoginRequest extends $pb.GeneratedMessage {
   static VerifyLoginRequest create() => VerifyLoginRequest._();
   @$core.override
   VerifyLoginRequest createEmptyInstance() => create();
-  static $pb.PbList<VerifyLoginRequest> createRepeated() =>
-      $pb.PbList<VerifyLoginRequest>();
   @$core.pragma('dart2js:noInline')
   static VerifyLoginRequest getDefault() => _defaultInstance ??=
       $pb.GeneratedMessage.$_defaultFor<VerifyLoginRequest>(create);
@@ -289,8 +283,6 @@ class VerifyLoginResponse extends $pb.GeneratedMessage {
   static VerifyLoginResponse create() => VerifyLoginResponse._();
   @$core.override
   VerifyLoginResponse createEmptyInstance() => create();
-  static $pb.PbList<VerifyLoginResponse> createRepeated() =>
-      $pb.PbList<VerifyLoginResponse>();
   @$core.pragma('dart2js:noInline')
   static VerifyLoginResponse getDefault() => _defaultInstance ??=
       $pb.GeneratedMessage.$_defaultFor<VerifyLoginResponse>(create);
@@ -400,7 +392,6 @@ class ClientMsg extends $pb.GeneratedMessage {
   static ClientMsg create() => ClientMsg._();
   @$core.override
   ClientMsg createEmptyInstance() => create();
-  static $pb.PbList<ClientMsg> createRepeated() => $pb.PbList<ClientMsg>();
   @$core.pragma('dart2js:noInline')
   static ClientMsg getDefault() =>
       _defaultInstance ??= $pb.GeneratedMessage.$_defaultFor<ClientMsg>(create);
@@ -517,7 +508,6 @@ class ServerMsg extends $pb.GeneratedMessage {
   static ServerMsg create() => ServerMsg._();
   @$core.override
   ServerMsg createEmptyInstance() => create();
-  static $pb.PbList<ServerMsg> createRepeated() => $pb.PbList<ServerMsg>();
   @$core.pragma('dart2js:noInline')
   static ServerMsg getDefault() =>
       _defaultInstance ??= $pb.GeneratedMessage.$_defaultFor<ServerMsg>(create);
@@ -621,7 +611,6 @@ class Hello extends $pb.GeneratedMessage {
   static Hello create() => Hello._();
   @$core.override
   Hello createEmptyInstance() => create();
-  static $pb.PbList<Hello> createRepeated() => $pb.PbList<Hello>();
   @$core.pragma('dart2js:noInline')
   static Hello getDefault() =>
       _defaultInstance ??= $pb.GeneratedMessage.$_defaultFor<Hello>(create);
@@ -705,8 +694,6 @@ class NeedPreSigs_PerInput extends $pb.GeneratedMessage {
   static NeedPreSigs_PerInput create() => NeedPreSigs_PerInput._();
   @$core.override
   NeedPreSigs_PerInput createEmptyInstance() => create();
-  static $pb.PbList<NeedPreSigs_PerInput> createRepeated() =>
-      $pb.PbList<NeedPreSigs_PerInput>();
   @$core.pragma('dart2js:noInline')
   static NeedPreSigs_PerInput getDefault() => _defaultInstance ??=
       $pb.GeneratedMessage.$_defaultFor<NeedPreSigs_PerInput>(create);
@@ -792,7 +779,6 @@ class NeedPreSigs extends $pb.GeneratedMessage {
   static NeedPreSigs create() => NeedPreSigs._();
   @$core.override
   NeedPreSigs createEmptyInstance() => create();
-  static $pb.PbList<NeedPreSigs> createRepeated() => $pb.PbList<NeedPreSigs>();
   @$core.pragma('dart2js:noInline')
   static NeedPreSigs getDefault() => _defaultInstance ??=
       $pb.GeneratedMessage.$_defaultFor<NeedPreSigs>(create);
@@ -855,7 +841,6 @@ class VerifyOk extends $pb.GeneratedMessage {
   static VerifyOk create() => VerifyOk._();
   @$core.override
   VerifyOk createEmptyInstance() => create();
-  static $pb.PbList<VerifyOk> createRepeated() => $pb.PbList<VerifyOk>();
   @$core.pragma('dart2js:noInline')
   static VerifyOk getDefault() =>
       _defaultInstance ??= $pb.GeneratedMessage.$_defaultFor<VerifyOk>(create);
@@ -923,7 +908,6 @@ class PreSig extends $pb.GeneratedMessage {
   static PreSig create() => PreSig._();
   @$core.override
   PreSig createEmptyInstance() => create();
-  static $pb.PbList<PreSig> createRepeated() => $pb.PbList<PreSig>();
   @$core.pragma('dart2js:noInline')
   static PreSig getDefault() =>
       _defaultInstance ??= $pb.GeneratedMessage.$_defaultFor<PreSig>(create);
@@ -995,7 +979,6 @@ class Ack extends $pb.GeneratedMessage {
   static Ack create() => Ack._();
   @$core.override
   Ack createEmptyInstance() => create();
-  static $pb.PbList<Ack> createRepeated() => $pb.PbList<Ack>();
   @$core.pragma('dart2js:noInline')
   static Ack getDefault() =>
       _defaultInstance ??= $pb.GeneratedMessage.$_defaultFor<Ack>(create);
@@ -1049,7 +1032,6 @@ class Info extends $pb.GeneratedMessage {
   static Info create() => Info._();
   @$core.override
   Info createEmptyInstance() => create();
-  static $pb.PbList<Info> createRepeated() => $pb.PbList<Info>();
   @$core.pragma('dart2js:noInline')
   static Info getDefault() =>
       _defaultInstance ??= $pb.GeneratedMessage.$_defaultFor<Info>(create);
@@ -1105,7 +1087,6 @@ class ServerOk extends $pb.GeneratedMessage {
   static ServerOk create() => ServerOk._();
   @$core.override
   ServerOk createEmptyInstance() => create();
-  static $pb.PbList<ServerOk> createRepeated() => $pb.PbList<ServerOk>();
   @$core.pragma('dart2js:noInline')
   static ServerOk getDefault() =>
       _defaultInstance ??= $pb.GeneratedMessage.$_defaultFor<ServerOk>(create);
@@ -1165,8 +1146,6 @@ class GetFinalizeBundleRequest extends $pb.GeneratedMessage {
   static GetFinalizeBundleRequest create() => GetFinalizeBundleRequest._();
   @$core.override
   GetFinalizeBundleRequest createEmptyInstance() => create();
-  static $pb.PbList<GetFinalizeBundleRequest> createRepeated() =>
-      $pb.PbList<GetFinalizeBundleRequest>();
   @$core.pragma('dart2js:noInline')
   static GetFinalizeBundleRequest getDefault() => _defaultInstance ??=
       $pb.GeneratedMessage.$_defaultFor<GetFinalizeBundleRequest>(create);
@@ -1243,8 +1222,6 @@ class FinalizeInput extends $pb.GeneratedMessage {
   static FinalizeInput create() => FinalizeInput._();
   @$core.override
   FinalizeInput createEmptyInstance() => create();
-  static $pb.PbList<FinalizeInput> createRepeated() =>
-      $pb.PbList<FinalizeInput>();
   @$core.pragma('dart2js:noInline')
   static FinalizeInput getDefault() => _defaultInstance ??=
       $pb.GeneratedMessage.$_defaultFor<FinalizeInput>(create);
@@ -1335,8 +1312,6 @@ class GetFinalizeBundleResponse extends $pb.GeneratedMessage {
   static GetFinalizeBundleResponse create() => GetFinalizeBundleResponse._();
   @$core.override
   GetFinalizeBundleResponse createEmptyInstance() => create();
-  static $pb.PbList<GetFinalizeBundleResponse> createRepeated() =>
-      $pb.PbList<GetFinalizeBundleResponse>();
   @$core.pragma('dart2js:noInline')
   static GetFinalizeBundleResponse getDefault() => _defaultInstance ??=
       $pb.GeneratedMessage.$_defaultFor<GetFinalizeBundleResponse>(create);
@@ -1419,8 +1394,6 @@ class OpenEscrowRequest extends $pb.GeneratedMessage {
   static OpenEscrowRequest create() => OpenEscrowRequest._();
   @$core.override
   OpenEscrowRequest createEmptyInstance() => create();
-  static $pb.PbList<OpenEscrowRequest> createRepeated() =>
-      $pb.PbList<OpenEscrowRequest>();
   @$core.pragma('dart2js:noInline')
   static OpenEscrowRequest getDefault() => _defaultInstance ??=
       $pb.GeneratedMessage.$_defaultFor<OpenEscrowRequest>(create);
@@ -1517,8 +1490,6 @@ class OpenEscrowResponse extends $pb.GeneratedMessage {
   static OpenEscrowResponse create() => OpenEscrowResponse._();
   @$core.override
   OpenEscrowResponse createEmptyInstance() => create();
-  static $pb.PbList<OpenEscrowResponse> createRepeated() =>
-      $pb.PbList<OpenEscrowResponse>();
   @$core.pragma('dart2js:noInline')
   static OpenEscrowResponse getDefault() => _defaultInstance ??=
       $pb.GeneratedMessage.$_defaultFor<OpenEscrowResponse>(create);
@@ -1606,7 +1577,6 @@ class EscrowUTXO extends $pb.GeneratedMessage {
   static EscrowUTXO create() => EscrowUTXO._();
   @$core.override
   EscrowUTXO createEmptyInstance() => create();
-  static $pb.PbList<EscrowUTXO> createRepeated() => $pb.PbList<EscrowUTXO>();
   @$core.pragma('dart2js:noInline')
   static EscrowUTXO getDefault() => _defaultInstance ??=
       $pb.GeneratedMessage.$_defaultFor<EscrowUTXO>(create);
@@ -1725,8 +1695,6 @@ class MatchAllocatedNtfn extends $pb.GeneratedMessage {
   static MatchAllocatedNtfn create() => MatchAllocatedNtfn._();
   @$core.override
   MatchAllocatedNtfn createEmptyInstance() => create();
-  static $pb.PbList<MatchAllocatedNtfn> createRepeated() =>
-      $pb.PbList<MatchAllocatedNtfn>();
   @$core.pragma('dart2js:noInline')
   static MatchAllocatedNtfn getDefault() => _defaultInstance ??=
       $pb.GeneratedMessage.$_defaultFor<MatchAllocatedNtfn>(create);
@@ -1827,8 +1795,6 @@ class UnreadyGameStreamRequest extends $pb.GeneratedMessage {
   static UnreadyGameStreamRequest create() => UnreadyGameStreamRequest._();
   @$core.override
   UnreadyGameStreamRequest createEmptyInstance() => create();
-  static $pb.PbList<UnreadyGameStreamRequest> createRepeated() =>
-      $pb.PbList<UnreadyGameStreamRequest>();
   @$core.pragma('dart2js:noInline')
   static UnreadyGameStreamRequest getDefault() => _defaultInstance ??=
       $pb.GeneratedMessage.$_defaultFor<UnreadyGameStreamRequest>(create);
@@ -1877,8 +1843,6 @@ class UnreadyGameStreamResponse extends $pb.GeneratedMessage {
   static UnreadyGameStreamResponse create() => UnreadyGameStreamResponse._();
   @$core.override
   UnreadyGameStreamResponse createEmptyInstance() => create();
-  static $pb.PbList<UnreadyGameStreamResponse> createRepeated() =>
-      $pb.PbList<UnreadyGameStreamResponse>();
   @$core.pragma('dart2js:noInline')
   static UnreadyGameStreamResponse getDefault() => _defaultInstance ??=
       $pb.GeneratedMessage.$_defaultFor<UnreadyGameStreamResponse>(create);
@@ -1925,8 +1889,6 @@ class StartNtfnStreamRequest extends $pb.GeneratedMessage {
   static StartNtfnStreamRequest create() => StartNtfnStreamRequest._();
   @$core.override
   StartNtfnStreamRequest createEmptyInstance() => create();
-  static $pb.PbList<StartNtfnStreamRequest> createRepeated() =>
-      $pb.PbList<StartNtfnStreamRequest>();
   @$core.pragma('dart2js:noInline')
   static StartNtfnStreamRequest getDefault() => _defaultInstance ??=
       $pb.GeneratedMessage.$_defaultFor<StartNtfnStreamRequest>(create);
@@ -2017,8 +1979,6 @@ class NtfnStreamResponse extends $pb.GeneratedMessage {
   static NtfnStreamResponse create() => NtfnStreamResponse._();
   @$core.override
   NtfnStreamResponse createEmptyInstance() => create();
-  static $pb.PbList<NtfnStreamResponse> createRepeated() =>
-      $pb.PbList<NtfnStreamResponse>();
   @$core.pragma('dart2js:noInline')
   static NtfnStreamResponse getDefault() => _defaultInstance ??=
       $pb.GeneratedMessage.$_defaultFor<NtfnStreamResponse>(create);
@@ -2178,8 +2138,6 @@ class WaitingRoomsRequest extends $pb.GeneratedMessage {
   static WaitingRoomsRequest create() => WaitingRoomsRequest._();
   @$core.override
   WaitingRoomsRequest createEmptyInstance() => create();
-  static $pb.PbList<WaitingRoomsRequest> createRepeated() =>
-      $pb.PbList<WaitingRoomsRequest>();
   @$core.pragma('dart2js:noInline')
   static WaitingRoomsRequest getDefault() => _defaultInstance ??=
       $pb.GeneratedMessage.$_defaultFor<WaitingRoomsRequest>(create);
@@ -2235,8 +2193,6 @@ class WaitingRoomsResponse extends $pb.GeneratedMessage {
   static WaitingRoomsResponse create() => WaitingRoomsResponse._();
   @$core.override
   WaitingRoomsResponse createEmptyInstance() => create();
-  static $pb.PbList<WaitingRoomsResponse> createRepeated() =>
-      $pb.PbList<WaitingRoomsResponse>();
   @$core.pragma('dart2js:noInline')
   static WaitingRoomsResponse getDefault() => _defaultInstance ??=
       $pb.GeneratedMessage.$_defaultFor<WaitingRoomsResponse>(create);
@@ -2292,8 +2248,6 @@ class JoinWaitingRoomRequest extends $pb.GeneratedMessage {
   static JoinWaitingRoomRequest create() => JoinWaitingRoomRequest._();
   @$core.override
   JoinWaitingRoomRequest createEmptyInstance() => create();
-  static $pb.PbList<JoinWaitingRoomRequest> createRepeated() =>
-      $pb.PbList<JoinWaitingRoomRequest>();
   @$core.pragma('dart2js:noInline')
   static JoinWaitingRoomRequest getDefault() => _defaultInstance ??=
       $pb.GeneratedMessage.$_defaultFor<JoinWaitingRoomRequest>(create);
@@ -2368,8 +2322,6 @@ class JoinWaitingRoomResponse extends $pb.GeneratedMessage {
   static JoinWaitingRoomResponse create() => JoinWaitingRoomResponse._();
   @$core.override
   JoinWaitingRoomResponse createEmptyInstance() => create();
-  static $pb.PbList<JoinWaitingRoomResponse> createRepeated() =>
-      $pb.PbList<JoinWaitingRoomResponse>();
   @$core.pragma('dart2js:noInline')
   static JoinWaitingRoomResponse getDefault() => _defaultInstance ??=
       $pb.GeneratedMessage.$_defaultFor<JoinWaitingRoomResponse>(create);
@@ -2433,8 +2385,6 @@ class CreateWaitingRoomRequest extends $pb.GeneratedMessage {
   static CreateWaitingRoomRequest create() => CreateWaitingRoomRequest._();
   @$core.override
   CreateWaitingRoomRequest createEmptyInstance() => create();
-  static $pb.PbList<CreateWaitingRoomRequest> createRepeated() =>
-      $pb.PbList<CreateWaitingRoomRequest>();
   @$core.pragma('dart2js:noInline')
   static CreateWaitingRoomRequest getDefault() => _defaultInstance ??=
       $pb.GeneratedMessage.$_defaultFor<CreateWaitingRoomRequest>(create);
@@ -2509,8 +2459,6 @@ class CreateWaitingRoomResponse extends $pb.GeneratedMessage {
   static CreateWaitingRoomResponse create() => CreateWaitingRoomResponse._();
   @$core.override
   CreateWaitingRoomResponse createEmptyInstance() => create();
-  static $pb.PbList<CreateWaitingRoomResponse> createRepeated() =>
-      $pb.PbList<CreateWaitingRoomResponse>();
   @$core.pragma('dart2js:noInline')
   static CreateWaitingRoomResponse getDefault() => _defaultInstance ??=
       $pb.GeneratedMessage.$_defaultFor<CreateWaitingRoomResponse>(create);
@@ -2577,7 +2525,6 @@ class WaitingRoom extends $pb.GeneratedMessage {
   static WaitingRoom create() => WaitingRoom._();
   @$core.override
   WaitingRoom createEmptyInstance() => create();
-  static $pb.PbList<WaitingRoom> createRepeated() => $pb.PbList<WaitingRoom>();
   @$core.pragma('dart2js:noInline')
   static WaitingRoom getDefault() => _defaultInstance ??=
       $pb.GeneratedMessage.$_defaultFor<WaitingRoom>(create);
@@ -2653,8 +2600,6 @@ class WaitingRoomRequest extends $pb.GeneratedMessage {
   static WaitingRoomRequest create() => WaitingRoomRequest._();
   @$core.override
   WaitingRoomRequest createEmptyInstance() => create();
-  static $pb.PbList<WaitingRoomRequest> createRepeated() =>
-      $pb.PbList<WaitingRoomRequest>();
   @$core.pragma('dart2js:noInline')
   static WaitingRoomRequest getDefault() => _defaultInstance ??=
       $pb.GeneratedMessage.$_defaultFor<WaitingRoomRequest>(create);
@@ -2710,8 +2655,6 @@ class WaitingRoomResponse extends $pb.GeneratedMessage {
   static WaitingRoomResponse create() => WaitingRoomResponse._();
   @$core.override
   WaitingRoomResponse createEmptyInstance() => create();
-  static $pb.PbList<WaitingRoomResponse> createRepeated() =>
-      $pb.PbList<WaitingRoomResponse>();
   @$core.pragma('dart2js:noInline')
   static WaitingRoomResponse getDefault() => _defaultInstance ??=
       $pb.GeneratedMessage.$_defaultFor<WaitingRoomResponse>(create);
@@ -2782,7 +2725,6 @@ class Player extends $pb.GeneratedMessage {
   static Player create() => Player._();
   @$core.override
   Player createEmptyInstance() => create();
-  static $pb.PbList<Player> createRepeated() => $pb.PbList<Player>();
   @$core.pragma('dart2js:noInline')
   static Player getDefault() =>
       _defaultInstance ??= $pb.GeneratedMessage.$_defaultFor<Player>(create);
@@ -2884,8 +2826,6 @@ class StartGameStreamRequest extends $pb.GeneratedMessage {
   static StartGameStreamRequest create() => StartGameStreamRequest._();
   @$core.override
   StartGameStreamRequest createEmptyInstance() => create();
-  static $pb.PbList<StartGameStreamRequest> createRepeated() =>
-      $pb.PbList<StartGameStreamRequest>();
   @$core.pragma('dart2js:noInline')
   static StartGameStreamRequest getDefault() => _defaultInstance ??=
       $pb.GeneratedMessage.$_defaultFor<StartGameStreamRequest>(create);
@@ -2941,8 +2881,6 @@ class GameUpdateBytes extends $pb.GeneratedMessage {
   static GameUpdateBytes create() => GameUpdateBytes._();
   @$core.override
   GameUpdateBytes createEmptyInstance() => create();
-  static $pb.PbList<GameUpdateBytes> createRepeated() =>
-      $pb.PbList<GameUpdateBytes>();
   @$core.pragma('dart2js:noInline')
   static GameUpdateBytes getDefault() => _defaultInstance ??=
       $pb.GeneratedMessage.$_defaultFor<GameUpdateBytes>(create);
@@ -3003,7 +2941,6 @@ class PlayerInput extends $pb.GeneratedMessage {
   static PlayerInput create() => PlayerInput._();
   @$core.override
   PlayerInput createEmptyInstance() => create();
-  static $pb.PbList<PlayerInput> createRepeated() => $pb.PbList<PlayerInput>();
   @$core.pragma('dart2js:noInline')
   static PlayerInput getDefault() => _defaultInstance ??=
       $pb.GeneratedMessage.$_defaultFor<PlayerInput>(create);
@@ -3144,7 +3081,6 @@ class GameUpdate extends $pb.GeneratedMessage {
   static GameUpdate create() => GameUpdate._();
   @$core.override
   GameUpdate createEmptyInstance() => create();
-  static $pb.PbList<GameUpdate> createRepeated() => $pb.PbList<GameUpdate>();
   @$core.pragma('dart2js:noInline')
   static GameUpdate getDefault() => _defaultInstance ??=
       $pb.GeneratedMessage.$_defaultFor<GameUpdate>(create);
@@ -3411,8 +3347,6 @@ class LeaveWaitingRoomRequest extends $pb.GeneratedMessage {
   static LeaveWaitingRoomRequest create() => LeaveWaitingRoomRequest._();
   @$core.override
   LeaveWaitingRoomRequest createEmptyInstance() => create();
-  static $pb.PbList<LeaveWaitingRoomRequest> createRepeated() =>
-      $pb.PbList<LeaveWaitingRoomRequest>();
   @$core.pragma('dart2js:noInline')
   static LeaveWaitingRoomRequest getDefault() => _defaultInstance ??=
       $pb.GeneratedMessage.$_defaultFor<LeaveWaitingRoomRequest>(create);
@@ -3480,8 +3414,6 @@ class LeaveWaitingRoomResponse extends $pb.GeneratedMessage {
   static LeaveWaitingRoomResponse create() => LeaveWaitingRoomResponse._();
   @$core.override
   LeaveWaitingRoomResponse createEmptyInstance() => create();
-  static $pb.PbList<LeaveWaitingRoomResponse> createRepeated() =>
-      $pb.PbList<LeaveWaitingRoomResponse>();
   @$core.pragma('dart2js:noInline')
   static LeaveWaitingRoomResponse getDefault() => _defaultInstance ??=
       $pb.GeneratedMessage.$_defaultFor<LeaveWaitingRoomResponse>(create);
@@ -3550,8 +3482,6 @@ class SignalReadyToPlayRequest extends $pb.GeneratedMessage {
   static SignalReadyToPlayRequest create() => SignalReadyToPlayRequest._();
   @$core.override
   SignalReadyToPlayRequest createEmptyInstance() => create();
-  static $pb.PbList<SignalReadyToPlayRequest> createRepeated() =>
-      $pb.PbList<SignalReadyToPlayRequest>();
   @$core.pragma('dart2js:noInline')
   static SignalReadyToPlayRequest getDefault() => _defaultInstance ??=
       $pb.GeneratedMessage.$_defaultFor<SignalReadyToPlayRequest>(create);
@@ -3620,8 +3550,6 @@ class SignalReadyToPlayResponse extends $pb.GeneratedMessage {
   static SignalReadyToPlayResponse create() => SignalReadyToPlayResponse._();
   @$core.override
   SignalReadyToPlayResponse createEmptyInstance() => create();
-  static $pb.PbList<SignalReadyToPlayResponse> createRepeated() =>
-      $pb.PbList<SignalReadyToPlayResponse>();
   @$core.pragma('dart2js:noInline')
   static SignalReadyToPlayResponse getDefault() => _defaultInstance ??=
       $pb.GeneratedMessage.$_defaultFor<SignalReadyToPlayResponse>(create);
