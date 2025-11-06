@@ -1,20 +1,28 @@
 #!/bin/sh
+set -e
 
+# Temporary binary dir
 BINDIR=$(mktemp -d)
+export GOBIN=$BINDIR
 
-build_protoc_gen_go() {
-    mkdir -p $BINDIR
-    export GOBIN=$BINDIR
-    go install github.com/golang/protobuf/protoc-gen-go
-}
+# --- Build required protoc plugins ---
+echo "Building protoc plugins into $BINDIR ..."
 
-generate() {
-    protoc --go_out=. --go-grpc_out=. pong.proto
-    protoc --dart_out=grpc:../pongui/flutterui/plugin/lib/grpc/generated -I. pong.proto
-}
+# Modern Go plugins
+go install google.golang.org/protobuf/cmd/protoc-gen-go@latest
+go install google.golang.org/grpc/cmd/protoc-gen-go-grpc@latest
 
-# Build the bins from the main module, so that clientrpc doesn't need to
-# require all client and tool dependencies.
-(cd .. && build_protoc_gen_go)
-GENPATH="$BINDIR:$PATH"
-PATH=$GENPATH generate
+# Dart plugin (make sure Dart SDK is installed)
+dart pub global activate protoc_plugin
+
+# Add both Go and Dart plugin paths to PATH
+export PATH="$BINDIR:$HOME/.pub-cache/bin:$PATH"
+
+# --- Generate code ---
+echo "Generating Go code..."
+protoc --go_out=. --go-grpc_out=. -I. pong.proto
+
+echo "Generating Dart code..."
+protoc --dart_out=grpc:../pongui/flutterui/plugin/lib/grpc/generated -I. pong.proto
+
+echo "✅ Done. Generated Go and Dart gRPC bindings."
