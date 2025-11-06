@@ -467,7 +467,19 @@ class PongModel extends ChangeNotifier {
 
   Future<void> joinWaitingRoom(String id) async {
     try {
-      await Golib.JoinWaitingRoom(id, escrowId: escrowId);
+      // Use the returned room info to immediately update UI state.
+      final roomInfo = await Golib.JoinWaitingRoom(id, escrowId: escrowId);
+
+      // Set current room and ensure list reflects joined state without
+      // waiting for async notifications.
+      currentWR = roomInfo;
+      final idx = waitingRooms.indexWhere((r) => r.id == roomInfo.id);
+      if (idx == -1) {
+        waitingRooms = [roomInfo, ...waitingRooms];
+      } else {
+        waitingRooms[idx] = roomInfo;
+      }
+
       _currentGameState = GameState.inWaitingRoom;
       errorMessage = '';
       notifyListeners();
