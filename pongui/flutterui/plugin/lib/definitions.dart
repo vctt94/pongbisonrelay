@@ -4,11 +4,9 @@ import 'dart:async';
 import 'dart:convert';
 import 'dart:isolate';
 
-import 'package:flutter/cupertino.dart';
 import 'package:json_annotation/json_annotation.dart';
 import 'package:golib_plugin/grpc/generated/pong.pbgrpc.dart';
 
-import 'dart:typed_data';
 import 'package:flutter/foundation.dart'; // for debugPrint
 
 part 'definitions.g.dart';
@@ -488,18 +486,10 @@ mixin NtfStreams {
     _decoding = true;
 
     try {
-      // very fast binary parse on main isolate; keep it tiny
-      final bd = ByteData.view(raw.buffer, raw.offsetInBytes, raw.length);
-      var o = 0;
-      double rf() { final v = bd.getFloat32(o, Endian.little); o += 4; return v; }
-      int    ri() { final v = bd.getInt32 (o, Endian.little); o += 4; return v; }
-
-      final gu = GameUpdate()
-        ..gameWidth  = rf() ..gameHeight = rf()
-        ..p1X = rf() ..p1Y = rf() ..p1Width = rf() ..p1Height = rf()
-        ..p2X = rf() ..p2Y = rf() ..p2Width = rf() ..p2Height = rf()
-        ..ballX = rf() ..ballY = rf() ..ballWidth = rf() ..ballHeight = rf()
-        ..p1Score = ri() ..p2Score = ri();
+      // Decode protobuf payload sent by Go server.
+      // Previously this expected a pre-packed float buffer; now we parse
+      // the canonical proto and emit it directly.
+      final gu = GameUpdate.fromBuffer(raw);
 
       // fps gate (drop oversupply)
       final nowUs = DateTime.now().microsecondsSinceEpoch;
