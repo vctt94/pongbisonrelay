@@ -202,10 +202,9 @@ func handleInitClient(handle uint32, args initClient) (*localInfo, error) {
     nmgr := client.NewNotificationManager()
     // Enable common UI notifications and shorten emit interval for responsiveness.
     nmgr.UpdateUIConfig(client.UINotificationsConfig{
-        GameStarted: true,
-        WRCreated:   true,
-        MaxLength:   255,
-        EmitInterval: 2 * time.Second,
+        GameStarted:          true,
+        WRCreated:            true,
+        MaxLength:            255,
         CancelEmissionChannel: ctx.Done(),
     })
 

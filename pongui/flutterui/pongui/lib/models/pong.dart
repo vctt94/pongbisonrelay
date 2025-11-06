@@ -157,13 +157,13 @@ class PongModel extends ChangeNotifier {
 
       isConnected = true;
       // Subscribe to game frames decoded in Go (JSON -> GameUpdate)
-      _gameStreamSub ??= Golib.gameUpdates().listen((gu) {
+      _gameStreamSub ??= Golib.gameUpdates.listen((gu) {
         try {
           _handleGameUpdateFrame(gu);
         } catch (_) {}
       });
       // Subscribe to UI notifications forwarded by golib (also carries structured events)
-      _uiNtfnSub ??= Golib.uiNotifications().listen((n) {
+      _uiNtfnSub ??= Golib.uiNotifications.listen((n) {
         try {
           switch (n.type) {
             case 'bet_update':

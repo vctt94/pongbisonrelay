@@ -9,6 +9,7 @@ import 'package:json_annotation/json_annotation.dart';
 import 'package:golib_plugin/grpc/generated/pong.pbgrpc.dart';
 
 import 'dart:typed_data';
+import 'package:flutter/foundation.dart'; // for debugPrint
 
 part 'definitions.g.dart';
 
@@ -407,135 +408,124 @@ class UINotificationsConfig {
   Map<String, dynamic> toJson() => _$UINotificationsConfigToJson(this);
 }
 
-
 mixin NtfStreams {
-  StreamController<RemoteUser> ntfAcceptedInvites =
-      StreamController<RemoteUser>();
-  Stream<RemoteUser> acceptedInvites() => ntfAcceptedInvites.stream;
+  // --- broadcast streams (safe for multiple listeners) ---
+  final _acceptedInvitesCtrl = StreamController<RemoteUser>.broadcast();
+  Stream<RemoteUser> get acceptedInvites => _acceptedInvitesCtrl.stream;
 
-  StreamController<String> ntfLogLines = StreamController<String>();
-  Stream<String> logLines() => ntfLogLines.stream;
+  final _logLinesCtrl = StreamController<String>.broadcast();
+  Stream<String> get logLines => _logLinesCtrl.stream;
 
-  StreamController<int> ntfRescanProgress = StreamController<int>();
-  Stream<int> rescanWalletProgress() => ntfRescanProgress.stream;
+  final _rescanProgressCtrl = StreamController<int>.broadcast();
+  Stream<int> get rescanWalletProgress => _rescanProgressCtrl.stream;
 
-  StreamController<UINotification> ntfUINotifications =
-      StreamController<UINotification>();
-  Stream<UINotification> uiNotifications() => ntfUINotifications.stream;
-  // High-frequency game update frames (binary -> decoded to GameUpdate off UI thread)
-  final StreamController<GameUpdate> _ntfGameUpdates =
-      StreamController<GameUpdate>();
-  Stream<GameUpdate> gameUpdates() => _ntfGameUpdates.stream;
+  final _uiNotificationsCtrl = StreamController<UINotification>.broadcast();
+  Stream<UINotification> get uiNotifications => _uiNotificationsCtrl.stream;
 
-  // Internal: latest raw game frame pending decode (Uint8List on desktop)
-  dynamic _latestGameFrameRaw;
-  // Dedicated decoder isolate state (desktop only)
-  SendPort? _decoderSend;
-  ReceivePort? _decoderRecv;
-  bool _decoderBusy = false;
-  TransferableTypedData? _pendingTTD;
-  bool _decoderStarting = false;
+  // high-frequency game updates
+  final _gameUpdatesCtrl = StreamController<GameUpdate>.broadcast();
+  Stream<GameUpdate> get gameUpdates => _gameUpdatesCtrl.stream;
 
-  void _startDecoderIsolateIfNeeded() {
-    if (_decoderSend != null || _decoderStarting) return;
-    _decoderStarting = true;
-    _decoderRecv = ReceivePort();
-    _decoderRecv!.listen((msg) {
-      if (msg is SendPort) {
-        _decoderSend = msg;
-        _decoderStarting = false;
-        if (!_decoderBusy && _pendingTTD != null) {
-          final t = _pendingTTD!;
-          _pendingTTD = null;
-          _decoderBusy = true;
-          _decoderSend!.send(t);
-        }
-        return;
-      }
-      try {
-        if (msg is TransferableTypedData) {
-          final bytes = msg.materialize().asUint8List();
-          final bd = ByteData.view(bytes.buffer, bytes.offsetInBytes, bytes.length);
-          var o = 0;
-          double rf() { final v = bd.getFloat32(o, Endian.little); o += 4; return v; }
-          int ri() { final v = bd.getInt32(o, Endian.little); o += 4; return v; }
-          final gu = GameUpdate()
-            ..gameWidth = rf() ..gameHeight = rf()
-            ..p1X = rf() ..p1Y = rf() ..p1Width = rf() ..p1Height = rf()
-            ..p2X = rf() ..p2Y = rf() ..p2Width = rf() ..p2Height = rf()
-            ..ballX = rf() ..ballY = rf() ..ballWidth = rf() ..ballHeight = rf()
-            ..p1Score = ri() ..p2Score = ri();
-          _ntfGameUpdates.add(gu);
-        } else if (msg is String && msg.startsWith('err:')) {
-          debugPrint(msg);
-        }
-      } catch (e, st) {
-        debugPrint("Failed to handle decoded frame: $e\n$st");
-      } finally {
-        _decoderBusy = false;
-        if (_pendingTTD != null && _decoderSend != null) {
-          final t = _pendingTTD!;
-          _pendingTTD = null;
-          _decoderBusy = true;
-          _decoderSend!.send(t);
-        }
-      }
-    });
-    Isolate.spawn(_frameDecodeIsolate, _decoderRecv!.sendPort, errorsAreFatal: false);
-  }
+  // --- simplified decoder pipeline (no isolate) ---
+  Uint8List? _pendingRaw;       // keep only the newest raw frame
+  bool _decoding = false;       // serialize decode work
+  bool _disposed = false;
 
-  void _scheduleDecodeLatestGameFrame() {
-    final raw = _latestGameFrameRaw;
-    _latestGameFrameRaw = null;
-    if (raw == null) return;
-    if (raw is! Uint8List) return;
-    _startDecoderIsolateIfNeeded();
-    final ttd = TransferableTypedData.fromList([raw]);
-    if (_decoderSend != null && !_decoderBusy) {
-      _decoderBusy = true;
-      _decoderSend!.send(ttd);
-    } else {
-      _pendingTTD = ttd;
-    }
-  }
+  // Optional frame gate: cap emits to ~120 fps to avoid flooding UI.
+  int _lastEmitMicros = 0;
+  static const _minEmitIntervalUs = 8000; // 8ms ≈ 125fps
 
-  handleNotifications(int cmd, bool isError, dynamic payload) {
-    // payload is String (JSON) for most notifications. For NTGameFrame on
-    // desktop it is a Uint8List of raw GameUpdate bytes.
-
+  // call this from your existing notification hook
+  void handleNotifications(int cmd, bool isError, Object? payload) {
     switch (cmd) {
       case NTNOP:
-        // NOP.
         break;
+
       case NTUINotification:
         try {
           if (payload is String && payload.isNotEmpty) {
             final decoded = jsonDecode(payload);
             final n = UINotification.fromJson(
-                Map<String, dynamic>.from(decoded));
-            ntfUINotifications.add(n);
+              Map<String, dynamic>.from(decoded),
+            );
+            if (!_uiNotificationsCtrl.isClosed) {
+              _uiNotificationsCtrl.add(n);
+            }
           }
         } catch (e, st) {
-          debugPrint("Failed to decode NTUINotification: $e\n$st\nPayload: $payload");
+          debugPrint('Failed to decode NTUINotification: $e\n$st\nPayload: $payload');
         }
         break;
+
       case NTGameFrame:
-        // Payload is raw protobuf bytes; decode off the UI thread.
-        _latestGameFrameRaw = payload;
-        _scheduleDecodeLatestGameFrame();
+        // payload is raw bytes of your packed GameUpdate.
+        if (payload is Uint8List) {
+          _pendingRaw = payload; // overwrite → drop older frames
+          if (!_decoding) {
+            // decode soon, but off the hot path
+            scheduleMicrotask(_drainDecode);
+          }
+        }
         break;
+
       case NTClientStopped:
-        // Optionally surface shutdown to UI; keep quiet for now.
+        // optional: surface a UI event here
         break;
-      // case NTPM:
-      //   isError
-      //       ? ntfChatEvents.addError(payload)
-      //       : ntfChatEvents.add(PM.fromJson(payload));
-      //   break;
 
       default:
-        debugPrint("Received unknown notification ${cmd.toRadixString(16)}");
+        debugPrint('Unknown notification 0x${cmd.toRadixString(16)}');
     }
+  }
+
+  void _drainDecode() {
+    if (_disposed) return;
+    final raw = _pendingRaw;
+    if (raw == null) {
+      _decoding = false;
+      return;
+    }
+    _pendingRaw = null;
+    _decoding = true;
+
+    try {
+      // very fast binary parse on main isolate; keep it tiny
+      final bd = ByteData.view(raw.buffer, raw.offsetInBytes, raw.length);
+      var o = 0;
+      double rf() { final v = bd.getFloat32(o, Endian.little); o += 4; return v; }
+      int    ri() { final v = bd.getInt32 (o, Endian.little); o += 4; return v; }
+
+      final gu = GameUpdate()
+        ..gameWidth  = rf() ..gameHeight = rf()
+        ..p1X = rf() ..p1Y = rf() ..p1Width = rf() ..p1Height = rf()
+        ..p2X = rf() ..p2Y = rf() ..p2Width = rf() ..p2Height = rf()
+        ..ballX = rf() ..ballY = rf() ..ballWidth = rf() ..ballHeight = rf()
+        ..p1Score = ri() ..p2Score = ri();
+
+      // fps gate (drop oversupply)
+      final nowUs = DateTime.now().microsecondsSinceEpoch;
+      if (nowUs - _lastEmitMicros >= _minEmitIntervalUs) {
+        _lastEmitMicros = nowUs;
+        if (!_gameUpdatesCtrl.isClosed) _gameUpdatesCtrl.add(gu);
+      }
+    } catch (e, st) {
+      debugPrint('Failed to decode game frame: $e\n$st');
+    } finally {
+      _decoding = false;
+      // if a newer frame arrived while decoding, handle it next
+      if (_pendingRaw != null && !_disposed) {
+        scheduleMicrotask(_drainDecode);
+      }
+    }
+  }
+
+  // call when your owning object is disposed
+  void disposeNtfStreams() {
+    _disposed = true;
+    _acceptedInvitesCtrl.close();
+    _logLinesCtrl.close();
+    _rescanProgressCtrl.close();
+    _uiNotificationsCtrl.close();
+    _gameUpdatesCtrl.close();
   }
 }
 
@@ -558,9 +548,9 @@ abstract class PluginPlatform {
   Future<void> setNtfnsEnabled(bool enabled) => throw "unimplemented";
 
   // Expose UI notifications stream to UI code. Implemented by mixin NtfStreams in concrete platforms.
-  Stream<UINotification> uiNotifications() => throw "unimplemented";
+  Stream<UINotification> get uiNotifications => throw "unimplemented";
   // Expose binary game updates decoded into GameUpdate objects.
-  Stream<GameUpdate> gameUpdates() => throw "unimplemented";
+  Stream<GameUpdate> get gameUpdates => throw "unimplemented";
   // No separate structured stream.
 
   Future<dynamic> asyncCall(int cmd, dynamic payload) async =>
