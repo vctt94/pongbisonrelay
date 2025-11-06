@@ -65,24 +65,24 @@ type waitingRoom struct {
 }
 
 type player struct {
-	UID    client.UserID `json:"uid"`
-	Nick   string        `json:"nick"`
-	BetAmt int64         `json:"bet_amt"`
-	Ready  bool          `json:"ready"`
+    UID    client.UserID `json:"uid"`
+    Nick   string `json:"nick"`
+    BetAmt int64  `json:"bet_amt"`
+    Ready  bool   `json:"ready"`
 }
 
 func playerFromServer(p *pong.Player) (*player, error) {
-	var id zkidentity.ShortID
-	err := id.FromString(p.Uid)
-	if err != nil {
-		return nil, err
-	}
-	return &player{
-		UID:    id,
-		Nick:   p.Nick,
-		BetAmt: p.BetAmt,
-		Ready:  p.Ready,
-	}, nil
+    var id zkidentity.ShortID
+    err := id.FromString(p.Uid)
+    if err != nil {
+        return nil, err
+    }
+    return &player{
+        UID:    id.String(),
+        Nick:   p.Nick,
+        BetAmt: p.BetAmt,
+        Ready:  p.Ready,
+    }, nil
 }
 
 const (
@@ -115,4 +115,18 @@ func remoteUserFromRU(ru *client.RemoteUser) remoteUser {
 type runState struct {
 	DcrlndRunning bool `json:"dcrlnd_running"`
 	ClientRunning bool `json:"client_running"`
+}
+
+// Wallet-auth request payloads for golib (used before InitClient).
+type requestNonceArgs struct {
+    ServerAddr   string `json:"server_addr"`
+    GRPCCertPath string `json:"grpc_cert_path"`
+}
+
+type verifyLoginArgs struct {
+    ServerAddr   string `json:"server_addr"`
+    GRPCCertPath string `json:"grpc_cert_path"`
+    Address      string `json:"address"`
+    Nonce        string `json:"nonce"`
+    Signature    string `json:"signature"`
 }

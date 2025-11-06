@@ -295,10 +295,10 @@ func (nmgr *NotificationManager) waitAndEmitUINtfn(c <-chan time.Time, cancel <-
 }
 
 func (nmgr *NotificationManager) addUINtfn(from zkidentity.ShortID, typ UINotificationType, msg string, ts time.Time) {
-	nmgr.uiMtx.Lock()
+    nmgr.uiMtx.Lock()
 
-	n := &nmgr.uiNextNtfn
-	cfg := &nmgr.uiConfig
+    n := &nmgr.uiNextNtfn
+    cfg := &nmgr.uiConfig
 
 	// // Remove embeds.
 	// msg = mdembeds.ReplaceEmbeds(msg, func(args mdembeds.EmbeddedArgs) string {
@@ -308,29 +308,39 @@ func (nmgr *NotificationManager) addUINtfn(from zkidentity.ShortID, typ UINotifi
 	// 	return ""
 	// })
 
-	switch {
-	case typ == UINtfnWRCreated && !cfg.WRCreated:
+    switch {
+    case typ == UINtfnWRCreated && !cfg.WRCreated:
+        // Ignore
+        nmgr.uiMtx.Unlock()
+        return
 
-		// Ignore
-		nmgr.uiMtx.Unlock()
-		return
+    case typ == UINtfnWRCreated:
+        // Waiting room created
+        n.Type = typ
+        n.Count = 1
+        n.From = from
+        n.Timestamp = ts.Unix()
+        n.Text = fmt.Sprintf("wr created by %s: %s", from, cfg.clip(msg))
 
-	case typ == UINtfnWRCreated && n.Type == UINtfnWRCreated:
-		// First PM.
-		n.Type = typ
-		n.Count = 1
-		n.From = from
-		n.Timestamp = ts.Unix()
-		n.Text = fmt.Sprintf("wr created by %s: %s", from,
-			cfg.clip(msg))
+    case typ == UINtfnGameStarted && !cfg.GameStarted:
+        // Ignore game-started when disabled
+        nmgr.uiMtx.Unlock()
+        return
 
-	default:
-		// Multiple types.
-		n.Type = UINtfnMultiple
-		n.FromNick = "multiple"
-		n.Count += 1
-		n.Text = fmt.Sprintf("%d messages received", n.Count)
-	}
+    case typ == UINtfnGameStarted:
+        n.Type = typ
+        n.Count = 1
+        n.From = from
+        n.Timestamp = ts.Unix()
+        n.Text = cfg.clip(msg)
+
+    default:
+        // Multiple or unclassified types.
+        n.Type = UINtfnMultiple
+        n.FromNick = "multiple"
+        n.Count += 1
+        n.Text = fmt.Sprintf("%d messages received", n.Count)
+    }
 
 	// The first notification starts the timer to emit the actual UI
 	// notification. Other notifications will get batched.
@@ -351,29 +361,30 @@ func (nmgr *NotificationManager) notifyTest() {
 }
 
 func (nmgr *NotificationManager) notifyOnWRCreated(wr *pong.WaitingRoom, ts time.Time) {
-	nmgr.handlers[onWRCreatedfnType].(*handlersFor[OnWRCreatedNtfn]).
-		visit(func(h OnWRCreatedNtfn) { h(wr, ts) })
+    nmgr.handlers[onWRCreatedfnType].(*handlersFor[OnWRCreatedNtfn]).
+        visit(func(h OnWRCreatedNtfn) { h(wr, ts) })
 
-	var id zkidentity.ShortID
-	id.FromString(wr.HostId)
-	// nmgr.addUINtfn(id, id.Nick(), UINtfnPM, pm.Message, ts)
+    var id zkidentity.ShortID
+    id.FromString(wr.HostId)
+    nmgr.addUINtfn(id, UINtfnWRCreated, fmt.Sprintf("bet=%d", wr.BetAmt), ts)
 }
 
 func (nmgr *NotificationManager) notifyBetAmtChanged(playerID string, betAmt int64, ts time.Time) {
-	nmgr.handlers[onBetAmtChangedFnType].(*handlersFor[OnBetAmtChangedNtfn]).
-		visit(func(h OnBetAmtChangedNtfn) { h(playerID, betAmt, ts) })
+    nmgr.handlers[onBetAmtChangedFnType].(*handlersFor[OnBetAmtChangedNtfn]).
+        visit(func(h OnBetAmtChangedNtfn) { h(playerID, betAmt, ts) })
 
-	var id zkidentity.ShortID
-	id.FromString(playerID)
-	// nmgr.addUINtfn(id, player.Nick(), UINtfnBetChange, fmt.Sprintf("New bet amount: %d", betAmt), ts)
+    var id zkidentity.ShortID
+    id.FromString(playerID)
+    // nmgr.addUINtfn(id, player.Nick(), UINtfnBetChange, fmt.Sprintf("New bet amount: %d", betAmt), ts)
 }
 
 func (nmgr *NotificationManager) notifyGameStarted(gameID string, ts time.Time) {
-	nmgr.handlers[onGameStartedFnType].(*handlersFor[OnGameStartedNtfn]).
-		visit(func(h OnGameStartedNtfn) { h(gameID, ts) })
+    nmgr.handlers[onGameStartedFnType].(*handlersFor[OnGameStartedNtfn]).
+        visit(func(h OnGameStartedNtfn) { h(gameID, ts) })
 
-	// XXX add ui ntfn for game started
-	// nmgr.addUINtfn(id, player.Nick(), UINtfnBetChange, fmt.Sprintf("New bet amount: %d", betAmt), ts)
+    // Emit a UI notification for game started
+    var id zkidentity.ShortID // empty sender; not relevant for this UI ntfn
+    nmgr.addUINtfn(id, UINtfnGameStarted, fmt.Sprintf("game started: %s", gameID), ts)
 }
 
 func (nmgr *NotificationManager) notifyPlayerJoinedWR(wr *pong.WaitingRoom, ts time.Time) {

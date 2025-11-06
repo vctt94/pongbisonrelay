@@ -22,7 +22,11 @@ import (
 	"github.com/vctt94/bisonbotkit/logging"
 	"github.com/vctt94/pongbisonrelay"
 	"github.com/vctt94/pongbisonrelay/client"
-	"golang.org/x/sync/errgroup"
+	"github.com/vctt94/pongbisonrelay/pongrpc/grpc/pong"
+    "google.golang.org/grpc"
+    "google.golang.org/grpc/credentials"
+    "google.golang.org/protobuf/proto"
+    "golang.org/x/sync/errgroup"
 )
 
 const (
@@ -195,10 +199,22 @@ func handleInitClient(handle uint32, args initClient) (*localInfo, error) {
 		ServerAddr:   args.ServerAddr,
 		GRPCCertPath: args.GRPCCertPath,
 	}
-	pc, err := client.NewPongClient(args.ClientID, &client.PongClientCfg{
-		AppCfg: appCfg,
-		Log:    logBackend.Logger("client"),
-	})
+    // Set up NotificationManager to emit UI notifications and forward to Flutter.
+    nmgr := client.NewNotificationManager()
+    // Enable common UI notifications and shorten emit interval for responsiveness.
+    nmgr.UpdateUIConfig(client.UINotificationsConfig{
+        GameStarted: true,
+        WRCreated:   true,
+        MaxLength:   255,
+        EmitInterval: 2 * time.Second,
+        CancelEmissionChannel: ctx.Done(),
+    })
+
+    pc, err := client.NewPongClient(args.ClientID, &client.PongClientCfg{
+        AppCfg:        appCfg,
+        Log:           logBackend.Logger("client"),
+        Notifications: nmgr,
+    })
 	if err != nil {
 		cancel()
 		return nil, err
@@ -212,6 +228,200 @@ func handleInitClient(handle uint32, args initClient) (*localInfo, error) {
 		log:    log,
 	}
 	cs[handle] = cctx
+
+	// Start the notification stream to receive server notifications
+	if err := pc.RefStartNtfnStream(ctx); err != nil {
+		cancel()
+		cmtx.Lock()
+		delete(cs, handle)
+		cmtx.Unlock()
+		return nil, fmt.Errorf("failed to start notification stream: %w", err)
+	}
+
+    // Forward only UI notifications to Flutter via NTUINotification.
+    nmgr.Register(client.OnUINotification(func(n client.UINotification) {
+        // Forward a simplified payload that matches the Dart struct.
+        payload := map[string]interface{}{
+            "type":  string(n.Type),
+            "text":  n.Text,
+            "count": n.Count,
+            // Use FromNick as a human-readable source; ensure string type.
+            "from":  n.FromNick,
+        }
+        notify(NTUINotification, payload, nil)
+    }))
+
+    // Forward structured state-change events as simplified UINotification payloads.
+    go func() {
+        for {
+            select {
+            case <-ctx.Done():
+                return
+            case msg := <-pc.UpdatesCh():
+                if ntfn, ok := msg.(*pong.NtfnStreamResponse); ok {
+                    switch ntfn.NotificationType {
+                    case pong.NotificationType_BET_AMOUNT_UPDATE:
+                        extras := map[string]interface{}{
+                            "player_id": ntfn.PlayerId,
+                            "bet_amt":   ntfn.BetAmt,
+                            "confs":     ntfn.Confs,
+                        }
+                        fromJSON, _ := json.Marshal(extras)
+                        payload := map[string]interface{}{
+                            "type":  "bet_update",
+                            "text":  "",
+                            "count": 0,
+                            "from":  string(fromJSON),
+                        }
+                        notify(NTUINotification, payload, nil)
+
+                    case pong.NotificationType_ON_WR_CREATED:
+                        // Convert proto WR to UI shape
+                        var wr *waitingRoom
+                        if ntfn.Wr != nil {
+                            players := make([]*player, len(ntfn.Wr.Players))
+                            for i, p := range ntfn.Wr.Players {
+                                pp, _ := playerFromServer(p)
+                                players[i] = pp
+                            }
+                            wr = &waitingRoom{ID: ntfn.Wr.Id, HostID: ntfn.Wr.HostId, BetAmt: ntfn.Wr.BetAmt, Players: players}
+                        }
+                        extras := map[string]interface{}{"waiting_room": wr}
+                        fromJSON, _ := json.Marshal(extras)
+                        notify(NTUINotification, map[string]interface{}{
+                            "type":  "wr_created",
+                            "text":  "",
+                            "count": 0,
+                            "from":  string(fromJSON),
+                        }, nil)
+
+                    case pong.NotificationType_ON_WR_REMOVED:
+                        extras := map[string]interface{}{"room_id": ntfn.RoomId}
+                        fromJSON, _ := json.Marshal(extras)
+                        notify(NTUINotification, map[string]interface{}{
+                            "type":  "wr_removed",
+                            "text":  ntfn.Message,
+                            "count": 0,
+                            "from":  string(fromJSON),
+                        }, nil)
+
+                    case pong.NotificationType_PLAYER_JOINED_WR:
+                        var wr *waitingRoom
+                        if ntfn.Wr != nil {
+                            players := make([]*player, len(ntfn.Wr.Players))
+                            for i, p := range ntfn.Wr.Players {
+                                pp, _ := playerFromServer(p)
+                                players[i] = pp
+                            }
+                            wr = &waitingRoom{ID: ntfn.Wr.Id, HostID: ntfn.Wr.HostId, BetAmt: ntfn.Wr.BetAmt, Players: players}
+                        }
+                        extras := map[string]interface{}{"waiting_room": wr, "player_id": ntfn.PlayerId}
+                        fromJSON, _ := json.Marshal(extras)
+                        notify(NTUINotification, map[string]interface{}{
+                            "type":  "player_joined_wr",
+                            "text":  ntfn.Message,
+                            "count": 0,
+                            "from":  string(fromJSON),
+                        }, nil)
+
+                    case pong.NotificationType_OPPONENT_DISCONNECTED:
+                        var wr *waitingRoom
+                        if ntfn.Wr != nil {
+                            players := make([]*player, len(ntfn.Wr.Players))
+                            for i, p := range ntfn.Wr.Players {
+                                pp, _ := playerFromServer(p)
+                                players[i] = pp
+                            }
+                            wr = &waitingRoom{ID: ntfn.Wr.Id, HostID: ntfn.Wr.HostId, BetAmt: ntfn.Wr.BetAmt, Players: players}
+                        }
+                        extras := map[string]interface{}{"waiting_room": wr, "player_id": ntfn.PlayerId}
+                        fromJSON, _ := json.Marshal(extras)
+                        notify(NTUINotification, map[string]interface{}{
+                            "type":  "player_left_wr",
+                            "text":  ntfn.Message,
+                            "count": 0,
+                            "from":  string(fromJSON),
+                        }, nil)
+
+                    case pong.NotificationType_GAME_START:
+                        extras := map[string]interface{}{"game_id": ntfn.GameId}
+                        fromJSON, _ := json.Marshal(extras)
+                        notify(NTUINotification, map[string]interface{}{
+                            "type":  "game_started",
+                            "text":  "",
+                            "count": 0,
+                            "from":  string(fromJSON),
+                        }, nil)
+
+                    case pong.NotificationType_GAME_READY_TO_PLAY:
+                        extras := map[string]interface{}{"game_id": ntfn.GameId}
+                        fromJSON, _ := json.Marshal(extras)
+                        notify(NTUINotification, map[string]interface{}{
+                            "type":  "game_ready_to_play",
+                            "text":  "Game is ready! Signal when you're ready to play.",
+                            "count": 0,
+                            "from":  string(fromJSON),
+                        }, nil)
+
+                    case pong.NotificationType_COUNTDOWN_UPDATE:
+                        extras := map[string]interface{}{"game_id": ntfn.GameId, "message": ntfn.Message}
+                        fromJSON, _ := json.Marshal(extras)
+                        notify(NTUINotification, map[string]interface{}{
+                            "type":  "countdown_update",
+                            "text":  ntfn.Message,
+                            "count": 0,
+                            "from":  string(fromJSON),
+                        }, nil)
+
+                    case pong.NotificationType_ON_PLAYER_READY:
+                        extras := map[string]interface{}{"player_id": ntfn.PlayerId, "ready": ntfn.Ready}
+                        fromJSON, _ := json.Marshal(extras)
+                        notify(NTUINotification, map[string]interface{}{
+                            "type":  "player_ready",
+                            "text":  "",
+                            "count": 0,
+                            "from":  string(fromJSON),
+                        }, nil)
+
+                    case pong.NotificationType_GAME_END:
+                        extras := map[string]interface{}{"game_id": ntfn.GameId}
+                        fromJSON, _ := json.Marshal(extras)
+                        notify(NTUINotification, map[string]interface{}{
+                            "type":  "game_end",
+                            "text":  ntfn.Message,
+                            "count": 0,
+                            "from":  string(fromJSON),
+                        }, nil)
+
+                    }
+                } else if gub, ok := msg.(*pong.GameUpdateBytes); ok {
+                    // JSON-encode minimal fields for UI until binary transport is in place.
+                    var gu pong.GameUpdate
+                    if err := proto.Unmarshal(gub.Data, &gu); err == nil {
+                        extras := map[string]interface{}{
+                            "game_width":  gu.GameWidth,
+                            "game_height": gu.GameHeight,
+                            "p1x": gu.P1X, "p1y": gu.P1Y, "p1w": gu.P1Width, "p1h": gu.P1Height,
+                            "p2x": gu.P2X, "p2y": gu.P2Y, "p2w": gu.P2Width, "p2h": gu.P2Height,
+                            "ballx": gu.BallX, "bally": gu.BallY, "ballw": gu.BallWidth, "ballh": gu.BallHeight,
+                            "p1score": gu.P1Score, "p2score": gu.P2Score,
+                        }
+                        fromJSON, _ := json.Marshal(extras)
+                        notify(NTUINotification, map[string]interface{}{
+                            "type":  "game_update",
+                            "text":  "",
+                            "count": 0,
+                            "from":  string(fromJSON),
+                        }, nil)
+                    }
+                }
+            case err := <-pc.ErrorsCh():
+                if err != nil {
+                    log.Errorf("PongClient error: %v", err)
+                }
+            }
+        }
+    }()
 
 	go func() {
 		// Handle client closure and errors
@@ -401,6 +611,43 @@ func handleClientCmd(cc *clientCtx, cmd *cmd) (interface{}, error) {
 			return nil, err
 		}
 		return map[string]string{"status": "archived"}, nil
+
+	// Player action commands
+	case CTSendInput:
+		var req struct {
+			Input string `json:"input"`
+		}
+		if err := json.Unmarshal(cmd.Payload, &req); err != nil {
+			return nil, fmt.Errorf("bad send input payload: %v", err)
+		}
+		if err := cc.c.RefSendInput(req.Input); err != nil {
+			return nil, err
+		}
+		return map[string]string{"status": "ok"}, nil
+
+	case CTSignalReadyToPlay:
+		var req struct {
+			GameID string `json:"game_id"`
+		}
+		if err := json.Unmarshal(cmd.Payload, &req); err != nil {
+			return nil, fmt.Errorf("bad signal ready payload: %v", err)
+		}
+		if err := cc.c.RefSignalReadyToPlay(req.GameID); err != nil {
+			return nil, err
+		}
+		return map[string]bool{"success": true}, nil
+
+	case CTUnreadyGameStream:
+		if err := cc.c.RefUnreadyGameStream(); err != nil {
+			return nil, err
+		}
+		return map[string]string{"status": "ok"}, nil
+
+	case CTStartGameStream:
+		if err := cc.c.RefStartGameStream(); err != nil {
+			return nil, err
+		}
+		return map[string]string{"status": "ok"}, nil
 	}
 	return nil, nil
 }
@@ -439,4 +686,78 @@ func handleCloseLockFile(rootDir string) error {
 		return fmt.Errorf("nil lockfile")
 	}
 	return lf.Close()
+}
+
+// --- Wallet-auth handlers (no running client required) ---
+
+func handleRequestNonce(args requestNonceArgs) (interface{}, error) {
+    if strings.TrimSpace(args.ServerAddr) == "" {
+        return nil, fmt.Errorf("missing server_addr")
+    }
+    if strings.TrimSpace(args.GRPCCertPath) == "" {
+        return nil, fmt.Errorf("missing grpc_cert_path")
+    }
+
+    creds, err := credentials.NewClientTLSFromFile(args.GRPCCertPath, "")
+    if err != nil {
+        return nil, fmt.Errorf("load TLS cert: %w", err)
+    }
+    conn, err := grpc.NewClient(args.ServerAddr, grpc.WithTransportCredentials(creds))
+    if err != nil {
+        return nil, fmt.Errorf("dial server: %w", err)
+    }
+    defer conn.Close()
+
+    c := pong.NewPongAuthClient(conn)
+    ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+    defer cancel()
+
+    res, err := c.RequestNonce(ctx, &pong.RequestNonceRequest{})
+    if err != nil {
+        return nil, err
+    }
+    return map[string]any{
+        "nonce":         res.GetNonce(),
+        "ttl_sec":       res.GetTtlSec(),
+        "address_hint":  res.GetAddressHint(),
+    }, nil
+}
+
+func handleVerifyLogin(args verifyLoginArgs) (interface{}, error) {
+    if strings.TrimSpace(args.ServerAddr) == "" || strings.TrimSpace(args.GRPCCertPath) == "" {
+        return nil, fmt.Errorf("missing server or cert path")
+    }
+    if strings.TrimSpace(args.Address) == "" || strings.TrimSpace(args.Nonce) == "" || strings.TrimSpace(args.Signature) == "" {
+        return nil, fmt.Errorf("missing address, nonce or signature")
+    }
+
+    creds, err := credentials.NewClientTLSFromFile(args.GRPCCertPath, "")
+    if err != nil {
+        return nil, fmt.Errorf("load TLS cert: %w", err)
+    }
+    conn, err := grpc.NewClient(args.ServerAddr, grpc.WithTransportCredentials(creds))
+    if err != nil {
+        return nil, fmt.Errorf("dial server: %w", err)
+    }
+    defer conn.Close()
+
+    c := pong.NewPongAuthClient(conn)
+    ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
+    defer cancel()
+
+    res, err := c.VerifyLogin(ctx, &pong.VerifyLoginRequest{
+        Address:   args.Address,
+        Nonce:     args.Nonce,
+        Signature: args.Signature,
+    })
+    if err != nil {
+        return nil, err
+    }
+    return map[string]any{
+        "ok":         res.GetOk(),
+        "token":      res.GetToken(),
+        "client_id":  res.GetClientId(),
+        "comp_pubkey": res.GetCompPubkey(),
+        "p2pk_addr":  res.GetP2PkAddr(),
+    }, nil
 }

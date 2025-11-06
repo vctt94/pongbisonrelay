@@ -1,4 +1,5 @@
 import 'dart:async';
+import 'dart:convert';
 import 'dart:developer' as developer;
 
 import 'package:flutter/material.dart';
@@ -9,7 +10,6 @@ import 'package:pongui/components/helper.dart';
 import 'package:pongui/config.dart';
 import 'package:golib_plugin/grpc/generated/pong.pb.dart';
 import 'package:golib_plugin/grpc/generated/pong.pbgrpc.dart';
-import 'package:pongui/grpc/grpc_client.dart';
 import 'package:pongui/models/notifications.dart';
 import 'package:path/path.dart' as path;
 
@@ -27,7 +27,6 @@ enum GameState {
 
 class PongModel extends ChangeNotifier {
   final Config cfg;
-  late GrpcPongClient grpcClient;
   late PongGame pongGame;
   final NotificationModel notificationModel;
 
@@ -51,6 +50,7 @@ class PongModel extends ChangeNotifier {
   final SnapshotInterpolator interpolator = SnapshotInterpolator();
   final RenderLoop renderLoop = RenderLoop();
   StreamSubscription<GameUpdateBytes>? _gameStreamSub;
+  StreamSubscription<UINotification>? _uiNtfnSub;
 
   // Connection state
   bool isConnected = false;
@@ -105,27 +105,7 @@ class PongModel extends ChangeNotifier {
   bool isWalletAuthenticated = false;
   String walletAddress = '';
 
-  PongModel(this.cfg, this.notificationModel) {
-    // Initialize GrpcPongClient early (just network connection, doesn't require clientId)
-    // This allows login/auth operations before we have a wallet-authenticated clientId
-    _initGrpcClient(cfg);
-  }
-
-  // Initialize GrpcPongClient early - only needs server address and cert
-  // This just creates the client channel; actual connection happens on first RPC call
-  // No clientId required for this - allows login/auth operations before wallet authentication
-  void _initGrpcClient(Config cfg) {
-    try {
-      List<String> parts = cfg.serverAddr.split(":");
-      String ipAddress = parts[0];
-      int port = int.parse(parts[1]);
-      grpcClient = GrpcPongClient(ipAddress, port, tlsCertPath: cfg.grpcCertPath);
-      print("Set up gRPC client for $ipAddress:$port (connection will be established on first call)");
-    } catch (exception) {
-      errorMessage = "Failed to set up gRPC client: ${exception.toString()}";
-      notifyListeners();
-    }
-  }
+  PongModel(this.cfg, this.notificationModel);
 
   // Initialize golib PongClient after wallet authentication (requires clientId)
   Future<void> _initPongClient(Config cfg) async {
@@ -172,12 +152,186 @@ class PongModel extends ChangeNotifier {
       // Query initial waiting rooms via golib
       waitingRooms = await Golib.getWaitingRooms();
       
-      // grpcClient is already initialized, just need to set up game and notification stream
+      // Initialize game client (notifications come via golib now)
       print("Initializing game client with clientId: $clientId");
-      pongGame = PongGame(clientId, grpcClient);
+      pongGame = PongGame(clientId);
 
       isConnected = true;
-      startListeningToNtfn(grpcClient, clientId);
+      // Subscribe to UI notifications forwarded by golib (also carries structured events)
+      _uiNtfnSub ??= Golib.uiNotifications().listen((n) {
+        try {
+          // Handle structured bet update events piggybacked via UINotification
+          if (n.type == 'bet_update') {
+            // Extras encoded inside the 'from' field as JSON
+            try {
+              final extras = n.from.isNotEmpty ? jsonDecode(n.from) : null;
+              if (extras is Map<String, dynamic>) {
+                final pid = (extras['player_id'] ?? '').toString();
+                if (pid == clientId) {
+                  final b = extras['bet_amt'];
+                  final c = extras['confs'];
+                  if (b is int) {
+                    betAmt = b;
+                  } else if (b is num) {
+                    betAmt = b.toInt();
+                  }
+                  if (c is int) {
+                    escrowConfs = c;
+                  } else if (c is num) {
+                    escrowConfs = c.toInt();
+                  }
+                  escrowFunded = escrowConfs >= 0;
+                  escrowConfirmed = escrowConfs >= 1;
+                  fundingStatus = escrowConfirmed
+                      ? 'Deposit confirmed ($escrowConfs)'
+                      : 'Deposit seen (mempool)';
+                  notifyListeners();
+                }
+              }
+            } catch (_) {}
+          } else if (n.type == 'game_started' || n.type == 'gamestarted') {
+            // Structured game start event (extras in from)
+            try {
+              final extras = n.from.isNotEmpty ? jsonDecode(n.from) : null;
+              if (extras is Map<String, dynamic>) {
+                final gid = (extras['game_id'] ?? '').toString();
+                if (gid.isNotEmpty) currentGameId = gid;
+              }
+            } catch (_) {}
+            if (_currentGameState == GameState.idle ||
+                _currentGameState == GameState.inWaitingRoom ||
+                _currentGameState == GameState.waitingRoomReady) {
+              _currentGameState = GameState.gameInitialized;
+            }
+            currentWR = null; // no longer in a waiting room
+            notifyListeners();
+          } else if (n.type == 'game_ready_to_play') {
+            try {
+              final extras = n.from.isNotEmpty ? jsonDecode(n.from) : null;
+              if (extras is Map<String, dynamic>) {
+                final gid = (extras['game_id'] ?? '').toString();
+                if (gid.isNotEmpty) currentGameId = gid;
+              }
+            } catch (_) {}
+            // Server says game is ready: show "I'm Ready!" overlay
+            _currentGameState = GameState.gameInitialized;
+            notificationModel.showNotification("Game is ready!");
+            notifyListeners();
+          } else if (n.type == 'countdown_update') {
+            // Server countdown prior to playing
+            String msg = n.text.trim();
+            if (msg.isEmpty) {
+              try {
+                final extras = n.from.isNotEmpty ? jsonDecode(n.from) : null;
+                if (extras is Map<String, dynamic>) {
+                  msg = (extras['message'] ?? '').toString();
+                }
+              } catch (_) {}
+            }
+            countdownMessage = msg;
+            _currentGameState = GameState.countdown;
+            if (msg.contains('0')) {
+              _currentGameState = GameState.playing;
+            }
+            notifyListeners();
+          } else if (n.type == 'game_end') {
+            // Stop local stream and show end-of-game overlay
+            _stopGameStreamAndRenderLoop();
+            gameEndingMessage = n.text.isNotEmpty ? n.text : 'Game ended';
+            _currentGameState = GameState.gameEnded;
+            notifyListeners();
+          } else if (n.type == 'player_ready') {
+            try {
+              final extras = n.from.isNotEmpty ? jsonDecode(n.from) : null;
+              if (extras is Map<String, dynamic>) {
+                final pid = (extras['player_id'] ?? '').toString();
+                final r = extras['ready'] == true;
+                if (pid == clientId && r) {
+                  _currentGameState = GameState.waitingRoomReady;
+                  notifyListeners();
+                }
+              }
+            } catch (_) {}
+          } else if (n.type == 'wr_created') {
+            try {
+              final extras = n.from.isNotEmpty ? jsonDecode(n.from) : null;
+              if (extras is Map<String, dynamic>) {
+                final wr = extras['waiting_room'];
+                if (wr is Map<String, dynamic>) {
+                  final room = LocalWaitingRoom.fromJson(Map<String, dynamic>.from(wr));
+                  final idx = waitingRooms.indexWhere((r) => r.id == room.id);
+                  if (idx == -1) {
+                    waitingRooms = [room, ...waitingRooms];
+                  } else {
+                    waitingRooms[idx] = room;
+                  }
+                  notifyListeners();
+                }
+              }
+            } catch (_) {}
+          } else if (n.type == 'wr_removed') {
+            try {
+              final extras = n.from.isNotEmpty ? jsonDecode(n.from) : null;
+              if (extras is Map<String, dynamic>) {
+                final rid = (extras['room_id'] ?? '').toString();
+                if (rid.isNotEmpty) {
+                  waitingRooms = waitingRooms.where((r) => r.id != rid).toList(growable: false);
+                  if (currentWR?.id == rid) currentWR = null;
+                  notifyListeners();
+                }
+              }
+            } catch (_) {}
+          } else if (n.type == 'player_joined_wr' || n.type == 'player_left_wr') {
+            try {
+              final extras = n.from.isNotEmpty ? jsonDecode(n.from) : null;
+              if (extras is Map<String, dynamic>) {
+                final wr = extras['waiting_room'];
+                if (wr is Map<String, dynamic>) {
+                  final room = LocalWaitingRoom.fromJson(Map<String, dynamic>.from(wr));
+                  final idx = waitingRooms.indexWhere((r) => r.id == room.id);
+                  if (idx == -1) {
+                    waitingRooms = [room, ...waitingRooms];
+                  } else {
+                    waitingRooms[idx] = room;
+                  }
+                  if (currentWR?.id == room.id) currentWR = room;
+                  notifyListeners();
+                }
+              }
+            } catch (_) {}
+          } else if (n.type == 'game_update') {
+            try {
+              final extras = n.from.isNotEmpty ? jsonDecode(n.from) : null;
+              if (extras is Map<String, dynamic>) {
+                final gu = GameUpdate()
+                  ..gameWidth  = (extras['game_width'] as num?)?.toDouble() ?? gameState?.gameWidth ?? 800
+                  ..gameHeight = (extras['game_height'] as num?)?.toDouble() ?? gameState?.gameHeight ?? 600
+                  ..p1X = (extras['p1x'] as num?)?.toDouble() ?? 0
+                  ..p1Y = (extras['p1y'] as num?)?.toDouble() ?? 0
+                  ..p1Width  = (extras['p1w'] as num?)?.toDouble() ?? 0
+                  ..p1Height = (extras['p1h'] as num?)?.toDouble() ?? 0
+                  ..p2X = (extras['p2x'] as num?)?.toDouble() ?? 0
+                  ..p2Y = (extras['p2y'] as num?)?.toDouble() ?? 0
+                  ..p2Width  = (extras['p2w'] as num?)?.toDouble() ?? 0
+                  ..p2Height = (extras['p2h'] as num?)?.toDouble() ?? 0
+                  ..ballX = (extras['ballx'] as num?)?.toDouble() ?? 0
+                  ..ballY = (extras['bally'] as num?)?.toDouble() ?? 0
+                  ..ballWidth  = (extras['ballw'] as num?)?.toDouble() ?? 0
+                  ..ballHeight = (extras['ballh'] as num?)?.toDouble() ?? 0
+                  ..p1Score = (extras['p1score'] as num?)?.toInt() ?? (gameState?.p1Score ?? 0)
+                  ..p2Score = (extras['p2score'] as num?)?.toInt() ?? (gameState?.p2Score ?? 0);
+                gameState = gu;
+                interpolator.push(gu);
+                renderLoop.start();
+              }
+            } catch (_) {}
+          } else if ((n.text).isNotEmpty) {
+            // Show toast for human UI notifications
+            notificationModel.showNotification(n.text);
+          }
+        } catch (_) {}
+      });
+      // Notifications are now handled by golib and forwarded automatically
       notifyListeners();
     } catch (exception) {
       // Surface startup/config errors to the UI
@@ -204,6 +358,7 @@ class PongModel extends ChangeNotifier {
     notifyListeners();
   }
 
+
   void logout() {
     isWalletAuthenticated = false;
     walletAddress = '';
@@ -217,11 +372,20 @@ class PongModel extends ChangeNotifier {
     escrowConfirmed = false;
     currentWR = null;
     _currentGameState = GameState.idle;
+    // Stop UI notifications subscription
+    _uiNtfnSub?.cancel();
+    _uiNtfnSub = null;
     notifyListeners();
   }
 
-  void startListeningToNtfn(GrpcPongClient grpcClient, String clientId) {
-    grpcClient.startNtfnStreamRequest(clientId).listen((ntfn) {
+  // TODO: Notifications now come via golib automatically (forwarded from Go PongClient)
+  // This notification handling logic needs to be connected to golib's notification system
+  // For now, notifications from golib will be in raw protobuf format via the command result loop
+  // The following method contains the logic for handling notifications when they arrive:
+  /*
+  void _handleIncomingNotification(dynamic ntfn) {
+    // This method should be called when notifications arrive from golib
+    //grpcClient.startNtfnStreamRequest(clientId).listen((ntfn) {
       developer.log("Notification Stream Response: $ntfn");
 
       isConnected = true;
@@ -393,14 +557,15 @@ class PongModel extends ChangeNotifier {
         default:
           developer.log("Unknown notification type: ${ntfn.notificationType}");
       }
-    }, onError: (error) {
-      errorMessage = "Error in notification stream: ${error.message}";
-      developer.log("Error: $error");
-      // XXX this is not correct, need to check if error is eof
-      isConnected = false;
-      notifyListeners();
-    });
+    //}, onError: (error) {
+    //  errorMessage = "Error in notification stream: ${error.message}";
+    //  developer.log("Error: $error");
+    //  // XXX this is not correct, need to check if error is eof
+    //  isConnected = false;
+    //  notifyListeners();
+    //});
   }
+  */
 
   void resetGameState() {
     _currentGameState = GameState.idle;
@@ -462,8 +627,15 @@ class PongModel extends ChangeNotifier {
       developer.log("CreateWaitingRoom args: $createRoomArgs");
       var roomInfo = await Golib.CreateWaitingRoom(createRoomArgs);
 
-      // Update the model state
+      // Update the model state immediately
       currentWR = roomInfo;
+      // Ensure the new room appears in the list without waiting for ntfn refresh
+      final idx = waitingRooms.indexWhere((r) => r.id == roomInfo.id);
+      if (idx == -1) {
+        waitingRooms = [roomInfo, ...waitingRooms];
+      } else {
+        waitingRooms[idx] = roomInfo;
+      }
       _currentGameState = GameState.inWaitingRoom;
       errorMessage = '';
       notifyListeners();
@@ -490,7 +662,7 @@ class PongModel extends ChangeNotifier {
     }
   }
 
-  void toggleReady() {
+  void toggleReady() async {
     if (currentWR == null) {
       var error = "Need to get into a waiting room to get ready.";
       errorMessage = error;
@@ -499,27 +671,23 @@ class PongModel extends ChangeNotifier {
     }
 
     if (_currentGameState != GameState.waitingRoomReady) {
-      // Player is getting ready
-      _gameStreamSub?.cancel();
-      _gameStreamSub = grpcClient.startGameStreamRequest(clientId).listen((gameUpdateBytes) {
-        final update = GameUpdate.fromBuffer(gameUpdateBytes.data);
-        // Push into interpolator; avoid notifying listeners per frame
-        interpolator.push(update);
-        gameState = update; // keep latest raw state for non-render UI
-        errorMessage = '';
-      }, onError: (error) {
-        developer.log("Error in game stream: $error");
-        errorMessage = "Error in game stream: ${error.message}";
+      // Player is getting ready - start game stream via golib
+      try {
+        await Golib.startGameStream();
+        _currentGameState = GameState.waitingRoomReady;
+        // Game updates will come via golib notifications
+        // Start render loop now that the stream is active
+        renderLoop.start();
+      } catch (error) {
+        developer.log("Error starting game stream: $error");
+        errorMessage = "Error starting game stream: $error";
         notifyListeners();
-      });
-
-      _currentGameState = GameState.waitingRoomReady;
-      // Start render loop now that the stream is active
-      renderLoop.start();
+        return;
+      }
     } else {
       // Player is unreadying
       try {
-        grpcClient.unreadyGameStream(clientId);
+        await Golib.unreadyGameStream();
         _currentGameState = GameState.inWaitingRoom;
         _stopGameStreamAndRenderLoop();
       } catch (error) {
@@ -565,14 +733,13 @@ class PongModel extends ChangeNotifier {
         return;
       }
 
-      final response =
-          await grpcClient.signalReadyToPlay(clientId, currentGameId);
+      final success = await Golib.signalReadyToPlay(currentGameId);
 
-      if (response.success) {
+      if (success) {
         _currentGameState = GameState.readyToPlay;
         notificationModel.showNotification("You are ready to play!");
       } else {
-        errorMessage = response.message;
+        errorMessage = "Failed to signal ready to play";
       }
 
       notifyListeners();

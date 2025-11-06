@@ -398,6 +398,21 @@ mixin NtfStreams {
       case NTNOP:
         // NOP.
         break;
+      case NTUINotification:
+        try {
+          if (jsonPayload.isNotEmpty) {
+            final payload = jsonDecode(jsonPayload);
+            final n = UINotification.fromJson(
+                Map<String, dynamic>.from(payload));
+            ntfUINotifications.add(n);
+          }
+        } catch (e, st) {
+          debugPrint("Failed to decode NTUINotification: $e\n$st\nPayload: $jsonPayload");
+        }
+        break;
+      case NTClientStopped:
+        // Optionally surface shutdown to UI; keep quiet for now.
+        break;
       // case NTPM:
       //   isError
       //       ? ntfChatEvents.addError(payload)
@@ -428,8 +443,42 @@ abstract class PluginPlatform {
   Future<void> stopForegroundSvc() => throw "unimplemented";
   Future<void> setNtfnsEnabled(bool enabled) => throw "unimplemented";
 
+  // Expose UI notifications stream to UI code. Implemented by mixin NtfStreams in concrete platforms.
+  Stream<UINotification> uiNotifications() => throw "unimplemented";
+  // No separate structured stream.
+
   Future<dynamic> asyncCall(int cmd, dynamic payload) async =>
       throw "unimplemented";
+
+  // Wallet-auth helpers (use golib over gRPC)
+  Future<String> requestNonce(String serverAddr, String grpcCertPath) async {
+    final res = await asyncCall(CTRequestNonce, {
+      'server_addr': serverAddr,
+      'grpc_cert_path': grpcCertPath,
+    });
+    if (res is Map) {
+      final m = Map<String, dynamic>.from(res);
+      return (m['nonce'] ?? '').toString();
+    }
+    return res?.toString() ?? '';
+  }
+
+  Future<Map<String, dynamic>> verifyLogin(
+      String serverAddr,
+      String grpcCertPath,
+      String address,
+      String nonce,
+      String signature,
+  ) async {
+    final res = await asyncCall(CTVerifyLogin, {
+      'server_addr': serverAddr,
+      'grpc_cert_path': grpcCertPath,
+      'address': address,
+      'nonce': nonce,
+      'signature': signature,
+    });
+    return Map<String, dynamic>.from(res as Map);
+  }
 
   Future<String> asyncHello(String name) async {
     var r = await asyncCall(CTHello, name);
@@ -535,6 +584,24 @@ abstract class PluginPlatform {
   Future<void> archiveSettlementSessionKey(String matchId) async {
     await asyncCall(CTArchiveSessionKey, { 'match_id': matchId });
   }
+
+  // Player action methods (migrated from Dart gRPC)
+  Future<void> sendInput(String input) async {
+    await asyncCall(CTSendInput, { 'input': input });
+  }
+
+  Future<bool> signalReadyToPlay(String gameId) async {
+    final res = await asyncCall(CTSignalReadyToPlay, { 'game_id': gameId });
+    return (res as Map<String, dynamic>)['success'] as bool;
+  }
+
+  Future<void> unreadyGameStream() async {
+    await asyncCall(CTUnreadyGameStream, "");
+  }
+
+  Future<void> startGameStream() async {
+    await asyncCall(CTStartGameStream, "");
+  }
 }
 
 const int CTUnknown = 0x00;
@@ -550,9 +617,21 @@ const int CTLeaveWaitingRoom = 0x09;
 const int CTGenerateSessionKey = 0x0a;
 const int CTOpenEscrow        = 0x0b;
 const int CTStartPreSign      = 0x0c;
+const int CTRequestNonce      = 0x0f;
+const int CTVerifyLogin       = 0x10;
 const int CTArchiveSessionKey = 0x0e;
+
+// Player action commands (migrated from Dart gRPC)
+const int CTSendInput         = 0x11;
+const int CTSignalReadyToPlay = 0x12;
+const int CTUnreadyGameStream = 0x13;
+const int CTStartGameStream   = 0x14;
+
 const int CTCloseLockFile = 0x60;
 
 const int notificationsStartID = 0x1000;
-const int notificationClientStopped = 0x1001;
-const int NTNOP = 0X1004;
+// Notification types (must match golib)
+const int NTUINotification = 0x1001;
+const int NTClientStopped  = 0x1002;
+const int NTLogLine        = 0x1003;
+const int NTNOP            = 0x1004;

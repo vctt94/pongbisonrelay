@@ -2,7 +2,7 @@ import 'dart:async';
 
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
-import 'package:pongui/grpc/grpc_client.dart';
+import 'package:golib_plugin/golib_plugin.dart';
 import 'package:golib_plugin/grpc/generated/pong.pb.dart';
 
 class BackgroundLogo extends StatelessWidget {
@@ -39,10 +39,9 @@ class BackgroundLogo extends StatelessWidget {
 }
 
 class PongGame {
-  final GrpcPongClient grpcClient; // gRPC client instance
   final String clientId;
 
-  PongGame(this.clientId, this.grpcClient);
+  PongGame(this.clientId);
 
   Widget buildWidget(GameUpdate gameState, FocusNode focusNode, {VoidCallback? onReadyHotkey}) {
     return GestureDetector(
@@ -392,7 +391,7 @@ class PongGame {
   void handlePaddleMovement(DragUpdateDetails details) {
     double deltaY = details.delta.dy;
     String data = deltaY < 0 ? 'ArrowUp' : 'ArrowDown';
-    grpcClient.sendInput(clientId, data);
+    Golib.sendInput(data);
   }
 
   Future<void> handleInput(String clientId, String data) async {
@@ -410,7 +409,7 @@ class PongGame {
       } else {
         return;
       }
-      await grpcClient.sendInput(clientId, action);
+      await Golib.sendInput(action);
     } catch (e) {
       print(e);
     }
@@ -419,7 +418,7 @@ class PongGame {
   // New method to stop paddle movement
   Future<void> stopPaddleMovement(String clientId, String action) async {
     try {
-      await grpcClient.sendInput(clientId, action);
+      await Golib.sendInput(action);
     } catch (e) {
       print(e);
     }

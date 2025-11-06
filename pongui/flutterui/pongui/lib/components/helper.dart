@@ -1,7 +1,7 @@
 import 'dart:async';
 import 'package:flutter/material.dart';
 import 'package:golib_plugin/grpc/generated/pong.pb.dart';
-import 'package:pongui/grpc/grpc_client.dart';
+import 'package:golib_plugin/golib_plugin.dart';
 
 // A compact snapshot with timestamp for interpolation.
 class _Snapshot {
@@ -102,21 +102,21 @@ class RenderLoop extends ChangeNotifier {
 class InputThrottler {
   String? _active; // 'ArrowUp' | 'ArrowDown' | null
 
-  Future<void> update(GrpcPongClient c, String clientId, double dy) async {
+  Future<void> update(double dy) async {
     final want = dy < 0 ? 'ArrowUp' : 'ArrowDown';
     if (want != _active) {
       // stop previous if any
       if (_active != null) {
-        await c.sendInput(clientId, _active == 'ArrowUp' ? 'ArrowUpStop' : 'ArrowDownStop');
+        await Golib.sendInput(_active == 'ArrowUp' ? 'ArrowUpStop' : 'ArrowDownStop');
       }
       _active = want;
-      await c.sendInput(clientId, want);
+      await Golib.sendInput(want);
     }
   }
 
-  Future<void> stop(GrpcPongClient c, String clientId) async {
+  Future<void> stop() async {
     if (_active != null) {
-      await c.sendInput(clientId, _active == 'ArrowUp' ? 'ArrowUpStop' : 'ArrowDownStop');
+      await Golib.sendInput(_active == 'ArrowUp' ? 'ArrowUpStop' : 'ArrowDownStop');
       _active = null;
     }
   }

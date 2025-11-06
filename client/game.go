@@ -94,15 +94,18 @@ func (pc *PongClient) runNtfnRecv(ctx context.Context, stream pong.PongGame_Star
 }
 
 func (pc *PongClient) handleNtfn(ntfn *pong.NtfnStreamResponse) {
-	switch ntfn.NotificationType {
-	case pong.NotificationType_ON_WR_CREATED:
-		pc.ntfns.notifyOnWRCreated(ntfn.Wr, time.Now())
+    switch ntfn.NotificationType {
+    case pong.NotificationType_ON_WR_CREATED:
+        pc.ntfns.notifyOnWRCreated(ntfn.Wr, time.Now())
+        // Forward to updates channel for structured UI updates
+        pc.updatesCh <- ntfn
 
-	case pong.NotificationType_MESSAGE:
-		pc.updatesCh <- ntfn
+    case pong.NotificationType_MESSAGE:
+        pc.updatesCh <- ntfn
 
-	case pong.NotificationType_PLAYER_JOINED_WR:
-		pc.ntfns.notifyPlayerJoinedWR(ntfn.Wr, time.Now())
+    case pong.NotificationType_PLAYER_JOINED_WR:
+        pc.ntfns.notifyPlayerJoinedWR(ntfn.Wr, time.Now())
+        pc.updatesCh <- ntfn
 
 	case pong.NotificationType_GAME_START:
 		if ntfn.Started {
@@ -113,24 +116,29 @@ func (pc *PongClient) handleNtfn(ntfn *pong.NtfnStreamResponse) {
 		pc.ntfns.notifyGameEnded(ntfn.GameId, ntfn.Message, time.Now())
 		pc.log.Infof("%s", ntfn.Message)
 
-	case pong.NotificationType_OPPONENT_DISCONNECTED:
-		pc.ntfns.notifyPlayerLeftWR(ntfn.Wr, ntfn.PlayerId, time.Now())
+    case pong.NotificationType_OPPONENT_DISCONNECTED:
+        pc.ntfns.notifyPlayerLeftWR(ntfn.Wr, ntfn.PlayerId, time.Now())
+        pc.updatesCh <- ntfn
 
-	case pong.NotificationType_BET_AMOUNT_UPDATE:
-		if ntfn.PlayerId == pc.id {
-			// If pc.BetAmt is read elsewhere concurrently, guard with a mutex.
-			pc.betAmt = ntfn.BetAmt
-			pc.ntfns.notifyBetAmtChanged(ntfn.PlayerId, ntfn.BetAmt, time.Now())
-		}
-		// Forward for UI if you want:
-		pc.updatesCh <- ntfn
+    case pong.NotificationType_BET_AMOUNT_UPDATE:
+        if ntfn.PlayerId == pc.id {
+            // If pc.BetAmt is read elsewhere concurrently, guard with a mutex.
+            pc.betAmt = ntfn.BetAmt
+            pc.ntfns.notifyBetAmtChanged(ntfn.PlayerId, ntfn.BetAmt, time.Now())
+        }
+        // Forward for UI if you want:
+        pc.updatesCh <- ntfn
 
-	case pong.NotificationType_ON_PLAYER_READY:
-		if ntfn.PlayerId == pc.id {
-			pc.isReady = ntfn.Ready
-			pc.updatesCh <- true
-		}
-		pc.updatesCh <- ntfn
+    case pong.NotificationType_ON_WR_REMOVED:
+        // Forward room removal event for UI state updates
+        pc.updatesCh <- ntfn
+
+    case pong.NotificationType_ON_PLAYER_READY:
+        if ntfn.PlayerId == pc.id {
+            pc.isReady = ntfn.Ready
+            pc.updatesCh <- true
+        }
+        pc.updatesCh <- ntfn
 
 	case pong.NotificationType_COUNTDOWN_UPDATE,
 		pong.NotificationType_GAME_READY_TO_PLAY:
@@ -174,8 +182,9 @@ func (pc *PongClient) RefStartGameStream() error {
 							if nerr == nil {
 								pc.stream = ns
 								pc.log.Infof("game stream restarted")
-								// Successfully restarted; continue outer loop to Recv again
-								continue
+								// Successfully restarted; break out of retry loop and
+								// continue outer recv loop on the new stream.
+								break
 							}
 							if backoff < maxBackoff {
 								backoff *= 2

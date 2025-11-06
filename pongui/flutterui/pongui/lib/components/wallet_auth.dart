@@ -1,5 +1,6 @@
 import 'package:flutter/material.dart';
 import 'package:pongui/models/pong.dart';
+import 'package:golib_plugin/golib_plugin.dart';
 import 'package:provider/provider.dart';
 
 class WalletAuthDialog extends StatefulWidget {
@@ -20,8 +21,8 @@ class _WalletAuthDialogState extends State<WalletAuthDialog> {
   Future<void> _requestNonce(PongModel m) async {
     setState(() { _loading = true; _status = ''; });
     try {
-      final res = await m.grpcClient.requestNonce();
-      setState(() { _nonce = res.nonce; });
+      final n = await Golib.requestNonce(m.cfg.serverAddr, m.cfg.grpcCertPath);
+      setState(() { _nonce = n; });
     } catch (e) {
       setState(() { _status = 'Error: $e'; });
     } finally {
@@ -39,12 +40,18 @@ class _WalletAuthDialogState extends State<WalletAuthDialog> {
     }
     setState(() { _loading = true; _status = ''; });
     try {
-      final res = await m.grpcClient.verifyLogin(addr, nonce, sig);
-      if (!res.ok) {
+      final res = await Golib.verifyLogin(
+        m.cfg.serverAddr,
+        m.cfg.grpcCertPath,
+        addr,
+        nonce,
+        sig,
+      );
+      if (!(res['ok'] == true)) {
         throw Exception('Invalid response');
       }
-      final token = res.token;
-      final clientId = res.clientId;
+      final token = (res['token'] ?? '').toString();
+      final clientId = (res['client_id'] ?? '').toString();
       if (clientId.isEmpty) {
         throw Exception('Missing client_id');
       }
@@ -54,7 +61,7 @@ class _WalletAuthDialogState extends State<WalletAuthDialog> {
         newClientId: clientId,
         token: token,
         address: addr,
-        p2pkAddr: res.p2pkAddr,
+        p2pkAddr: (res['p2pk_addr'] ?? '').toString(),
       );
       if (!mounted) return;
       Navigator.of(context).pop();
