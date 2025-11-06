@@ -6,6 +6,7 @@ import 'package:flutter/cupertino.dart';
 import 'package:golib_plugin/definitions.dart';
 import 'dart:ffi';
 import 'dart:isolate';
+import 'dart:typed_data';
 import 'desktop_dynlib.dart';
 
 class _ReadStrData {
@@ -34,7 +35,7 @@ void _readAsyncResultsIsolate(SendPort sp) async {
           'CopyCallResult');
 
   var buffSize = 1024 * 1024;
-  var buff = calloc.allocate<Utf8>(buffSize);
+  var buff = calloc.allocate<Uint8>(buffSize);
 
   await Future.delayed(const Duration(seconds: 1));
   for (;;) {
@@ -44,12 +45,20 @@ void _readAsyncResultsIsolate(SendPort sp) async {
     if (nr.payloadLen > buffSize) {
       calloc.free(buff);
       buffSize = nr.payloadLen;
-      buff = calloc.allocate<Utf8>(buffSize);
+      buff = calloc.allocate<Uint8>(buffSize);
     }
 
     // Copy the payload.
-    var rid = copyCallResult(nr.handle, buff);
-    var payload = buff.toDartString(length: nr.payloadLen);
+    var rid = copyCallResult(nr.handle, buff.cast<Utf8>());
+    // Decode payload according to cmdType
+    dynamic payload;
+    final view = buff.asTypedList(nr.payloadLen);
+    if (nr.cmdType == NTGameFrame) {
+      // Copy into a new list since buffer is reused
+      payload = Uint8List.fromList(view);
+    } else {
+      payload = utf8.decode(view);
+    }
 
     // Send the response.
     var res = [rid, nr.isErr == 1, nr.cmdType, payload];
@@ -139,19 +148,19 @@ mixin BaseDesktopPlatform on NtfStreams {
         int id = cmdReply[0];
         bool isError = cmdReply[1];
         int cmdType = cmdReply[2];
-        String jsonPayload = cmdReply[3];
+        dynamic payload = cmdReply[3];
 
         var c = calls[id];
         if (c == null) {
           if (id == 0 && cmdType >= notificationsStartID) {
             try {
-              handleNotifications(cmdType, isError, jsonPayload);
+              handleNotifications(cmdType, isError, payload);
             } catch (exception, trace) {
               // Probably a decode error. Keep handling stuff.
               var err =
                   "Unable to handle notification ${cmdType.toRadixString(16)}: $exception\n$trace";
               debugPrint(
-                  "Error notification from golib: $err\nPayload: $jsonPayload");
+                  "Error notification from golib: $err\nPayload: $payload");
               // ignore: use_rethrow_when_possible
               (() async => throw exception)();
             }
@@ -163,15 +172,15 @@ mixin BaseDesktopPlatform on NtfStreams {
         }
         calls.remove(id);
 
-        dynamic payload;
-        if (jsonPayload != "") {
-          payload = jsonDecode(jsonPayload);
+        dynamic response;
+        if (payload is String && payload.isNotEmpty) {
+          response = jsonDecode(payload);
         }
 
         if (isError) {
-          c.completeError(payload);
+          c.completeError(response);
         } else {
-          c.complete(payload);
+          c.complete(response);
         }
       }
     }

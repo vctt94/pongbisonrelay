@@ -111,10 +111,16 @@ func (pc *PongClient) handleNtfn(ntfn *pong.NtfnStreamResponse) {
 		if ntfn.Started {
 			pc.ntfns.notifyGameStarted(ntfn.GameId, time.Now())
 		}
+		// Forward start event so UI can transition to initialized state
+		pc.updatesCh <- ntfn
 
 	case pong.NotificationType_GAME_END:
 		pc.ntfns.notifyGameEnded(ntfn.GameId, ntfn.Message, time.Now())
 		pc.log.Infof("%s", ntfn.Message)
+		// Forward to updates channel so UI layers (golib plugin) can
+		// emit a "game_end" notification to Flutter. Without this,
+		// the UI never transitions out of the playing state.
+		pc.updatesCh <- ntfn
 
     case pong.NotificationType_OPPONENT_DISCONNECTED:
         pc.ntfns.notifyPlayerLeftWR(ntfn.Wr, ntfn.PlayerId, time.Now())
@@ -199,8 +205,12 @@ func (pc *PongClient) RefStartGameStream() error {
 				pc.errorsCh <- fmt.Errorf("game stream error: %v", err)
 				return
 			}
-			// Forward updates to UpdatesCh
-			go func() { pc.updatesCh <- update }()
+				// Forward updates to UpdatesCh without spawning a goroutine per frame.
+				// If the channel is full, drop the frame to avoid backpressure and lag.
+				select {
+				case pc.updatesCh <- update:
+				default:
+				}
 		}
 	}()
 

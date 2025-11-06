@@ -1,10 +1,10 @@
 package golib
 
 import (
-	"github.com/companyzero/bisonrelay/client"
-	"github.com/companyzero/bisonrelay/client/clientintf"
-	"github.com/companyzero/bisonrelay/zkidentity"
-	"github.com/vctt94/pongbisonrelay/pongrpc/grpc/pong"
+    "github.com/companyzero/bisonrelay/client"
+    "github.com/companyzero/bisonrelay/client/clientintf"
+    "github.com/companyzero/bisonrelay/zkidentity"
+    "github.com/vctt94/pongbisonrelay/pongrpc/grpc/pong"
 )
 
 type initClient struct {
@@ -65,7 +65,7 @@ type waitingRoom struct {
 }
 
 type player struct {
-    UID    client.UserID `json:"uid"`
+    UID    string `json:"uid"`
     Nick   string `json:"nick"`
     BetAmt int64  `json:"bet_amt"`
     Ready  bool   `json:"ready"`

@@ -1,13 +1,14 @@
 package golib
 
 import (
-	"encoding/json"
-	"fmt"
-	"net/http"
-	_ "net/http/pprof"
-	"os"
-	"sync"
-	"sync/atomic"
+    "encoding/json"
+    "fmt"
+    "encoding/base64"
+    "net/http"
+    _ "net/http/pprof"
+    "os"
+    "sync"
+    "sync/atomic"
 	"time"
 
 	"github.com/companyzero/bisonrelay/client"
@@ -58,6 +59,8 @@ const (
     NTLogLine        = 0x1003
     NTNOP            = 0x1004
     NTWRCreated      = 0x1005
+    // High-frequency game frames (raw bytes of pong.GameUpdate)
+    NTGameFrame      = 0x1011
 )
 
 type cmd struct {
@@ -208,13 +211,19 @@ func AsyncCallStr(typ CmdType, id, clientHandle int32, payload string) {
 }
 
 func notify(typ CmdType, payload interface{}, err error) {
-	var resPayload []byte
-	if err == nil {
-		resPayload, err = json.Marshal(payload)
-	}
+    var resPayload []byte
+    if err == nil {
+        switch v := payload.(type) {
+        case []byte:
+            // Pass-through raw bytes (used by NTGameFrame)
+            resPayload = v
+        default:
+            resPayload, err = json.Marshal(payload)
+        }
+    }
 
-	r := &CmdResult{Type: typ, Err: err, Payload: resPayload}
-	cmdResultChan <- r
+    r := &CmdResult{Type: typ, Err: err, Payload: resPayload}
+    cmdResultChan <- r
 }
 
 func NextCmdResult() *CmdResult {
@@ -325,16 +334,21 @@ func CmdResultLoop(cb CmdResultLoopCB, onlyBgNtfns bool) int32 {
 
 			// If the flutter engine is attached to the process,
 			// deliver the event so that it can be processed.
-			if !onlyBgNtfns {
-				var errMsg, payload string
-				if r.Err != nil {
-					errMsg = r.Err.Error()
-				}
-				if len(r.Payload) > 0 {
-					payload = string(r.Payload)
-				}
-				cb.F(r.ID, r.Type, payload, errMsg)
-			}
+            if !onlyBgNtfns {
+                var errMsg, payload string
+                if r.Err != nil {
+                    errMsg = r.Err.Error()
+                }
+                if len(r.Payload) > 0 {
+                    if r.Type == NTGameFrame {
+                        // Encode as base64 for mobile transports that only support string payloads.
+                        payload = base64.StdEncoding.EncodeToString(r.Payload)
+                    } else {
+                        payload = string(r.Payload)
+                    }
+                }
+                cb.F(r.ID, r.Type, payload, errMsg)
+            }
 
 			// Emit a background ntfn if the flutter engine is
 			// deatched or if it is attached but paused/on

@@ -9,7 +9,6 @@ import 'package:pongui/components/pong_game.dart';
 import 'package:pongui/components/helper.dart';
 import 'package:pongui/config.dart';
 import 'package:golib_plugin/grpc/generated/pong.pb.dart';
-import 'package:golib_plugin/grpc/generated/pong.pbgrpc.dart';
 import 'package:pongui/models/notifications.dart';
 import 'package:path/path.dart' as path;
 
@@ -49,7 +48,7 @@ class PongModel extends ChangeNotifier {
   GameUpdate? gameState;
   final SnapshotInterpolator interpolator = SnapshotInterpolator();
   final RenderLoop renderLoop = RenderLoop();
-  StreamSubscription<GameUpdateBytes>? _gameStreamSub;
+  StreamSubscription<GameUpdate>? _gameStreamSub;
   StreamSubscription<UINotification>? _uiNtfnSub;
 
   // Connection state
@@ -157,177 +156,49 @@ class PongModel extends ChangeNotifier {
       pongGame = PongGame(clientId);
 
       isConnected = true;
+      // Subscribe to game frames decoded in Go (JSON -> GameUpdate)
+      _gameStreamSub ??= Golib.gameUpdates().listen((gu) {
+        try {
+          _handleGameUpdateFrame(gu);
+        } catch (_) {}
+      });
       // Subscribe to UI notifications forwarded by golib (also carries structured events)
       _uiNtfnSub ??= Golib.uiNotifications().listen((n) {
         try {
-          // Handle structured bet update events piggybacked via UINotification
-          if (n.type == 'bet_update') {
-            // Extras encoded inside the 'from' field as JSON
-            try {
-              final extras = n.from.isNotEmpty ? jsonDecode(n.from) : null;
-              if (extras is Map<String, dynamic>) {
-                final pid = (extras['player_id'] ?? '').toString();
-                if (pid == clientId) {
-                  final b = extras['bet_amt'];
-                  final c = extras['confs'];
-                  if (b is int) {
-                    betAmt = b;
-                  } else if (b is num) {
-                    betAmt = b.toInt();
-                  }
-                  if (c is int) {
-                    escrowConfs = c;
-                  } else if (c is num) {
-                    escrowConfs = c.toInt();
-                  }
-                  escrowFunded = escrowConfs >= 0;
-                  escrowConfirmed = escrowConfs >= 1;
-                  fundingStatus = escrowConfirmed
-                      ? 'Deposit confirmed ($escrowConfs)'
-                      : 'Deposit seen (mempool)';
-                  notifyListeners();
-                }
+          switch (n.type) {
+            case 'bet_update':
+              _handleNtfnBetUpdate(n);
+              break;
+            case 'game_started':
+            case 'gamestarted':
+              _handleNtfnGameStarted(n);
+              break;
+            case 'game_ready_to_play':
+              _handleNtfnGameReadyToPlay(n);
+              break;
+            case 'countdown_update':
+              _handleNtfnCountdown(n);
+              break;
+            case 'game_end':
+              _handleNtfnGameEnd(n);
+              break;
+            case 'player_ready':
+              _handleNtfnPlayerReady(n);
+              break;
+            case 'wr_created':
+              _handleNtfnWRCreated(n);
+              break;
+            case 'wr_removed':
+              _handleNtfnWRRemoved(n);
+              break;
+            case 'player_joined_wr':
+            case 'player_left_wr':
+              _handleNtfnPlayerWRUpdate(n);
+              break;
+            default:
+              if (n.text.isNotEmpty) {
+                notificationModel.showNotification(n.text);
               }
-            } catch (_) {}
-          } else if (n.type == 'game_started' || n.type == 'gamestarted') {
-            // Structured game start event (extras in from)
-            try {
-              final extras = n.from.isNotEmpty ? jsonDecode(n.from) : null;
-              if (extras is Map<String, dynamic>) {
-                final gid = (extras['game_id'] ?? '').toString();
-                if (gid.isNotEmpty) currentGameId = gid;
-              }
-            } catch (_) {}
-            if (_currentGameState == GameState.idle ||
-                _currentGameState == GameState.inWaitingRoom ||
-                _currentGameState == GameState.waitingRoomReady) {
-              _currentGameState = GameState.gameInitialized;
-            }
-            currentWR = null; // no longer in a waiting room
-            notifyListeners();
-          } else if (n.type == 'game_ready_to_play') {
-            try {
-              final extras = n.from.isNotEmpty ? jsonDecode(n.from) : null;
-              if (extras is Map<String, dynamic>) {
-                final gid = (extras['game_id'] ?? '').toString();
-                if (gid.isNotEmpty) currentGameId = gid;
-              }
-            } catch (_) {}
-            // Server says game is ready: show "I'm Ready!" overlay
-            _currentGameState = GameState.gameInitialized;
-            notificationModel.showNotification("Game is ready!");
-            notifyListeners();
-          } else if (n.type == 'countdown_update') {
-            // Server countdown prior to playing
-            String msg = n.text.trim();
-            if (msg.isEmpty) {
-              try {
-                final extras = n.from.isNotEmpty ? jsonDecode(n.from) : null;
-                if (extras is Map<String, dynamic>) {
-                  msg = (extras['message'] ?? '').toString();
-                }
-              } catch (_) {}
-            }
-            countdownMessage = msg;
-            _currentGameState = GameState.countdown;
-            if (msg.contains('0')) {
-              _currentGameState = GameState.playing;
-            }
-            notifyListeners();
-          } else if (n.type == 'game_end') {
-            // Stop local stream and show end-of-game overlay
-            _stopGameStreamAndRenderLoop();
-            gameEndingMessage = n.text.isNotEmpty ? n.text : 'Game ended';
-            _currentGameState = GameState.gameEnded;
-            notifyListeners();
-          } else if (n.type == 'player_ready') {
-            try {
-              final extras = n.from.isNotEmpty ? jsonDecode(n.from) : null;
-              if (extras is Map<String, dynamic>) {
-                final pid = (extras['player_id'] ?? '').toString();
-                final r = extras['ready'] == true;
-                if (pid == clientId && r) {
-                  _currentGameState = GameState.waitingRoomReady;
-                  notifyListeners();
-                }
-              }
-            } catch (_) {}
-          } else if (n.type == 'wr_created') {
-            try {
-              final extras = n.from.isNotEmpty ? jsonDecode(n.from) : null;
-              if (extras is Map<String, dynamic>) {
-                final wr = extras['waiting_room'];
-                if (wr is Map<String, dynamic>) {
-                  final room = LocalWaitingRoom.fromJson(Map<String, dynamic>.from(wr));
-                  final idx = waitingRooms.indexWhere((r) => r.id == room.id);
-                  if (idx == -1) {
-                    waitingRooms = [room, ...waitingRooms];
-                  } else {
-                    waitingRooms[idx] = room;
-                  }
-                  notifyListeners();
-                }
-              }
-            } catch (_) {}
-          } else if (n.type == 'wr_removed') {
-            try {
-              final extras = n.from.isNotEmpty ? jsonDecode(n.from) : null;
-              if (extras is Map<String, dynamic>) {
-                final rid = (extras['room_id'] ?? '').toString();
-                if (rid.isNotEmpty) {
-                  waitingRooms = waitingRooms.where((r) => r.id != rid).toList(growable: false);
-                  if (currentWR?.id == rid) currentWR = null;
-                  notifyListeners();
-                }
-              }
-            } catch (_) {}
-          } else if (n.type == 'player_joined_wr' || n.type == 'player_left_wr') {
-            try {
-              final extras = n.from.isNotEmpty ? jsonDecode(n.from) : null;
-              if (extras is Map<String, dynamic>) {
-                final wr = extras['waiting_room'];
-                if (wr is Map<String, dynamic>) {
-                  final room = LocalWaitingRoom.fromJson(Map<String, dynamic>.from(wr));
-                  final idx = waitingRooms.indexWhere((r) => r.id == room.id);
-                  if (idx == -1) {
-                    waitingRooms = [room, ...waitingRooms];
-                  } else {
-                    waitingRooms[idx] = room;
-                  }
-                  if (currentWR?.id == room.id) currentWR = room;
-                  notifyListeners();
-                }
-              }
-            } catch (_) {}
-          } else if (n.type == 'game_update') {
-            try {
-              final extras = n.from.isNotEmpty ? jsonDecode(n.from) : null;
-              if (extras is Map<String, dynamic>) {
-                final gu = GameUpdate()
-                  ..gameWidth  = (extras['game_width'] as num?)?.toDouble() ?? gameState?.gameWidth ?? 800
-                  ..gameHeight = (extras['game_height'] as num?)?.toDouble() ?? gameState?.gameHeight ?? 600
-                  ..p1X = (extras['p1x'] as num?)?.toDouble() ?? 0
-                  ..p1Y = (extras['p1y'] as num?)?.toDouble() ?? 0
-                  ..p1Width  = (extras['p1w'] as num?)?.toDouble() ?? 0
-                  ..p1Height = (extras['p1h'] as num?)?.toDouble() ?? 0
-                  ..p2X = (extras['p2x'] as num?)?.toDouble() ?? 0
-                  ..p2Y = (extras['p2y'] as num?)?.toDouble() ?? 0
-                  ..p2Width  = (extras['p2w'] as num?)?.toDouble() ?? 0
-                  ..p2Height = (extras['p2h'] as num?)?.toDouble() ?? 0
-                  ..ballX = (extras['ballx'] as num?)?.toDouble() ?? 0
-                  ..ballY = (extras['bally'] as num?)?.toDouble() ?? 0
-                  ..ballWidth  = (extras['ballw'] as num?)?.toDouble() ?? 0
-                  ..ballHeight = (extras['ballh'] as num?)?.toDouble() ?? 0
-                  ..p1Score = (extras['p1score'] as num?)?.toInt() ?? (gameState?.p1Score ?? 0)
-                  ..p2Score = (extras['p2score'] as num?)?.toInt() ?? (gameState?.p2Score ?? 0);
-                gameState = gu;
-                interpolator.push(gu);
-                renderLoop.start();
-              }
-            } catch (_) {}
-          } else if ((n.text).isNotEmpty) {
-            // Show toast for human UI notifications
-            notificationModel.showNotification(n.text);
           }
         } catch (_) {}
       });
@@ -378,194 +249,138 @@ class PongModel extends ChangeNotifier {
     notifyListeners();
   }
 
-  // TODO: Notifications now come via golib automatically (forwarded from Go PongClient)
-  // This notification handling logic needs to be connected to golib's notification system
-  // For now, notifications from golib will be in raw protobuf format via the command result loop
-  // The following method contains the logic for handling notifications when they arrive:
-  /*
-  void _handleIncomingNotification(dynamic ntfn) {
-    // This method should be called when notifications arrive from golib
-    //grpcClient.startNtfnStreamRequest(clientId).listen((ntfn) {
-      developer.log("Notification Stream Response: $ntfn");
-
-      isConnected = true;
-      notifyListeners();
-
-      switch (ntfn.notificationType) {
-        case NotificationType.MESSAGE:
-          // Avoid deriving funding state from free-form messages; show as toast only.
-          notificationModel.showNotification(ntfn.message);
-          notifyListeners();
-          break;
-        case NotificationType.BET_AMOUNT_UPDATE:
-          if (ntfn.playerId == clientId) {
-            betAmt = ntfn.betAmt.toInt();
-            escrowConfs = ntfn.confs;
-            // Consider escrow funded whenever a watcher-driven update arrives (may be 0-conf)
-            escrowFunded = ntfn.confs >= 0;
-            // Confirmed when at least 1 conf
-            escrowConfirmed = ntfn.confs >= 1;
-            // Optional: textual status for tooltip only, derived from structured confs
-            fundingStatus = escrowConfirmed
-                ? 'Deposit confirmed (${ntfn.confs})'
-                : 'Deposit seen (mempool)';
-            notifyListeners();
-          }
-          break;
-
-        case NotificationType.ON_WR_CREATED:
-          // Refresh rooms in background (can't await in this listener)
-          Golib.getWaitingRooms().then((rooms) {
-            waitingRooms = rooms;
-            notifyListeners();
-          }).catchError((_) {
-            // Fallback: append from notification payload
-            waitingRooms.add(LocalWaitingRoom.fromProto(ntfn.wr));
-            notifyListeners();
-          });
-          notificationModel.showNotification(
-            "Waiting room created by ${ntfn.wr.hostId}",
-          );
-          break;
-
-        case NotificationType.GAME_START:
-          if (_currentGameState == GameState.idle ||
-              _currentGameState == GameState.inWaitingRoom ||
-              _currentGameState == GameState.waitingRoomReady) {
-            _currentGameState = GameState.gameInitialized;
-          }
-          // can set current wr as null after game starting
-          currentWR = null;
-          notificationModel.showNotification(
-            "Game started with ID: ${ntfn.gameId}",
-          );
-          notifyListeners();
-          break;
-
-        case NotificationType.GAME_READY_TO_PLAY:
-          // Store the game ID when we receive the ready to play notification
-          currentGameId = ntfn.gameId;
-          if (_currentGameState == GameState.idle ||
-              _currentGameState == GameState.inWaitingRoom ||
-              _currentGameState == GameState.waitingRoomReady) {
-            _currentGameState = GameState.gameInitialized;
-          }
-          notificationModel.showNotification(
-              "Game is ready! Signal when you're ready to play.");
-          notifyListeners();
-          break;
-
-        case NotificationType.COUNTDOWN_UPDATE:
-          countdownMessage = ntfn.message;
-          _currentGameState = GameState.countdown;
-
-          // When countdown reaches 0, transition to playing state
-          if (ntfn.message.contains("0")) {
-            _currentGameState = GameState.playing;
-          }
-
-          notificationModel.showNotification(ntfn.message);
-          notifyListeners();
-          break;
-
-        case NotificationType.PLAYER_JOINED_WR:
-          if (ntfn.playerId == clientId) {
-            currentWR = LocalWaitingRoom.fromProto(ntfn.wr);
-            _currentGameState = GameState.inWaitingRoom;
-          }
-          notificationModel
-              .showNotification("A new player joined the waiting room");
-          notifyListeners();
-          break;
-
-        case NotificationType.GAME_END:
-          // Store the ending message and transition to game ended state
-          gameEndingMessage = ntfn.message;
-          _currentGameState = GameState.gameEnded;
-          notificationModel.showNotification(ntfn.message);
-          // Stop the game stream and render loop
-          _stopGameStreamAndRenderLoop();
-          notifyListeners();
-          break;
-
-        case NotificationType.ON_WR_REMOVED:
-          // Handle the waiting room removal
-          waitingRooms.removeWhere((room) => room.id == ntfn.roomId);
-
-          // If we were in this waiting room, reset our state
-          if (currentWR != null && currentWR!.id == ntfn.roomId) {
-            currentWR = null;
-            _currentGameState = GameState.idle;
-          }
-
-          notificationModel.showNotification(
-            "Waiting room removed: ${ntfn.roomId}",
-          );
-          notifyListeners();
-          break;
-
-        case NotificationType.OPPONENT_DISCONNECTED:
-          if (_currentGameState == GameState.playing) {
-            _currentGameState = GameState.idle;
-          }
-          currentWR = LocalWaitingRoom.fromProto(ntfn.wr);
-          notificationModel.showNotification(ntfn.message);
-          notifyListeners();
-          // Ensure we stop local rendering when opponent disconnects
-          _stopGameStreamAndRenderLoop();
-          break;
-
-        case NotificationType.ON_PLAYER_READY:
-          // Check if this is a ready to play notification for game
-          if (ntfn.gameId.isNotEmpty) {
-            String playerName =
-                ntfn.playerId == clientId ? "You are" : "Opponent is";
-            notificationModel.showNotification("$playerName ready to play!");
-
-            // If this is our own ready signal, update our state
-            if (ntfn.playerId == clientId) {
-              _currentGameState = GameState.readyToPlay;
-            }
-          }
-          // Otherwise handle waiting room ready state
-          else if (currentWR != null) {
-            // Find the player in the current waiting room and update their ready status
-            for (var i = 0; i < currentWR!.players.length; i++) {
-              if (currentWR!.players[i].uid == ntfn.playerId) {
-                currentWR!.players[i].ready = ntfn.ready;
-
-                // If this is our own ready signal, update our state
-                if (ntfn.playerId == clientId) {
-                  _currentGameState = ntfn.ready
-                      ? GameState.waitingRoomReady
-                      : GameState.inWaitingRoom;
-                }
-                break;
-              }
-            }
-
-            // Show notification
-            String playerName = ntfn.playerId;
-            String readyStatus = ntfn.ready ? "ready" : "not ready";
-            notificationModel.showNotification(
-              "Player $playerName is now $readyStatus",
-            );
-          }
-          notifyListeners();
-          break;
-
-        default:
-          developer.log("Unknown notification type: ${ntfn.notificationType}");
-      }
-    //}, onError: (error) {
-    //  errorMessage = "Error in notification stream: ${error.message}";
-    //  developer.log("Error: $error");
-    //  // XXX this is not correct, need to check if error is eof
-    //  isConnected = false;
-    //  notifyListeners();
-    //});
+  Map<String, dynamic> _extrasFrom(UINotification n) {
+    try {
+      final extras = n.from.isNotEmpty ? jsonDecode(n.from) : null;
+      if (extras is Map<String, dynamic>) return extras;
+    } catch (_) {}
+    return const {};
   }
-  */
+
+  void _handleNtfnBetUpdate(UINotification n) {
+    final extras = _extrasFrom(n);
+    final pid = (extras['player_id'] ?? '').toString();
+    if (pid != clientId) return;
+    final b = extras['bet_amt'];
+    final c = extras['confs'];
+    if (b is int) {
+      betAmt = b;
+    } else if (b is num) {
+      betAmt = b.toInt();
+    }
+    if (c is int) {
+      escrowConfs = c;
+    } else if (c is num) {
+      escrowConfs = c.toInt();
+    }
+    escrowFunded = escrowConfs >= 0;
+    escrowConfirmed = escrowConfs >= 1;
+    fundingStatus = escrowConfirmed
+        ? 'Deposit confirmed ($escrowConfs)'
+        : 'Deposit seen (mempool)';
+    notifyListeners();
+  }
+
+  void _handleNtfnGameStarted(UINotification n) {
+    final extras = _extrasFrom(n);
+    final gid = (extras['game_id'] ?? '').toString();
+    if (gid.isNotEmpty) currentGameId = gid;
+    if (_currentGameState == GameState.idle ||
+        _currentGameState == GameState.inWaitingRoom ||
+        _currentGameState == GameState.waitingRoomReady) {
+      _currentGameState = GameState.gameInitialized;
+    }
+    currentWR = null;
+    notifyListeners();
+  }
+
+  void _handleNtfnGameReadyToPlay(UINotification n) {
+    final extras = _extrasFrom(n);
+    final gid = (extras['game_id'] ?? '').toString();
+    if (gid.isNotEmpty) currentGameId = gid;
+    _currentGameState = GameState.gameInitialized;
+    notificationModel.showNotification("Game is ready!");
+    notifyListeners();
+  }
+
+  void _handleNtfnCountdown(UINotification n) {
+    String msg = n.text.trim();
+    if (msg.isEmpty) {
+      final extras = _extrasFrom(n);
+      msg = (extras['message'] ?? '').toString();
+    }
+    countdownMessage = msg;
+    _currentGameState = GameState.countdown;
+    if (msg.contains('0')) {
+      _currentGameState = GameState.playing;
+    }
+    notifyListeners();
+  }
+
+  void _handleNtfnGameEnd(UINotification n) {
+    _stopGameStreamAndRenderLoop();
+    gameEndingMessage = n.text.isNotEmpty ? n.text : 'Game ended';
+    _currentGameState = GameState.gameEnded;
+    notifyListeners();
+  }
+
+  void _handleNtfnPlayerReady(UINotification n) {
+    final extras = _extrasFrom(n);
+    final pid = (extras['player_id'] ?? '').toString();
+    final r = extras['ready'] == true;
+    if (pid == clientId && r) {
+      _currentGameState = GameState.waitingRoomReady;
+      notifyListeners();
+    }
+  }
+
+  void _handleNtfnWRCreated(UINotification n) {
+    final extras = _extrasFrom(n);
+    final wr = extras['waiting_room'];
+    if (wr is Map<String, dynamic>) {
+      final room = LocalWaitingRoom.fromJson(Map<String, dynamic>.from(wr));
+      final idx = waitingRooms.indexWhere((r) => r.id == room.id);
+      if (idx == -1) {
+        waitingRooms = [room, ...waitingRooms];
+      } else {
+        waitingRooms[idx] = room;
+      }
+      notifyListeners();
+    }
+  }
+
+  void _handleNtfnWRRemoved(UINotification n) {
+    final extras = _extrasFrom(n);
+    final rid = (extras['room_id'] ?? '').toString();
+    if (rid.isEmpty) return;
+    waitingRooms = waitingRooms.where((r) => r.id != rid).toList(growable: false);
+    if (currentWR?.id == rid) currentWR = null;
+    notifyListeners();
+  }
+
+  void _handleNtfnPlayerWRUpdate(UINotification n) {
+    final extras = _extrasFrom(n);
+    final wr = extras['waiting_room'];
+    if (wr is Map<String, dynamic>) {
+      final room = LocalWaitingRoom.fromJson(Map<String, dynamic>.from(wr));
+      final idx = waitingRooms.indexWhere((r) => r.id == room.id);
+      if (idx == -1) {
+        waitingRooms = [room, ...waitingRooms];
+      } else {
+        waitingRooms[idx] = room;
+      }
+      if (currentWR?.id == room.id) currentWR = room;
+      notifyListeners();
+    }
+  }
+
+  // Removed JSON fallback for game updates. Binary-only via gameUpdates().
+
+  void _handleGameUpdateFrame(GameUpdate gu) {
+    // No interpolation: keep only the latest authoritative state.
+    gameState = gu;
+    renderLoop.start();
+  }
 
   void resetGameState() {
     _currentGameState = GameState.idle;
@@ -751,7 +566,12 @@ class PongModel extends ChangeNotifier {
 
   // Sample current interpolated frame for rendering
   GameUpdate sampleInterpolatedGameState() {
-    return interpolator.sample();
+    // No interpolation: render latest directly, with safe fallback
+    final gs = gameState;
+    if (gs != null && gs.gameWidth > 0 && gs.gameHeight > 0) return gs;
+    return GameUpdate()
+      ..gameWidth = 800
+      ..gameHeight = 600;
   }
 
   void _stopGameStreamAndRenderLoop() {

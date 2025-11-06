@@ -22,7 +22,10 @@ func (pc *PongClient) RefGetWaitingRooms(ctx context.Context) ([]*pong.WaitingRo
 	if err != nil {
 		return nil, fmt.Errorf("error getting wr: %w", err)
 	}
-	go func() { pc.updatesCh <- res.Wr }()
+	select {
+	case pc.updatesCh <- res.Wr:
+	default:
+	}
 
 	return res.Wr, nil
 }

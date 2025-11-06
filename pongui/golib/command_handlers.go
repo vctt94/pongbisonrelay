@@ -25,7 +25,6 @@ import (
 	"github.com/vctt94/pongbisonrelay/pongrpc/grpc/pong"
     "google.golang.org/grpc"
     "google.golang.org/grpc/credentials"
-    "google.golang.org/protobuf/proto"
     "golang.org/x/sync/errgroup"
 )
 
@@ -395,25 +394,8 @@ func handleInitClient(handle uint32, args initClient) (*localInfo, error) {
 
                     }
                 } else if gub, ok := msg.(*pong.GameUpdateBytes); ok {
-                    // JSON-encode minimal fields for UI until binary transport is in place.
-                    var gu pong.GameUpdate
-                    if err := proto.Unmarshal(gub.Data, &gu); err == nil {
-                        extras := map[string]interface{}{
-                            "game_width":  gu.GameWidth,
-                            "game_height": gu.GameHeight,
-                            "p1x": gu.P1X, "p1y": gu.P1Y, "p1w": gu.P1Width, "p1h": gu.P1Height,
-                            "p2x": gu.P2X, "p2y": gu.P2Y, "p2w": gu.P2Width, "p2h": gu.P2Height,
-                            "ballx": gu.BallX, "bally": gu.BallY, "ballw": gu.BallWidth, "ballh": gu.BallHeight,
-                            "p1score": gu.P1Score, "p2score": gu.P2Score,
-                        }
-                        fromJSON, _ := json.Marshal(extras)
-                        notify(NTUINotification, map[string]interface{}{
-                            "type":  "game_update",
-                            "text":  "",
-                            "count": 0,
-                            "from":  string(fromJSON),
-                        }, nil)
-                    }
+                    // Emit binary frame for high-frequency updates only.
+                    notify(NTGameFrame, gub.Data, nil)
                 }
             case err := <-pc.ErrorsCh():
                 if err != nil {
