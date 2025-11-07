@@ -9,7 +9,6 @@ class NewConfigModel extends ChangeNotifier {
   // String rpcPass         = 'defaultpass';
   String serverAddr      = '104.131.180.29:50051';
   String grpcCertPath    = '';
-  String address         = '';
   // String rpcCertPath     = '';
   // String rpcClientCertPath = '';
   // String rpcClientKeyPath  = '';
@@ -31,7 +30,6 @@ class NewConfigModel extends ChangeNotifier {
     // ..rpcPass            = c.rpcPass
     ..serverAddr         = c.serverAddr
     ..grpcCertPath       = c.grpcCertPath
-    ..address            = c.address
     // ..rpcCertPath        = c.rpcCertPath
     // ..rpcClientCertPath  = c.rpcClientCertPath
     // ..rpcClientKeyPath   = c.rpcClientKeyPath
@@ -52,23 +50,27 @@ class NewConfigModel extends ChangeNotifier {
     notifyListeners();
   }
 
-  String appDatadir()  => _appDataDir;
+  Future<String> appDatadir() async {
+    // Ensure initialization has completed
+    if (_appDataDir.isEmpty) {
+      _appDataDir = await defaultAppDataDir();
+    }
+    return _appDataDir;
+  }
 
-  Future<String> getConfigFilePath() async =>
-      p.join(_appDataDir, 'pongui.conf');
+  Future<String> getConfigFilePath() async {
+    final dataDir = await appDatadir();
+    return p.join(dataDir, 'pongui.conf');
+  }
 
   // ─── Save to disk ───────────────────────────────────────────────────────
   Future<void> saveConfig() async {
     final cfgPath = await getConfigFilePath();
     final file    = File(cfgPath);
 
-    if (address.isEmpty) {
-      throw Exception("Address is required");
-    }
     final content = (StringBuffer()
       ..writeln('server=$serverAddr')
       ..writeln('grpccertpath=$grpcCertPath')
-      ..writeln('address=$address')
       ..writeln()
       ..writeln('[clientrpc]')
       // ..writeln('rpcuser=$rpcUser')

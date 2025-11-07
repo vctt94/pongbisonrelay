@@ -26,7 +26,6 @@ class _NewConfigScreenState extends State<NewConfigScreen> {
   // text controllers
   late final _serverAddr = TextEditingController(text: widget.model.serverAddr);
   late final _grpcCert   = TextEditingController(text: widget.model.grpcCertPath);
-  late final _address    = TextEditingController(text: widget.model.address);
   // late final _rpcCert    = TextEditingController(text: widget.model.rpcCertPath);
   // late final _rpcCliCert = TextEditingController(text: widget.model.rpcClientCertPath);
   // late final _rpcCliKey  = TextEditingController(text: widget.model.rpcClientKeyPath);
@@ -55,6 +54,27 @@ Aq6RDElOTqAlDbNAuV8b/joQjIDLwqA=
     super.initState();
     _wantsLogNtfns = widget.model.wantsLogNtfns;
     _initHeaderInfo();
+    
+    // Listen for model changes to update text fields when async initialization completes
+    widget.model.addListener(_onModelChanged);
+  }
+
+  void _onModelChanged() {
+    if (mounted) {
+      // Update text controllers when model values change (after async init)
+      if (_grpcCert.text.isEmpty && widget.model.grpcCertPath.isNotEmpty) {
+        _grpcCert.text = widget.model.grpcCertPath;
+      }
+    }
+  }
+
+  @override
+  void dispose() {
+    widget.model.removeListener(_onModelChanged);
+    _serverAddr.dispose();
+    _grpcCert.dispose();
+    _debugLvl.dispose();
+    super.dispose();
   }
 
   Future<void> _initHeaderInfo() async {
@@ -70,7 +90,8 @@ Aq6RDElOTqAlDbNAuV8b/joQjIDLwqA=
       await grpcCertFile.parent.create(recursive: true);
       await grpcCertFile.writeAsString(placeholderCertContent);
     }
-    final logs = Directory(p.join(widget.model.dataDir, 'logs'));
+    final dataDir = await widget.model.appDatadir();
+    final logs = Directory(p.join(dataDir, 'logs'));
     if (!await logs.exists()) await logs.create(recursive: true);
   }
 
@@ -81,7 +102,6 @@ Aq6RDElOTqAlDbNAuV8b/joQjIDLwqA=
       widget.model
         ..serverAddr        = _serverAddr.text
         ..grpcCertPath      = _grpcCert.text
-        ..address           = _address.text
         // ..rpcCertPath       = _rpcCert.text
         // ..rpcClientCertPath = _rpcCliCert.text
         // ..rpcClientKeyPath  = _rpcCliKey.text
@@ -124,7 +144,6 @@ Aq6RDElOTqAlDbNAuV8b/joQjIDLwqA=
                 const SizedBox(height: 20),
                 _field(_serverAddr, 'Server Address', required: true),
                 _field(_grpcCert,   'gRPC Server Cert Path'),
-                _field(_address,    'Payout Address or PubKey (33/65B hex)') ,
                 // _field(_rpcCert,    'RPC Cert Path'),
                 // _field(_rpcCliCert, 'RPC Client Cert Path'),
                 // _field(_rpcCliKey,  'RPC Client Key Path'),
