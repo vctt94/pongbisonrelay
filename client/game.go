@@ -64,29 +64,88 @@ func (pc *PongClient) RefStartNtfnStream(ctx context.Context) error {
 	}
 	pc.notifier = stream
 
-	go pc.runNtfnRecv(ctx, stream)
+	go pc.runNtfnLoop(ctx, stream)
 	return nil
 }
 
-func (pc *PongClient) runNtfnRecv(ctx context.Context, stream pong.PongGame_StartNtfnStreamClient) {
+func (pc *PongClient) runNtfnLoop(ctx context.Context, stream pong.PongGame_StartNtfnStreamClient) {
+	backoff := time.Second
+	for {
+		err := pc.consumeNtfnStream(ctx, stream)
+		if ctx.Err() != nil {
+			pc.log.Infof("ntfn stream stopped: %v", ctx.Err())
+			return
+		}
+		if err != nil {
+			pc.log.Warnf("ntfn stream recv error: %v", err)
+			select {
+			case pc.errorsCh <- fmt.Errorf("ntfn stream recv: %w", err):
+			default:
+			}
+		}
+
+		// Attempt to restart the notification stream with backoff.
+		ns, nerr := pc.restartNtfnStream(ctx, backoff)
+		if nerr != nil {
+			pc.log.Warnf("ntfn stream restart failed: %v", nerr)
+			select {
+			case pc.errorsCh <- fmt.Errorf("ntfn stream restart failed: %w", nerr):
+			default:
+			}
+			return
+		}
+		stream = ns
+		backoff = time.Second
+	}
+}
+
+func (pc *PongClient) consumeNtfnStream(ctx context.Context, stream pong.PongGame_StartNtfnStreamClient) error {
 	pc.log.Infof("ntfn stream started")
-	defer pc.log.Infof("ntfn stream stopped")
+	defer pc.log.Infof("ntfn stream ended")
 
 	for {
 		ntfn, err := stream.Recv()
 		if err != nil {
-			// If our ctx is done, it's a graceful stop.
 			select {
 			case <-ctx.Done():
-				return
+				// context done, exit
+				return nil
 			default:
 			}
-			// Propagate the error once and exit. If gRPC reconnects, the call
-			// that created this stream should be re-run by the caller.
-			pc.errorsCh <- fmt.Errorf("ntfn stream recv: %w", err)
-			return
+			return err
 		}
 		pc.handleNtfn(ntfn)
+	}
+}
+
+func (pc *PongClient) restartNtfnStream(ctx context.Context, initialBackoff time.Duration) (pong.PongGame_StartNtfnStreamClient, error) {
+	backoff := initialBackoff
+	if backoff <= 0 {
+		backoff = 500 * time.Millisecond
+	}
+	maxBackoff := 30 * time.Second
+
+	for {
+		select {
+		case <-ctx.Done():
+			return nil, ctx.Err()
+		case <-time.After(backoff):
+			stream, err := pc.gc.StartNtfnStream(ctx, &pong.StartNtfnStreamRequest{
+				ClientId: pc.id,
+			})
+			if err == nil {
+				pc.notifier = stream
+				pc.log.Infof("ntfn stream restarted")
+				return stream, nil
+			}
+			pc.log.Warnf("ntfn stream restart attempt failed: %v", err)
+			if backoff < maxBackoff {
+				backoff *= 2
+				if backoff > maxBackoff {
+					backoff = maxBackoff
+				}
+			}
+		}
 	}
 }
 
