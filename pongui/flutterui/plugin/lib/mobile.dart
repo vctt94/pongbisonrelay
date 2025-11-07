@@ -38,26 +38,26 @@ mixin BaseMobilePlatform on ChanneledPlatform, NtfStreams {
     await for (var e in stream) {
       int id = e["id"] ?? 0;
       String err = e["error"] ?? "";
-      String jsonPayload = e["payload"] ?? "";
+      dynamic payload = e["payload"];
       int cmdType = e["type"] ?? 0;
       bool isError = err != "";
 
       // Pseudo-encode errors as json to imitate desktop.
       if (isError) {
-        jsonPayload = jsonEncode(err);
+        payload = jsonEncode(err);
       }
 
       var c = calls[id];
       if (c == null) {
         if (id == 0 && cmdType >= notificationsStartID) {
           try {
-            handleNotifications(cmdType, isError, jsonPayload);
+            handleNotifications(cmdType, isError, payload);
           } catch (exception, trace) {
             // Probably a decode error. Keep handling stuff.
             var err =
                 "Unable to handle notification ${cmdType.toRadixString(16)}: $exception\n$trace";
             debugPrint(
-                "Error notification from golib: $err\nPayload: $jsonPayload");
+                "Error notification from golib: $err\nPayload: $payload");
             // ignore: use_rethrow_when_possible
             (() async => throw exception)();
           }
@@ -69,15 +69,15 @@ mixin BaseMobilePlatform on ChanneledPlatform, NtfStreams {
       }
       calls.remove(id);
 
-      dynamic payload;
-      if (jsonPayload != "") {
-        payload = jsonDecode(jsonPayload);
+      dynamic response;
+      if (payload is String && payload != "") {
+        response = jsonDecode(payload);
       }
 
       if (isError) {
         c.completeError(err);
       } else {
-        c.complete(payload);
+        c.complete(response);
       }
     }
   }

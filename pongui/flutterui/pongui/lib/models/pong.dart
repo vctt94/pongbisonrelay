@@ -1,4 +1,5 @@
 import 'dart:async';
+import 'dart:convert';
 import 'dart:developer' as developer;
 
 import 'package:flutter/material.dart';
@@ -8,8 +9,6 @@ import 'package:pongui/components/pong_game.dart';
 import 'package:pongui/components/helper.dart';
 import 'package:pongui/config.dart';
 import 'package:golib_plugin/grpc/generated/pong.pb.dart';
-import 'package:golib_plugin/grpc/generated/pong.pbgrpc.dart';
-import 'package:pongui/grpc/grpc_client.dart';
 import 'package:pongui/models/notifications.dart';
 import 'package:path/path.dart' as path;
 
@@ -27,7 +26,6 @@ enum GameState {
 
 class PongModel extends ChangeNotifier {
   final Config cfg;
-  late GrpcPongClient grpcClient;
   late PongGame pongGame;
   final NotificationModel notificationModel;
 
@@ -50,7 +48,8 @@ class PongModel extends ChangeNotifier {
   GameUpdate? gameState;
   final SnapshotInterpolator interpolator = SnapshotInterpolator();
   final RenderLoop renderLoop = RenderLoop();
-  StreamSubscription<GameUpdateBytes>? _gameStreamSub;
+  StreamSubscription<GameUpdate>? _gameStreamSub;
+  StreamSubscription<UINotification>? _uiNtfnSub;
 
   // Connection state
   bool isConnected = false;
@@ -105,27 +104,7 @@ class PongModel extends ChangeNotifier {
   bool isWalletAuthenticated = false;
   String walletAddress = '';
 
-  PongModel(this.cfg, this.notificationModel) {
-    // Initialize GrpcPongClient early (just network connection, doesn't require clientId)
-    // This allows login/auth operations before we have a wallet-authenticated clientId
-    _initGrpcClient(cfg);
-  }
-
-  // Initialize GrpcPongClient early - only needs server address and cert
-  // This just creates the client channel; actual connection happens on first RPC call
-  // No clientId required for this - allows login/auth operations before wallet authentication
-  void _initGrpcClient(Config cfg) {
-    try {
-      List<String> parts = cfg.serverAddr.split(":");
-      String ipAddress = parts[0];
-      int port = int.parse(parts[1]);
-      grpcClient = GrpcPongClient(ipAddress, port, tlsCertPath: cfg.grpcCertPath);
-      print("Set up gRPC client for $ipAddress:$port (connection will be established on first call)");
-    } catch (exception) {
-      errorMessage = "Failed to set up gRPC client: ${exception.toString()}";
-      notifyListeners();
-    }
-  }
+  PongModel(this.cfg, this.notificationModel);
 
   // Initialize golib PongClient after wallet authentication (requires clientId)
   Future<void> _initPongClient(Config cfg) async {
@@ -172,12 +151,58 @@ class PongModel extends ChangeNotifier {
       // Query initial waiting rooms via golib
       waitingRooms = await Golib.getWaitingRooms();
       
-      // grpcClient is already initialized, just need to set up game and notification stream
+      // Initialize game client (notifications come via golib now)
       print("Initializing game client with clientId: $clientId");
-      pongGame = PongGame(clientId, grpcClient);
+      pongGame = PongGame(clientId);
 
       isConnected = true;
-      startListeningToNtfn(grpcClient, clientId);
+      // Subscribe to game frames decoded in Go (JSON -> GameUpdate)
+      _gameStreamSub ??= Golib.gameUpdates.listen((gu) {
+        try {
+          _handleGameUpdateFrame(gu);
+        } catch (_) {}
+      });
+      // Subscribe to UI notifications forwarded by golib (also carries structured events)
+      _uiNtfnSub ??= Golib.uiNotifications.listen((n) {
+        try {
+          switch (n.type) {
+            case 'bet_update':
+              _handleNtfnBetUpdate(n);
+              break;
+            case 'game_started':
+            case 'gamestarted':
+              _handleNtfnGameStarted(n);
+              break;
+            case 'game_ready_to_play':
+              _handleNtfnGameReadyToPlay(n);
+              break;
+            case 'countdown_update':
+              _handleNtfnCountdown(n);
+              break;
+            case 'game_end':
+              _handleNtfnGameEnd(n);
+              break;
+            case 'player_ready':
+              _handleNtfnPlayerReady(n);
+              break;
+            case 'wr_created':
+              _handleNtfnWRCreated(n);
+              break;
+            case 'wr_removed':
+              _handleNtfnWRRemoved(n);
+              break;
+            case 'player_joined_wr':
+            case 'player_left_wr':
+              _handleNtfnPlayerWRUpdate(n);
+              break;
+            default:
+              if (n.text.isNotEmpty) {
+                notificationModel.showNotification(n.text);
+              }
+          }
+        } catch (_) {}
+      });
+      // Notifications are now handled by golib and forwarded automatically
       notifyListeners();
     } catch (exception) {
       // Surface startup/config errors to the UI
@@ -204,6 +229,7 @@ class PongModel extends ChangeNotifier {
     notifyListeners();
   }
 
+
   void logout() {
     isWalletAuthenticated = false;
     walletAddress = '';
@@ -217,189 +243,143 @@ class PongModel extends ChangeNotifier {
     escrowConfirmed = false;
     currentWR = null;
     _currentGameState = GameState.idle;
+    // Stop UI notifications subscription
+    _uiNtfnSub?.cancel();
+    _uiNtfnSub = null;
     notifyListeners();
   }
 
-  void startListeningToNtfn(GrpcPongClient grpcClient, String clientId) {
-    grpcClient.startNtfnStreamRequest(clientId).listen((ntfn) {
-      developer.log("Notification Stream Response: $ntfn");
+  Map<String, dynamic> _extrasFrom(UINotification n) {
+    try {
+      final extras = n.from.isNotEmpty ? jsonDecode(n.from) : null;
+      if (extras is Map<String, dynamic>) return extras;
+    } catch (_) {}
+    return const {};
+  }
 
-      isConnected = true;
+  void _handleNtfnBetUpdate(UINotification n) {
+    final extras = _extrasFrom(n);
+    final pid = (extras['player_id'] ?? '').toString();
+    if (pid != clientId) return;
+    final b = extras['bet_amt'];
+    final c = extras['confs'];
+    if (b is int) {
+      betAmt = b;
+    } else if (b is num) {
+      betAmt = b.toInt();
+    }
+    if (c is int) {
+      escrowConfs = c;
+    } else if (c is num) {
+      escrowConfs = c.toInt();
+    }
+    escrowFunded = escrowConfs >= 0;
+    escrowConfirmed = escrowConfs >= 1;
+    fundingStatus = escrowConfirmed
+        ? 'Deposit confirmed ($escrowConfs)'
+        : 'Deposit seen (mempool)';
+    notifyListeners();
+  }
+
+  void _handleNtfnGameStarted(UINotification n) {
+    final extras = _extrasFrom(n);
+    final gid = (extras['game_id'] ?? '').toString();
+    if (gid.isNotEmpty) currentGameId = gid;
+    if (_currentGameState == GameState.idle ||
+        _currentGameState == GameState.inWaitingRoom ||
+        _currentGameState == GameState.waitingRoomReady) {
+      _currentGameState = GameState.gameInitialized;
+    }
+    currentWR = null;
+    notifyListeners();
+  }
+
+  void _handleNtfnGameReadyToPlay(UINotification n) {
+    final extras = _extrasFrom(n);
+    final gid = (extras['game_id'] ?? '').toString();
+    if (gid.isNotEmpty) currentGameId = gid;
+    _currentGameState = GameState.gameInitialized;
+    notificationModel.showNotification("Game is ready!");
+    notifyListeners();
+  }
+
+  void _handleNtfnCountdown(UINotification n) {
+    String msg = n.text.trim();
+    if (msg.isEmpty) {
+      final extras = _extrasFrom(n);
+      msg = (extras['message'] ?? '').toString();
+    }
+    countdownMessage = msg;
+    _currentGameState = GameState.countdown;
+    if (msg.contains('0')) {
+      _currentGameState = GameState.playing;
+    }
+    notifyListeners();
+  }
+
+  void _handleNtfnGameEnd(UINotification n) {
+    _stopGameStreamAndRenderLoop();
+    gameEndingMessage = n.text.isNotEmpty ? n.text : 'Game ended';
+    _currentGameState = GameState.gameEnded;
+    notifyListeners();
+  }
+
+  void _handleNtfnPlayerReady(UINotification n) {
+    final extras = _extrasFrom(n);
+    final pid = (extras['player_id'] ?? '').toString();
+    final r = extras['ready'] == true;
+    if (pid == clientId && r) {
+      _currentGameState = GameState.waitingRoomReady;
       notifyListeners();
+    }
+  }
 
-      switch (ntfn.notificationType) {
-        case NotificationType.MESSAGE:
-          // Avoid deriving funding state from free-form messages; show as toast only.
-          notificationModel.showNotification(ntfn.message);
-          notifyListeners();
-          break;
-        case NotificationType.BET_AMOUNT_UPDATE:
-          if (ntfn.playerId == clientId) {
-            betAmt = ntfn.betAmt.toInt();
-            escrowConfs = ntfn.confs;
-            // Consider escrow funded whenever a watcher-driven update arrives (may be 0-conf)
-            escrowFunded = ntfn.confs >= 0;
-            // Confirmed when at least 1 conf
-            escrowConfirmed = ntfn.confs >= 1;
-            // Optional: textual status for tooltip only, derived from structured confs
-            fundingStatus = escrowConfirmed
-                ? 'Deposit confirmed (${ntfn.confs})'
-                : 'Deposit seen (mempool)';
-            notifyListeners();
-          }
-          break;
-
-        case NotificationType.ON_WR_CREATED:
-          // Refresh rooms in background (can't await in this listener)
-          Golib.getWaitingRooms().then((rooms) {
-            waitingRooms = rooms;
-            notifyListeners();
-          }).catchError((_) {
-            // Fallback: append from notification payload
-            waitingRooms.add(LocalWaitingRoom.fromProto(ntfn.wr));
-            notifyListeners();
-          });
-          notificationModel.showNotification(
-            "Waiting room created by ${ntfn.wr.hostId}",
-          );
-          break;
-
-        case NotificationType.GAME_START:
-          if (_currentGameState == GameState.idle ||
-              _currentGameState == GameState.inWaitingRoom ||
-              _currentGameState == GameState.waitingRoomReady) {
-            _currentGameState = GameState.gameInitialized;
-          }
-          // can set current wr as null after game starting
-          currentWR = null;
-          notificationModel.showNotification(
-            "Game started with ID: ${ntfn.gameId}",
-          );
-          notifyListeners();
-          break;
-
-        case NotificationType.GAME_READY_TO_PLAY:
-          // Store the game ID when we receive the ready to play notification
-          currentGameId = ntfn.gameId;
-          if (_currentGameState == GameState.idle ||
-              _currentGameState == GameState.inWaitingRoom ||
-              _currentGameState == GameState.waitingRoomReady) {
-            _currentGameState = GameState.gameInitialized;
-          }
-          notificationModel.showNotification(
-              "Game is ready! Signal when you're ready to play.");
-          notifyListeners();
-          break;
-
-        case NotificationType.COUNTDOWN_UPDATE:
-          countdownMessage = ntfn.message;
-          _currentGameState = GameState.countdown;
-
-          // When countdown reaches 0, transition to playing state
-          if (ntfn.message.contains("0")) {
-            _currentGameState = GameState.playing;
-          }
-
-          notificationModel.showNotification(ntfn.message);
-          notifyListeners();
-          break;
-
-        case NotificationType.PLAYER_JOINED_WR:
-          if (ntfn.playerId == clientId) {
-            currentWR = LocalWaitingRoom.fromProto(ntfn.wr);
-            _currentGameState = GameState.inWaitingRoom;
-          }
-          notificationModel
-              .showNotification("A new player joined the waiting room");
-          notifyListeners();
-          break;
-
-        case NotificationType.GAME_END:
-          // Store the ending message and transition to game ended state
-          gameEndingMessage = ntfn.message;
-          _currentGameState = GameState.gameEnded;
-          notificationModel.showNotification(ntfn.message);
-          // Stop the game stream and render loop
-          _stopGameStreamAndRenderLoop();
-          notifyListeners();
-          break;
-
-        case NotificationType.ON_WR_REMOVED:
-          // Handle the waiting room removal
-          waitingRooms.removeWhere((room) => room.id == ntfn.roomId);
-
-          // If we were in this waiting room, reset our state
-          if (currentWR != null && currentWR!.id == ntfn.roomId) {
-            currentWR = null;
-            _currentGameState = GameState.idle;
-          }
-
-          notificationModel.showNotification(
-            "Waiting room removed: ${ntfn.roomId}",
-          );
-          notifyListeners();
-          break;
-
-        case NotificationType.OPPONENT_DISCONNECTED:
-          if (_currentGameState == GameState.playing) {
-            _currentGameState = GameState.idle;
-          }
-          currentWR = LocalWaitingRoom.fromProto(ntfn.wr);
-          notificationModel.showNotification(ntfn.message);
-          notifyListeners();
-          // Ensure we stop local rendering when opponent disconnects
-          _stopGameStreamAndRenderLoop();
-          break;
-
-        case NotificationType.ON_PLAYER_READY:
-          // Check if this is a ready to play notification for game
-          if (ntfn.gameId.isNotEmpty) {
-            String playerName =
-                ntfn.playerId == clientId ? "You are" : "Opponent is";
-            notificationModel.showNotification("$playerName ready to play!");
-
-            // If this is our own ready signal, update our state
-            if (ntfn.playerId == clientId) {
-              _currentGameState = GameState.readyToPlay;
-            }
-          }
-          // Otherwise handle waiting room ready state
-          else if (currentWR != null) {
-            // Find the player in the current waiting room and update their ready status
-            for (var i = 0; i < currentWR!.players.length; i++) {
-              if (currentWR!.players[i].uid == ntfn.playerId) {
-                currentWR!.players[i].ready = ntfn.ready;
-
-                // If this is our own ready signal, update our state
-                if (ntfn.playerId == clientId) {
-                  _currentGameState = ntfn.ready
-                      ? GameState.waitingRoomReady
-                      : GameState.inWaitingRoom;
-                }
-                break;
-              }
-            }
-
-            // Show notification
-            String playerName = ntfn.playerId;
-            String readyStatus = ntfn.ready ? "ready" : "not ready";
-            notificationModel.showNotification(
-              "Player $playerName is now $readyStatus",
-            );
-          }
-          notifyListeners();
-          break;
-
-        default:
-          developer.log("Unknown notification type: ${ntfn.notificationType}");
+  void _handleNtfnWRCreated(UINotification n) {
+    final extras = _extrasFrom(n);
+    final wr = extras['waiting_room'];
+    if (wr is Map<String, dynamic>) {
+      final room = LocalWaitingRoom.fromJson(Map<String, dynamic>.from(wr));
+      final idx = waitingRooms.indexWhere((r) => r.id == room.id);
+      if (idx == -1) {
+        waitingRooms = [room, ...waitingRooms];
+      } else {
+        waitingRooms[idx] = room;
       }
-    }, onError: (error) {
-      errorMessage = "Error in notification stream: ${error.message}";
-      developer.log("Error: $error");
-      // XXX this is not correct, need to check if error is eof
-      isConnected = false;
       notifyListeners();
-    });
+    }
+  }
+
+  void _handleNtfnWRRemoved(UINotification n) {
+    final extras = _extrasFrom(n);
+    final rid = (extras['room_id'] ?? '').toString();
+    if (rid.isEmpty) return;
+    waitingRooms = waitingRooms.where((r) => r.id != rid).toList(growable: false);
+    if (currentWR?.id == rid) currentWR = null;
+    notifyListeners();
+  }
+
+  void _handleNtfnPlayerWRUpdate(UINotification n) {
+    final extras = _extrasFrom(n);
+    final wr = extras['waiting_room'];
+    if (wr is Map<String, dynamic>) {
+      final room = LocalWaitingRoom.fromJson(Map<String, dynamic>.from(wr));
+      final idx = waitingRooms.indexWhere((r) => r.id == room.id);
+      if (idx == -1) {
+        waitingRooms = [room, ...waitingRooms];
+      } else {
+        waitingRooms[idx] = room;
+      }
+      if (currentWR?.id == room.id) currentWR = room;
+      notifyListeners();
+    }
+  }
+
+  // Removed JSON fallback for game updates. Binary-only via gameUpdates().
+
+  void _handleGameUpdateFrame(GameUpdate gu) {
+    // No interpolation: keep only the latest authoritative state.
+    gameState = gu;
+    renderLoop.start();
   }
 
   void resetGameState() {
@@ -462,8 +442,15 @@ class PongModel extends ChangeNotifier {
       developer.log("CreateWaitingRoom args: $createRoomArgs");
       var roomInfo = await Golib.CreateWaitingRoom(createRoomArgs);
 
-      // Update the model state
+      // Update the model state immediately
       currentWR = roomInfo;
+      // Ensure the new room appears in the list without waiting for ntfn refresh
+      final idx = waitingRooms.indexWhere((r) => r.id == roomInfo.id);
+      if (idx == -1) {
+        waitingRooms = [roomInfo, ...waitingRooms];
+      } else {
+        waitingRooms[idx] = roomInfo;
+      }
       _currentGameState = GameState.inWaitingRoom;
       errorMessage = '';
       notifyListeners();
@@ -480,7 +467,19 @@ class PongModel extends ChangeNotifier {
 
   Future<void> joinWaitingRoom(String id) async {
     try {
-      await Golib.JoinWaitingRoom(id, escrowId: escrowId);
+      // Use the returned room info to immediately update UI state.
+      final roomInfo = await Golib.JoinWaitingRoom(id, escrowId: escrowId);
+
+      // Set current room and ensure list reflects joined state without
+      // waiting for async notifications.
+      currentWR = roomInfo;
+      final idx = waitingRooms.indexWhere((r) => r.id == roomInfo.id);
+      if (idx == -1) {
+        waitingRooms = [roomInfo, ...waitingRooms];
+      } else {
+        waitingRooms[idx] = roomInfo;
+      }
+
       _currentGameState = GameState.inWaitingRoom;
       errorMessage = '';
       notifyListeners();
@@ -490,7 +489,7 @@ class PongModel extends ChangeNotifier {
     }
   }
 
-  void toggleReady() {
+  void toggleReady() async {
     if (currentWR == null) {
       var error = "Need to get into a waiting room to get ready.";
       errorMessage = error;
@@ -499,27 +498,23 @@ class PongModel extends ChangeNotifier {
     }
 
     if (_currentGameState != GameState.waitingRoomReady) {
-      // Player is getting ready
-      _gameStreamSub?.cancel();
-      _gameStreamSub = grpcClient.startGameStreamRequest(clientId).listen((gameUpdateBytes) {
-        final update = GameUpdate.fromBuffer(gameUpdateBytes.data);
-        // Push into interpolator; avoid notifying listeners per frame
-        interpolator.push(update);
-        gameState = update; // keep latest raw state for non-render UI
-        errorMessage = '';
-      }, onError: (error) {
-        developer.log("Error in game stream: $error");
-        errorMessage = "Error in game stream: ${error.message}";
+      // Player is getting ready - start game stream via golib
+      try {
+        await Golib.startGameStream();
+        _currentGameState = GameState.waitingRoomReady;
+        // Game updates will come via golib notifications
+        // Start render loop now that the stream is active
+        renderLoop.start();
+      } catch (error) {
+        developer.log("Error starting game stream: $error");
+        errorMessage = "Error starting game stream: $error";
         notifyListeners();
-      });
-
-      _currentGameState = GameState.waitingRoomReady;
-      // Start render loop now that the stream is active
-      renderLoop.start();
+        return;
+      }
     } else {
       // Player is unreadying
       try {
-        grpcClient.unreadyGameStream(clientId);
+        await Golib.unreadyGameStream();
         _currentGameState = GameState.inWaitingRoom;
         _stopGameStreamAndRenderLoop();
       } catch (error) {
@@ -565,14 +560,13 @@ class PongModel extends ChangeNotifier {
         return;
       }
 
-      final response =
-          await grpcClient.signalReadyToPlay(clientId, currentGameId);
+      final success = await Golib.signalReadyToPlay(currentGameId);
 
-      if (response.success) {
+      if (success) {
         _currentGameState = GameState.readyToPlay;
         notificationModel.showNotification("You are ready to play!");
       } else {
-        errorMessage = response.message;
+        errorMessage = "Failed to signal ready to play";
       }
 
       notifyListeners();
@@ -584,12 +578,16 @@ class PongModel extends ChangeNotifier {
 
   // Sample current interpolated frame for rendering
   GameUpdate sampleInterpolatedGameState() {
-    return interpolator.sample();
+    // No interpolation: render latest directly, with safe fallback
+    final gs = gameState;
+    if (gs != null && gs.gameWidth > 0 && gs.gameHeight > 0) return gs;
+    return GameUpdate()
+      ..gameWidth = 800
+      ..gameHeight = 600;
   }
 
   void _stopGameStreamAndRenderLoop() {
-    _gameStreamSub?.cancel();
-    _gameStreamSub = null;
     renderLoop.stop();
+    gameState = null;
   }
 }

@@ -2,12 +2,45 @@
 
 import 'dart:async';
 import 'dart:convert';
+import 'dart:isolate';
 
-import 'package:flutter/cupertino.dart';
 import 'package:json_annotation/json_annotation.dart';
 import 'package:golib_plugin/grpc/generated/pong.pbgrpc.dart';
 
+import 'package:flutter/foundation.dart'; // for debugPrint
+
 part 'definitions.g.dart';
+
+// Isolate entry point: decode protobuf -> pack compact typed payload
+// (float32 + int32) and send back as TransferableTypedData.
+void _frameDecodeIsolate(SendPort mainPort) {
+  final inbox = ReceivePort();
+  mainPort.send(inbox.sendPort);
+  inbox.listen((msg) {
+    try {
+      if (msg is TransferableTypedData) {
+        final raw = msg.materialize().asUint8List();
+        final gu = GameUpdate.fromBuffer(raw);
+        // 14 x float32 + 2 x int32 = 64 bytes
+        final bd = ByteData(64);
+        var o = 0;
+        void wf(double v) { bd.setFloat32(o, v.toDouble(), Endian.little); o += 4; }
+        void wi(int v) { bd.setInt32(o, v, Endian.little); o += 4; }
+
+        wf(gu.gameWidth);  wf(gu.gameHeight);
+        wf(gu.p1X);        wf(gu.p1Y);        wf(gu.p1Width);  wf(gu.p1Height);
+        wf(gu.p2X);        wf(gu.p2Y);        wf(gu.p2Width);  wf(gu.p2Height);
+        wf(gu.ballX);      wf(gu.ballY);      wf(gu.ballWidth); wf(gu.ballHeight);
+        wi(gu.p1Score);    wi(gu.p2Score);
+
+        final out = TransferableTypedData.fromList([bd.buffer.asUint8List()]);
+        mainPort.send(out);
+      }
+    } catch (e, st) {
+      mainPort.send('err: $e\n$st');
+    }
+  });
+}
 
 @JsonSerializable()
 class InitClient {
@@ -374,39 +407,115 @@ class UINotificationsConfig {
 }
 
 mixin NtfStreams {
-  StreamController<RemoteUser> ntfAcceptedInvites =
-      StreamController<RemoteUser>();
-  Stream<RemoteUser> acceptedInvites() => ntfAcceptedInvites.stream;
+  // --- broadcast streams (safe for multiple listeners) ---
+  final _acceptedInvitesCtrl = StreamController<RemoteUser>.broadcast();
+  Stream<RemoteUser> get acceptedInvites => _acceptedInvitesCtrl.stream;
 
-  StreamController<String> ntfLogLines = StreamController<String>();
-  Stream<String> logLines() => ntfLogLines.stream;
+  final _logLinesCtrl = StreamController<String>.broadcast();
+  Stream<String> get logLines => _logLinesCtrl.stream;
 
-  StreamController<int> ntfRescanProgress = StreamController<int>();
-  Stream<int> rescanWalletProgress() => ntfRescanProgress.stream;
+  final _rescanProgressCtrl = StreamController<int>.broadcast();
+  Stream<int> get rescanWalletProgress => _rescanProgressCtrl.stream;
 
-  StreamController<UINotification> ntfUINotifications =
-      StreamController<UINotification>();
-  Stream<UINotification> uiNotifications() => ntfUINotifications.stream;
+  final _uiNotificationsCtrl = StreamController<UINotification>.broadcast();
+  Stream<UINotification> get uiNotifications => _uiNotificationsCtrl.stream;
 
-  handleNotifications(int cmd, bool isError, String jsonPayload) {
-    if (jsonPayload != "") {
-      // ignore: unused_local_variable
-      final dynamic _ = jsonDecode(jsonPayload);
-    }
+  // high-frequency game updates
+  final _gameUpdatesCtrl = StreamController<GameUpdate>.broadcast();
+  Stream<GameUpdate> get gameUpdates => _gameUpdatesCtrl.stream;
 
+  // --- simplified decoder pipeline (no isolate) ---
+  Uint8List? _pendingRaw;       // keep only the newest raw frame
+  bool _decoding = false;       // serialize decode work
+  bool _disposed = false;
+
+  // Optional frame gate: cap emits to ~120 fps to avoid flooding UI.
+  int _lastEmitMicros = 0;
+  static const _minEmitIntervalUs = 8000; // 8ms ≈ 125fps
+
+  // call this from your existing notification hook
+  void handleNotifications(int cmd, bool isError, Object? payload) {
     switch (cmd) {
       case NTNOP:
-        // NOP.
         break;
-      // case NTPM:
-      //   isError
-      //       ? ntfChatEvents.addError(payload)
-      //       : ntfChatEvents.add(PM.fromJson(payload));
-      //   break;
+
+      case NTUINotification:
+        try {
+          if (payload is String && payload.isNotEmpty) {
+            final decoded = jsonDecode(payload);
+            final n = UINotification.fromJson(
+              Map<String, dynamic>.from(decoded),
+            );
+            if (!_uiNotificationsCtrl.isClosed) {
+              _uiNotificationsCtrl.add(n);
+            }
+          }
+        } catch (e, st) {
+          debugPrint('Failed to decode NTUINotification: $e\n$st\nPayload: $payload');
+        }
+        break;
+
+      case NTGameFrame:
+        // payload is raw bytes of your packed GameUpdate.
+        if (payload is Uint8List) {
+          _pendingRaw = payload; // overwrite → drop older frames
+          if (!_decoding) {
+            // decode soon, but off the hot path
+            scheduleMicrotask(_drainDecode);
+          }
+        }
+        break;
+
+      case NTClientStopped:
+        // optional: surface a UI event here
+        break;
 
       default:
-        debugPrint("Received unknown notification ${cmd.toRadixString(16)}");
+        debugPrint('Unknown notification 0x${cmd.toRadixString(16)}');
     }
+  }
+
+  void _drainDecode() {
+    if (_disposed) return;
+    final raw = _pendingRaw;
+    if (raw == null) {
+      _decoding = false;
+      return;
+    }
+    _pendingRaw = null;
+    _decoding = true;
+
+    try {
+      // Decode protobuf payload sent by Go server.
+      // Previously this expected a pre-packed float buffer; now we parse
+      // the canonical proto and emit it directly.
+      final gu = GameUpdate.fromBuffer(raw);
+
+      // fps gate (drop oversupply)
+      final nowUs = DateTime.now().microsecondsSinceEpoch;
+      if (nowUs - _lastEmitMicros >= _minEmitIntervalUs) {
+        _lastEmitMicros = nowUs;
+        if (!_gameUpdatesCtrl.isClosed) _gameUpdatesCtrl.add(gu);
+      }
+    } catch (e, st) {
+      debugPrint('Failed to decode game frame: $e\n$st');
+    } finally {
+      _decoding = false;
+      // if a newer frame arrived while decoding, handle it next
+      if (_pendingRaw != null && !_disposed) {
+        scheduleMicrotask(_drainDecode);
+      }
+    }
+  }
+
+  // call when your owning object is disposed
+  void disposeNtfStreams() {
+    _disposed = true;
+    _acceptedInvitesCtrl.close();
+    _logLinesCtrl.close();
+    _rescanProgressCtrl.close();
+    _uiNotificationsCtrl.close();
+    _gameUpdatesCtrl.close();
   }
 }
 
@@ -428,8 +537,44 @@ abstract class PluginPlatform {
   Future<void> stopForegroundSvc() => throw "unimplemented";
   Future<void> setNtfnsEnabled(bool enabled) => throw "unimplemented";
 
+  // Expose UI notifications stream to UI code. Implemented by mixin NtfStreams in concrete platforms.
+  Stream<UINotification> get uiNotifications => throw "unimplemented";
+  // Expose binary game updates decoded into GameUpdate objects.
+  Stream<GameUpdate> get gameUpdates => throw "unimplemented";
+  // No separate structured stream.
+
   Future<dynamic> asyncCall(int cmd, dynamic payload) async =>
       throw "unimplemented";
+
+  // Wallet-auth helpers (use golib over gRPC)
+  Future<String> requestNonce(String serverAddr, String grpcCertPath) async {
+    final res = await asyncCall(CTRequestNonce, {
+      'server_addr': serverAddr,
+      'grpc_cert_path': grpcCertPath,
+    });
+    if (res is Map) {
+      final m = Map<String, dynamic>.from(res);
+      return (m['nonce'] ?? '').toString();
+    }
+    return res?.toString() ?? '';
+  }
+
+  Future<Map<String, dynamic>> verifyLogin(
+      String serverAddr,
+      String grpcCertPath,
+      String address,
+      String nonce,
+      String signature,
+  ) async {
+    final res = await asyncCall(CTVerifyLogin, {
+      'server_addr': serverAddr,
+      'grpc_cert_path': grpcCertPath,
+      'address': address,
+      'nonce': nonce,
+      'signature': signature,
+    });
+    return Map<String, dynamic>.from(res as Map);
+  }
 
   Future<String> asyncHello(String name) async {
     var r = await asyncCall(CTHello, name);
@@ -535,6 +680,24 @@ abstract class PluginPlatform {
   Future<void> archiveSettlementSessionKey(String matchId) async {
     await asyncCall(CTArchiveSessionKey, { 'match_id': matchId });
   }
+
+  // Player action methods (migrated from Dart gRPC)
+  Future<void> sendInput(String input) async {
+    await asyncCall(CTSendInput, { 'input': input });
+  }
+
+  Future<bool> signalReadyToPlay(String gameId) async {
+    final res = await asyncCall(CTSignalReadyToPlay, { 'game_id': gameId });
+    return (res as Map<String, dynamic>)['success'] as bool;
+  }
+
+  Future<void> unreadyGameStream() async {
+    await asyncCall(CTUnreadyGameStream, "");
+  }
+
+  Future<void> startGameStream() async {
+    await asyncCall(CTStartGameStream, "");
+  }
 }
 
 const int CTUnknown = 0x00;
@@ -550,9 +713,23 @@ const int CTLeaveWaitingRoom = 0x09;
 const int CTGenerateSessionKey = 0x0a;
 const int CTOpenEscrow        = 0x0b;
 const int CTStartPreSign      = 0x0c;
+const int CTRequestNonce      = 0x0f;
+const int CTVerifyLogin       = 0x10;
 const int CTArchiveSessionKey = 0x0e;
+
+// Player action commands (migrated from Dart gRPC)
+const int CTSendInput         = 0x11;
+const int CTSignalReadyToPlay = 0x12;
+const int CTUnreadyGameStream = 0x13;
+const int CTStartGameStream   = 0x14;
+
 const int CTCloseLockFile = 0x60;
 
 const int notificationsStartID = 0x1000;
-const int notificationClientStopped = 0x1001;
-const int NTNOP = 0X1004;
+// Notification types (must match golib)
+const int NTUINotification = 0x1001;
+const int NTClientStopped  = 0x1002;
+const int NTLogLine        = 0x1003;
+const int NTNOP            = 0x1004;
+// Binary game frame (raw pong.GameUpdate bytes)
+const int NTGameFrame      = 0x1011;

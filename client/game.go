@@ -43,10 +43,7 @@ func (pc *PongClient) RefUnreadyGameStream() error {
 		return fmt.Errorf("error signaling not ready: %w", err)
 	}
 
-	// If we have an active game stream, close it
-	if pc.stream != nil {
-		pc.stream = nil
-	}
+	pc.stopGameStream()
 
 	// Notify UI of state change
 	pc.isReady = false
@@ -67,29 +64,88 @@ func (pc *PongClient) RefStartNtfnStream(ctx context.Context) error {
 	}
 	pc.notifier = stream
 
-	go pc.runNtfnRecv(ctx, stream)
+	go pc.runNtfnLoop(ctx, stream)
 	return nil
 }
 
-func (pc *PongClient) runNtfnRecv(ctx context.Context, stream pong.PongGame_StartNtfnStreamClient) {
+func (pc *PongClient) runNtfnLoop(ctx context.Context, stream pong.PongGame_StartNtfnStreamClient) {
+	backoff := time.Second
+	for {
+		err := pc.consumeNtfnStream(ctx, stream)
+		if ctx.Err() != nil {
+			pc.log.Infof("ntfn stream stopped: %v", ctx.Err())
+			return
+		}
+		if err != nil {
+			pc.log.Warnf("ntfn stream recv error: %v", err)
+			select {
+			case pc.errorsCh <- fmt.Errorf("ntfn stream recv: %w", err):
+			default:
+			}
+		}
+
+		// Attempt to restart the notification stream with backoff.
+		ns, nerr := pc.restartNtfnStream(ctx, backoff)
+		if nerr != nil {
+			pc.log.Warnf("ntfn stream restart failed: %v", nerr)
+			select {
+			case pc.errorsCh <- fmt.Errorf("ntfn stream restart failed: %w", nerr):
+			default:
+			}
+			return
+		}
+		stream = ns
+		backoff = time.Second
+	}
+}
+
+func (pc *PongClient) consumeNtfnStream(ctx context.Context, stream pong.PongGame_StartNtfnStreamClient) error {
 	pc.log.Infof("ntfn stream started")
-	defer pc.log.Infof("ntfn stream stopped")
+	defer pc.log.Infof("ntfn stream ended")
 
 	for {
 		ntfn, err := stream.Recv()
 		if err != nil {
-			// If our ctx is done, it's a graceful stop.
 			select {
 			case <-ctx.Done():
-				return
+				// context done, exit
+				return nil
 			default:
 			}
-			// Propagate the error once and exit. If gRPC reconnects, the call
-			// that created this stream should be re-run by the caller.
-			pc.errorsCh <- fmt.Errorf("ntfn stream recv: %w", err)
-			return
+			return err
 		}
 		pc.handleNtfn(ntfn)
+	}
+}
+
+func (pc *PongClient) restartNtfnStream(ctx context.Context, initialBackoff time.Duration) (pong.PongGame_StartNtfnStreamClient, error) {
+	backoff := initialBackoff
+	if backoff <= 0 {
+		backoff = 500 * time.Millisecond
+	}
+	maxBackoff := 30 * time.Second
+
+	for {
+		select {
+		case <-ctx.Done():
+			return nil, ctx.Err()
+		case <-time.After(backoff):
+			stream, err := pc.gc.StartNtfnStream(ctx, &pong.StartNtfnStreamRequest{
+				ClientId: pc.id,
+			})
+			if err == nil {
+				pc.notifier = stream
+				pc.log.Infof("ntfn stream restarted")
+				return stream, nil
+			}
+			pc.log.Warnf("ntfn stream restart attempt failed: %v", err)
+			if backoff < maxBackoff {
+				backoff *= 2
+				if backoff > maxBackoff {
+					backoff = maxBackoff
+				}
+			}
+		}
 	}
 }
 
@@ -97,24 +153,34 @@ func (pc *PongClient) handleNtfn(ntfn *pong.NtfnStreamResponse) {
 	switch ntfn.NotificationType {
 	case pong.NotificationType_ON_WR_CREATED:
 		pc.ntfns.notifyOnWRCreated(ntfn.Wr, time.Now())
+		// Forward to updates channel for structured UI updates
+		pc.updatesCh <- ntfn
 
 	case pong.NotificationType_MESSAGE:
 		pc.updatesCh <- ntfn
 
 	case pong.NotificationType_PLAYER_JOINED_WR:
 		pc.ntfns.notifyPlayerJoinedWR(ntfn.Wr, time.Now())
+		pc.updatesCh <- ntfn
 
 	case pong.NotificationType_GAME_START:
 		if ntfn.Started {
 			pc.ntfns.notifyGameStarted(ntfn.GameId, time.Now())
 		}
+		// Forward start event so UI can transition to initialized state
+		pc.updatesCh <- ntfn
 
 	case pong.NotificationType_GAME_END:
 		pc.ntfns.notifyGameEnded(ntfn.GameId, ntfn.Message, time.Now())
 		pc.log.Infof("%s", ntfn.Message)
+		// Forward to updates channel so UI layers (golib plugin) can
+		// emit a "game_end" notification to Flutter. Without this,
+		// the UI never transitions out of the playing state.
+		pc.updatesCh <- ntfn
 
 	case pong.NotificationType_OPPONENT_DISCONNECTED:
 		pc.ntfns.notifyPlayerLeftWR(ntfn.Wr, ntfn.PlayerId, time.Now())
+		pc.updatesCh <- ntfn
 
 	case pong.NotificationType_BET_AMOUNT_UPDATE:
 		if ntfn.PlayerId == pc.id {
@@ -123,6 +189,10 @@ func (pc *PongClient) handleNtfn(ntfn *pong.NtfnStreamResponse) {
 			pc.ntfns.notifyBetAmtChanged(ntfn.PlayerId, ntfn.BetAmt, time.Now())
 		}
 		// Forward for UI if you want:
+		pc.updatesCh <- ntfn
+
+	case pong.NotificationType_ON_WR_REMOVED:
+		// Forward room removal event for UI state updates
 		pc.updatesCh <- ntfn
 
 	case pong.NotificationType_ON_PLAYER_READY:
@@ -142,60 +212,92 @@ func (pc *PongClient) handleNtfn(ntfn *pong.NtfnStreamResponse) {
 }
 
 func (pc *PongClient) RefStartGameStream() error {
-	ctx := context.Background()
+	pc.stopGameStream()
+
+	ctx, cancel := context.WithCancel(pc.ctx)
 
 	// Signal readiness after stream is initialized
 	stream, err := pc.gc.StartGameStream(ctx, &pong.StartGameStreamRequest{
 		ClientId: pc.id,
 	})
 	if err != nil {
+		cancel()
 		return fmt.Errorf("error signaling readiness: %w", err)
 	}
 
-	// Set the stream before starting the goroutine
+	pc.Lock()
 	pc.stream = stream
+	pc.streamCtx = ctx
+	pc.streamCancel = cancel
+	pc.Unlock()
 
-	// Use a separate goroutine to handle the stream
-	go func() {
-		for {
-			update, err := pc.stream.Recv()
-			if err != nil {
-				if errors.Is(err, io.EOF) || strings.Contains(err.Error(), "transport is closing") {
-					// Recreate game stream with backoff and continue
-					backoff := 500 * time.Millisecond
-					maxBackoff := 30 * time.Second
-					for {
-						select {
-						case <-ctx.Done():
-							pc.log.Infof("game stream restart canceled")
-							return
-						case <-time.After(backoff):
-							ns, nerr := pc.gc.StartGameStream(context.Background(), &pong.StartGameStreamRequest{ClientId: pc.id})
-							if nerr == nil {
-								pc.stream = ns
-								pc.log.Infof("game stream restarted")
-								// Successfully restarted; continue outer loop to Recv again
-								continue
-							}
-							if backoff < maxBackoff {
-								backoff *= 2
-								if backoff > maxBackoff {
-									backoff = maxBackoff
-								}
+	go pc.handleGameStream(ctx, stream, cancel)
+
+	return nil
+}
+
+func (pc *PongClient) handleGameStream(ctx context.Context, stream pong.PongGame_StartGameStreamClient, cancel context.CancelFunc) {
+	defer cancel()
+	defer pc.clearStreamRefs(ctx)
+
+	currentStream := stream
+
+mainLoop:
+	for {
+		update, err := currentStream.Recv()
+		if err != nil {
+			select {
+			case <-ctx.Done():
+				pc.log.Infof("game stream stopped: %v", ctx.Err())
+				return
+			default:
+			}
+
+			if errors.Is(err, io.EOF) {
+				pc.log.Infof("game stream ended")
+				return
+			}
+
+			if strings.Contains(err.Error(), "transport is closing") {
+				backoff := 500 * time.Millisecond
+				maxBackoff := 30 * time.Second
+				for {
+					select {
+					case <-ctx.Done():
+						pc.log.Infof("game stream restart canceled")
+						return
+					case <-time.After(backoff):
+						ns, nerr := pc.gc.StartGameStream(ctx, &pong.StartGameStreamRequest{ClientId: pc.id})
+						if nerr == nil {
+							pc.Lock()
+							pc.stream = ns
+							pc.Unlock()
+							currentStream = ns
+							pc.log.Infof("game stream restarted")
+							continue mainLoop
+						}
+						if backoff < maxBackoff {
+							backoff *= 2
+							if backoff > maxBackoff {
+								backoff = maxBackoff
 							}
 						}
 					}
 				}
-
-				pc.errorsCh <- fmt.Errorf("game stream error: %v", err)
-				return
 			}
-			// Forward updates to UpdatesCh
-			go func() { pc.updatesCh <- update }()
-		}
-	}()
 
-	return nil
+			pc.errorsCh <- fmt.Errorf("game stream error: %v", err)
+			return
+		}
+
+		// Forward updates to UpdatesCh without spawning a goroutine per frame.
+		// If the channel is full, drop the frame to avoid backpressure and lag.
+		select {
+		case pc.updatesCh <- update:
+		default:
+			pc.log.Warnf("updates channel full, dropping frame")
+		}
+	}
 }
 
 func (pc *PongClient) RefSendInput(input string) error {
@@ -210,4 +312,27 @@ func (pc *PongClient) RefSendInput(input string) error {
 		return fmt.Errorf("error sending input: %w", err)
 	}
 	return nil
+}
+
+func (pc *PongClient) stopGameStream() {
+	pc.Lock()
+	cancel := pc.streamCancel
+	pc.streamCancel = nil
+	pc.streamCtx = nil
+	pc.stream = nil
+	pc.Unlock()
+
+	if cancel != nil {
+		cancel()
+	}
+}
+
+func (pc *PongClient) clearStreamRefs(ctx context.Context) {
+	pc.Lock()
+	if pc.streamCtx == ctx {
+		pc.streamCancel = nil
+		pc.streamCtx = nil
+		pc.stream = nil
+	}
+	pc.Unlock()
 }

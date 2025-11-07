@@ -47,7 +47,9 @@ type PongClient struct {
 	ntfns *NotificationManager
 
 	log      slog.Logger
-	stream   pong.PongGame_StartGameStreamClient
+	stream       pong.PongGame_StartGameStreamClient
+	streamCtx    context.Context
+	streamCancel context.CancelFunc
 	notifier pong.PongGame_StartNtfnStreamClient
 
 	ctx    context.Context
@@ -100,7 +102,8 @@ func NewPongClient(clientID string, cfg *PongClientCfg) (*PongClient, error) {
 		gc:        pong.NewPongGameClient(conn),
 		wr:        pong.NewPongWaitingRoomClient(conn),
 		rc:        pong.NewPongRefereeClient(conn),
-		updatesCh: make(chan tea.Msg, 64),
+    	// Larger buffer to absorb bursty game frames without backpressuring producers
+    	updatesCh: make(chan tea.Msg, 1024),
 		errorsCh:  make(chan error, 4),
 		log:       cfg.Log,
 		ntfns:     ntfns,
@@ -414,6 +417,7 @@ func (pc *PongClient) Close() error {
 	if pc == nil {
 		return nil
 	}
+	pc.stopGameStream()
 	if pc.cancel != nil {
 		pc.cancel()
 	}

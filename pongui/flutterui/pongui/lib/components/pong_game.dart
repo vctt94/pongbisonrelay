@@ -2,7 +2,8 @@ import 'dart:async';
 
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
-import 'package:pongui/grpc/grpc_client.dart';
+import 'package:golib_plugin/golib_plugin.dart';
+import 'package:pongui/components/helper.dart';
 import 'package:golib_plugin/grpc/generated/pong.pb.dart';
 
 class BackgroundLogo extends StatelessWidget {
@@ -39,17 +40,18 @@ class BackgroundLogo extends StatelessWidget {
 }
 
 class PongGame {
-  final GrpcPongClient grpcClient; // gRPC client instance
   final String clientId;
+  final InputThrottler _throttler = InputThrottler();
 
-  PongGame(this.clientId, this.grpcClient);
+  PongGame(this.clientId);
 
   Widget buildWidget(GameUpdate gameState, FocusNode focusNode, {VoidCallback? onReadyHotkey}) {
     return GestureDetector(
-      onPanUpdate: handlePaddleMovement,
+      onPanUpdate: (details) {
+        _throttler.update(details.delta.dy);
+      },
       onPanEnd: (details) {
-        stopPaddleMovement(clientId, 'ArrowUpStop');
-        stopPaddleMovement(clientId, 'ArrowDownStop');
+        _throttler.stop();
       },
       onTap: () => focusNode.requestFocus(),
       child: Focus(
@@ -99,8 +101,8 @@ class PongGame {
                             willChange: true,
                           ),
 
-                          // Static logo layer (no repaints) - moved after game canvas
-                          const BackgroundLogo(),
+                          // Static logo layer: isolate from repaints
+                          const RepaintBoundary(child: BackgroundLogo()),
 
                           // Score overlay (no pointer intercept)
                           IgnorePointer(
@@ -389,11 +391,8 @@ class PongGame {
     );
   }
 
-  void handlePaddleMovement(DragUpdateDetails details) {
-    double deltaY = details.delta.dy;
-    String data = deltaY < 0 ? 'ArrowUp' : 'ArrowDown';
-    grpcClient.sendInput(clientId, data);
-  }
+  // Throttled by onPanUpdate/onPanEnd using InputThrottler.
+  void handlePaddleMovement(DragUpdateDetails details) {}
 
   Future<void> handleInput(String clientId, String data) async {
     await _sendKeyInput(data);
@@ -410,7 +409,7 @@ class PongGame {
       } else {
         return;
       }
-      await grpcClient.sendInput(clientId, action);
+      await Golib.sendInput(action);
     } catch (e) {
       print(e);
     }
@@ -419,7 +418,7 @@ class PongGame {
   // New method to stop paddle movement
   Future<void> stopPaddleMovement(String clientId, String action) async {
     try {
-      await grpcClient.sendInput(clientId, action);
+      await Golib.sendInput(action);
     } catch (e) {
       print(e);
     }
@@ -433,6 +432,17 @@ class PongPainter extends CustomPainter {
   final GameUpdate gameState;
   PongPainter(this.gameState);
 
+  // Static paints to avoid per-frame allocations
+  static final Paint _ballPaint = Paint()
+    ..color = Colors.white
+    ..isAntiAlias = true;
+  static final Paint _p1Paint = Paint()
+    ..color = Colors.blue
+    ..isAntiAlias = true;
+  static final Paint _p2Paint = Paint()
+    ..color = Colors.green
+    ..isAntiAlias = true;
+
   @override
   void paint(Canvas canvas, Size size) {
     final gw = (gameState.gameWidth > 0) ? gameState.gameWidth : 800.0;
@@ -440,24 +450,21 @@ class PongPainter extends CustomPainter {
     final sx = size.width / gw;
     final sy = size.height / gh;
 
-    // Paints
-    final ballPaint = Paint()..color = Colors.white..isAntiAlias = true;
-    final paddle1Paint = Paint()..color = Colors.blue..isAntiAlias = true;
-    final paddle2Paint = Paint()..color = Colors.green..isAntiAlias = true;
+    // Use static paints
 
     // P1
     final p1x = gameState.p1X * sx;
     final p1y = gameState.p1Y * sy;
     final p1w = gameState.p1Width * sx;
     final p1h = gameState.p1Height * sy;
-    canvas.drawRect(Rect.fromLTWH(p1x, p1y, p1w, p1h), paddle1Paint);
+    canvas.drawRect(Rect.fromLTWH(p1x, p1y, p1w, p1h), _p1Paint);
 
     // P2
     final p2x = gameState.p2X * sx;
     final p2y = gameState.p2Y * sy;
     final p2w = gameState.p2Width * sx;
     final p2h = gameState.p2Height * sy;
-    canvas.drawRect(Rect.fromLTWH(p2x, p2y, p2w, p2h), paddle2Paint);
+    canvas.drawRect(Rect.fromLTWH(p2x, p2y, p2w, p2h), _p2Paint);
 
     // Ball
     final bx = gameState.ballX * sx;
@@ -465,7 +472,7 @@ class PongPainter extends CustomPainter {
     final bw = gameState.ballWidth * sx;
     final bh = gameState.ballHeight * sy;
     final r = (bw + bh) / 4;
-    canvas.drawCircle(Offset(bx + bw / 2, by + bh / 2), r, ballPaint);
+    canvas.drawCircle(Offset(bx + bw / 2, by + bh / 2), r, _ballPaint);
   }
 
   // Only repaint when the instance (or relevant fields) change.
