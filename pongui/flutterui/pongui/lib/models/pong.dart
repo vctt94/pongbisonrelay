@@ -587,8 +587,7 @@ class PongModel extends ChangeNotifier {
   }
 
   void _stopGameStreamAndRenderLoop() {
-    _gameStreamSub?.cancel();
-    _gameStreamSub = null;
     renderLoop.stop();
+    gameState = null;
   }
 }

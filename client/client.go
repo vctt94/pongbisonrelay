@@ -47,7 +47,9 @@ type PongClient struct {
 	ntfns *NotificationManager
 
 	log      slog.Logger
-	stream   pong.PongGame_StartGameStreamClient
+	stream       pong.PongGame_StartGameStreamClient
+	streamCtx    context.Context
+	streamCancel context.CancelFunc
 	notifier pong.PongGame_StartNtfnStreamClient
 
 	ctx    context.Context
@@ -415,6 +417,7 @@ func (pc *PongClient) Close() error {
 	if pc == nil {
 		return nil
 	}
+	pc.stopGameStream()
 	if pc.cancel != nil {
 		pc.cancel()
 	}

@@ -422,6 +422,39 @@ func (s *Server) handleGameEnd(ctx context.Context, game *ponggame.GameInstance,
 		s.gameManager.RemovePlayerGame(*player.ID)
 	}
 
+	// Ensure all players are marked not ready before the next match cycle and notify listeners.
+	for _, player := range players {
+		if player == nil || player.ID == nil {
+			continue
+		}
+
+		player.Lock()
+		player.Ready = false
+		player.Unlock()
+
+		pwr := wr.Marshal()
+		for _, p := range wr.Players {
+			_ = s.notify(p, &pong.NtfnStreamResponse{
+				NotificationType: pong.NotificationType_ON_PLAYER_READY,
+				Message:          fmt.Sprintf("Player %s is not ready", player.Nick),
+				PlayerId:         player.ID.String(),
+				RoomId:           wr.ID,
+				Wr:               pwr,
+				Ready:            false,
+			})
+		}
+
+		// Cancel the active game stream so clients observe EOF.
+		clientID := *player.ID
+		if cancel, ok := s.activeGameStreams.Load(clientID); ok {
+			if cancelFn, isCancel := cancel.(context.CancelFunc); isCancel {
+				cancelFn()
+			}
+			s.activeGameStreams.Delete(clientID)
+		}
+		player.GameStream = nil
+	}
+
 	// Finalize winner branch and broadcast on server (skip in F2P)
 	if winner != nil && !s.isF2P {
 		// Determine branch index anchored to room host: branch 0 pays host (a), 1 pays non-host (b).
