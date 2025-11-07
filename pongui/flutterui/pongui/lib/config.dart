@@ -20,7 +20,6 @@ class Config {
   late final String rpcPass;
   late final bool wantsLogNtfns;
   late final String dataDir;
-  late final String address;
 
   Config();
 
@@ -36,7 +35,6 @@ class Config {
     this.rpcPass = "",
     this.wantsLogNtfns = false,
     this.dataDir = "",
-    this.address = "",
   });
 
   // Save a new config from scratch
@@ -47,7 +45,6 @@ class Config {
 
     set("default", "server", serverAddr);
     set("default", "grpccertpath", grpcCertPath);
-    set("default", "address", address);
     set("clientrpc", "rpccertpath", rpcCertPath);
     set("log", "debug", debugLevel);
     set("clientrpc", "rpcwebsocketurl", rpcWebsocketURL);
@@ -70,7 +67,6 @@ class Config {
     return Config.filled(
       serverAddr: f.get("default", "server") ?? "localhost:443",
       grpcCertPath: f.get("default", "grpccertpath") ?? "",
-      address: f.get("default", "address") ?? "",
       rpcCertPath: f.get("clientrpc", "rpccertpath") ?? "",
       rpcClientCertPath: f.get("clientrpc", "rpcclientcertpath") ?? "",
       rpcClientKeyPath: f.get("clientrpc", "rpcclientkeypath") ?? "",
@@ -188,7 +184,6 @@ Future<Config> loadConfig(String filepath) async {
   var c = Config.filled(
       serverAddr: serverAddr,
       grpcCertPath: grpcCertPath,
-      address: f.get("default", "address") ?? "",
       debugLevel: f.get("log", "debuglevel") ?? "info",
       rpcWebsocketURL: rpcWebsocket,
       rpcCertPath: rpccert,
