@@ -93,6 +93,16 @@ class SharedLayout extends StatelessWidget {
                         Navigator.of(context).pushNamed('/logs');
                       },
                     ),
+                    const Divider(height: 1),
+                    ListTile(
+                      leading:
+                          const Icon(Icons.build, color: Colors.white),
+                      title: const Text('Developer Tools',
+                          style: TextStyle(color: Colors.white)),
+                      onTap: () {
+                        Navigator.of(context).pushNamed('/devtools');
+                      },
+                    ),
                   ],
                 ),
               ),
