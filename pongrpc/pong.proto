@@ -37,6 +37,7 @@ message VerifyLoginResponse {
 }
 
 service PongGame {
+  rpc InitConnection(InitConnectionRequest) returns (InitConnectionResponse);
   // pong game
   rpc SendInput (PlayerInput) returns (GameUpdate) {}
   rpc StartGameStream(StartGameStreamRequest) returns (stream GameUpdateBytes);
@@ -181,6 +182,7 @@ enum NotificationType {
   COUNTDOWN_UPDATE = 11;
   GAME_READY_TO_PLAY = 12;
   MATCH_ALLOCATED = 13;
+  SERVER_CONFIG = 14;
 }
 
 message MatchAllocatedNtfn {
@@ -216,6 +218,17 @@ message NtfnStreamResponse {
   MatchAllocatedNtfn match_alloc = 11;
   // Number of confirmations for the relevant escrow deposit (if applicable)
   uint32 confs = 12;
+  // Server-wide free-to-play flag so clients can auto-toggle escrow UI gating.
+  bool server_is_f2p = 13;
+}
+
+message InitConnectionRequest {
+  string client_version = 1;
+}
+
+message InitConnectionResponse {
+  string server_version = 1;
+  bool is_f2p = 2;
 }
 
 // Waiting Room Messages

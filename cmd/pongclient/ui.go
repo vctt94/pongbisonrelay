@@ -95,6 +95,19 @@ func (m *appstate) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 	case *pong.NtfnStreamResponse:
 		// Handle specific notification types
 		switch msg.NotificationType {
+		case pong.NotificationType_SERVER_CONFIG:
+			prev := isF2p
+			isF2p = msg.ServerIsF2P
+			if msg.Message != "" {
+				m.notification = msg.Message
+			}
+			if prev != isF2p {
+				if isF2p {
+					m.notification = "Server switched to Free-to-Play mode."
+				} else {
+					m.notification = "Server now requires escrow-backed matches."
+				}
+			}
 		case pong.NotificationType_GAME_READY_TO_PLAY:
 			m.notification = "=== GAME CREATED! === Press 'r' or SPACE to signal you're ready to play!"
 			m.currentGameId = msg.GameId

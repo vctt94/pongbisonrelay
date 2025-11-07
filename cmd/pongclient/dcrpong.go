@@ -23,6 +23,8 @@ import (
 
 // UI mode definitions moved to ui.go
 
+const pongClientVersion = "pongclient-dev"
+
 var (
 	// serverAddr = flag.String("server_addr", "104.131.180.29:50051", "The server address in the format of host:port")
 	serverAddr         = flag.String("server_addr", "", "The server address in the format of host:port")
@@ -342,6 +344,17 @@ func realMain() error {
 		return fmt.Errorf("failed to create pong client: %v", err)
 	}
 	as.pc = pc
+
+	if *flagIsF2P {
+		isF2p = true
+		log.Infof("Client override: forcing Free-to-Play mode regardless of server setting")
+	} else if pc.ServerIsF2P() {
+		isF2p = true
+		log.Infof("Server reports Free-to-Play mode; escrow gating disabled (server %s)", pc.ServerVersion())
+	} else {
+		isF2p = false
+		log.Infof("Server requires escrow; UI will enforce funding (server %s)", pc.ServerVersion())
+	}
 
 	log.Infof("Connected to server at %s with ID %s", appCfg.ServerAddr, clientID)
 

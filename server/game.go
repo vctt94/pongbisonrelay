@@ -3,6 +3,7 @@ package server
 import (
 	"context"
 	"fmt"
+	"strings"
 
 	"github.com/companyzero/bisonrelay/zkidentity"
 
@@ -15,6 +16,18 @@ func (s *Server) SendInput(ctx context.Context, req *pong.PlayerInput) (*pong.Ga
 	var clientID zkidentity.ShortID
 	clientID.FromString(req.PlayerId)
 	return s.gameManager.HandlePlayerInput(clientID, req)
+}
+
+func (s *Server) InitConnection(ctx context.Context, req *pong.InitConnectionRequest) (*pong.InitConnectionResponse, error) {
+	clientVer := strings.TrimSpace(req.GetClientVersion())
+	if clientVer == "" {
+		clientVer = "unknown"
+	}
+	s.log.Infof("InitConnection from client version=%s (server version=%s isF2P=%v)", clientVer, version, s.isF2P)
+	return &pong.InitConnectionResponse{
+		ServerVersion: version,
+		IsF2P:         s.isF2P,
+	}, nil
 }
 
 func (s *Server) StartNtfnStream(req *pong.StartNtfnStreamRequest, stream pong.PongGame_StartNtfnStreamServer) error {
@@ -57,6 +70,16 @@ func (s *Server) StartNtfnStream(req *pong.StartNtfnStreamRequest, stream pong.P
 		}
 	}
 	s.escrowsMu.RUnlock()
+
+	// Inform the client about the server's current F2P mode so the UI can adjust.
+	if s.isF2P {
+		modeMsg := "Server running in Free-to-Play mode (no escrow required)."
+		_ = s.notify(player, &pong.NtfnStreamResponse{
+			NotificationType: pong.NotificationType_SERVER_CONFIG,
+			Message:          modeMsg,
+			ServerIsF2P:      true,
+		})
+	}
 
 	// Escrow-first: remove legacy tips-based bet sync
 	// Wait for disconnection

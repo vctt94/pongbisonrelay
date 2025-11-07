@@ -5,10 +5,17 @@ class WaitingRoomList extends StatelessWidget {
   final List<LocalWaitingRoom> waitingRooms;
   final Function(String roomId) onJoinRoom;
   final String? currentRoomId;
+  final bool canJoinRooms;
+  final String? joinDisabledTooltip;
 
-  const WaitingRoomList(this.waitingRooms,
-      {this.currentRoomId, required this.onJoinRoom, Key? key})
-      : super(key: key);
+  const WaitingRoomList(
+    this.waitingRooms, {
+    this.currentRoomId,
+    required this.onJoinRoom,
+    this.canJoinRooms = true,
+    this.joinDisabledTooltip,
+    Key? key,
+  }) : super(key: key);
 
   @override
   Widget build(BuildContext context) {
@@ -88,21 +95,36 @@ class WaitingRoomList extends StatelessWidget {
                 ),
                 trailing: currentRoomId != wr.id
                     ? currentRoomId == null
-                        ? ElevatedButton(
-                            onPressed: () => onJoinRoom(wr.id),
-                            style: ElevatedButton.styleFrom(
-                              backgroundColor: Colors.blueAccent,
-                              foregroundColor: Colors.white,
-                              elevation: 2,
-                              shape: RoundedRectangleBorder(
-                                borderRadius: BorderRadius.circular(8),
+                        ? Builder(builder: (context) {
+                            final btn = ElevatedButton(
+                              onPressed:
+                                  canJoinRooms ? () => onJoinRoom(wr.id) : null,
+                              style: ElevatedButton.styleFrom(
+                                backgroundColor: canJoinRooms
+                                    ? Colors.blueAccent
+                                    : Colors.blueGrey,
+                                foregroundColor: Colors.white,
+                                elevation: 2,
+                                shape: RoundedRectangleBorder(
+                                  borderRadius: BorderRadius.circular(8),
+                                ),
+                                padding: const EdgeInsets.symmetric(
+                                    horizontal: 16, vertical: 10),
                               ),
-                              padding: const EdgeInsets.symmetric(
-                                  horizontal: 16, vertical: 10),
-                            ),
-                            child: const Text("Join",
-                                style: TextStyle(fontWeight: FontWeight.bold)),
-                          )
+                              child: const Text(
+                                "Join",
+                                style: TextStyle(fontWeight: FontWeight.bold),
+                              ),
+                            );
+                            if (canJoinRooms ||
+                                (joinDisabledTooltip ?? '').isEmpty) {
+                              return btn;
+                            }
+                            return Tooltip(
+                              message: joinDisabledTooltip!,
+                              child: AbsorbPointer(child: btn),
+                            );
+                          })
                         : null
                     : Container(
                         padding: const EdgeInsets.symmetric(

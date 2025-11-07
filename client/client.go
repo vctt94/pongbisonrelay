@@ -21,9 +21,13 @@ import (
 	"github.com/vctt94/bisonbotkit/logging"
 	"github.com/vctt94/pongbisonrelay/pongrpc/grpc/pong"
 	"google.golang.org/grpc"
+	"google.golang.org/grpc/codes"
 	"google.golang.org/grpc/credentials"
 	"google.golang.org/grpc/keepalive"
+	"google.golang.org/grpc/status"
 )
+
+const VERSION = "0.0.1"
 
 type UpdatedMsg struct{}
 
@@ -33,10 +37,12 @@ type PongClient struct {
 
 	isReady bool
 
-	betAmt       int64 // bet amt in mAtoms
-	playerNumber int32
-	conn         *grpc.ClientConn
-	appCfg       *AppConfig
+	betAmt        int64 // bet amt in mAtoms
+	playerNumber  int32
+	conn          *grpc.ClientConn
+	appCfg        *AppConfig
+	serverVersion string
+	serverIsF2P   bool
 	// game client
 	gc pong.PongGameClient
 	// waiting room client
@@ -46,11 +52,11 @@ type PongClient struct {
 
 	ntfns *NotificationManager
 
-	log      slog.Logger
+	log          slog.Logger
 	stream       pong.PongGame_StartGameStreamClient
 	streamCtx    context.Context
 	streamCancel context.CancelFunc
-	notifier pong.PongGame_StartNtfnStreamClient
+	notifier     pong.PongGame_StartNtfnStreamClient
 
 	ctx    context.Context
 	cancel context.CancelFunc
@@ -96,14 +102,14 @@ func NewPongClient(clientID string, cfg *PongClientCfg) (*PongClient, error) {
 
 	ctx, cancel := context.WithCancel(context.Background())
 	pc := &PongClient{
-		id:        clientID,
-		conn:      conn,
-		appCfg:    cfg.AppCfg,
-		gc:        pong.NewPongGameClient(conn),
-		wr:        pong.NewPongWaitingRoomClient(conn),
-		rc:        pong.NewPongRefereeClient(conn),
-    	// Larger buffer to absorb bursty game frames without backpressuring producers
-    	updatesCh: make(chan tea.Msg, 1024),
+		id:     clientID,
+		conn:   conn,
+		appCfg: cfg.AppCfg,
+		gc:     pong.NewPongGameClient(conn),
+		wr:     pong.NewPongWaitingRoomClient(conn),
+		rc:     pong.NewPongRefereeClient(conn),
+		// Larger buffer to absorb bursty game frames without backpressuring producers
+		updatesCh: make(chan tea.Msg, 1024),
 		errorsCh:  make(chan error, 4),
 		log:       cfg.Log,
 		ntfns:     ntfns,
@@ -111,18 +117,14 @@ func NewPongClient(clientID string, cfg *PongClientCfg) (*PongClient, error) {
 		cancel:    cancel,
 	}
 
-	// quick check (fail fast on bad addr/cert), with timeout.
+	// quick check (fail fast)
 	err = func() error {
-		cctx, ccancel := context.WithTimeout(ctx, 5*time.Second)
-		defer ccancel()
-		_, err := pc.RefGetWaitingRooms(cctx) // or your existing method with ctx
-		return err
+		ctx, cancel := context.WithTimeout(ctx, 5*time.Second)
+		defer cancel()
+		return pc.initConnection(ctx)
 	}()
 	if err != nil {
-		cancel()
-		_ = conn.Close()
-		fmt.Fprintf(os.Stderr, "gRPC server connection failed: %v\n", err)
-		return nil, fmt.Errorf("gRPC server connection failed: %w", err)
+		return nil, fmt.Errorf("init connection: %w", err)
 	}
 
 	return pc, nil
@@ -134,6 +136,36 @@ func (pc *PongClient) ID() string {
 
 func (pc *PongClient) IsReady() bool {
 	return pc.isReady
+}
+
+func (pc *PongClient) initConnection(ctx context.Context) error {
+	req := &pong.InitConnectionRequest{ClientVersion: VERSION}
+	resp, err := pc.gc.InitConnection(ctx, req)
+	if err != nil {
+		if status.Code(err) == codes.Unimplemented {
+			pc.log.Infof("Server does not support InitConnection RPC; assuming escrow-required mode")
+			pc.serverVersion = "unknown"
+			pc.serverIsF2P = false
+			return nil
+		}
+		return err
+	}
+	pc.serverVersion = resp.GetServerVersion()
+	pc.serverIsF2P = resp.GetIsF2P()
+	pc.log.Infof("Server version: %s (F2P=%v)", pc.serverVersion, pc.serverIsF2P)
+	return nil
+}
+
+func (pc *PongClient) ServerIsF2P() bool {
+	pc.RLock()
+	defer pc.RUnlock()
+	return pc.serverIsF2P
+}
+
+func (pc *PongClient) ServerVersion() string {
+	pc.RLock()
+	defer pc.RUnlock()
+	return pc.serverVersion
 }
 
 // ResolveClientID starts a short-lived BR RPC client to fetch the local

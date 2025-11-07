@@ -24,14 +24,32 @@ void _frameDecodeIsolate(SendPort mainPort) {
         // 14 x float32 + 2 x int32 = 64 bytes
         final bd = ByteData(64);
         var o = 0;
-        void wf(double v) { bd.setFloat32(o, v.toDouble(), Endian.little); o += 4; }
-        void wi(int v) { bd.setInt32(o, v, Endian.little); o += 4; }
+        void wf(double v) {
+          bd.setFloat32(o, v.toDouble(), Endian.little);
+          o += 4;
+        }
 
-        wf(gu.gameWidth);  wf(gu.gameHeight);
-        wf(gu.p1X);        wf(gu.p1Y);        wf(gu.p1Width);  wf(gu.p1Height);
-        wf(gu.p2X);        wf(gu.p2Y);        wf(gu.p2Width);  wf(gu.p2Height);
-        wf(gu.ballX);      wf(gu.ballY);      wf(gu.ballWidth); wf(gu.ballHeight);
-        wi(gu.p1Score);    wi(gu.p2Score);
+        void wi(int v) {
+          bd.setInt32(o, v, Endian.little);
+          o += 4;
+        }
+
+        wf(gu.gameWidth);
+        wf(gu.gameHeight);
+        wf(gu.p1X);
+        wf(gu.p1Y);
+        wf(gu.p1Width);
+        wf(gu.p1Height);
+        wf(gu.p2X);
+        wf(gu.p2Y);
+        wf(gu.p2Width);
+        wf(gu.p2Height);
+        wf(gu.ballX);
+        wf(gu.ballY);
+        wf(gu.ballWidth);
+        wf(gu.ballHeight);
+        wi(gu.p1Score);
+        wi(gu.p2Score);
 
         final out = TransferableTypedData.fromList([bd.buffer.asUint8List()]);
         mainPort.send(out);
@@ -191,7 +209,13 @@ class LocalWaitingRoom {
 class LocalInfo {
   final String id;
   final String nick;
-  LocalInfo(this.id, this.nick);
+  @JsonKey(name: 'server_version', defaultValue: "")
+  final String serverVersion;
+  @JsonKey(name: 'server_is_f2p', defaultValue: false)
+  final bool serverIsF2P;
+  LocalInfo(this.id, this.nick, {String? serverVersion, bool? serverIsF2P})
+      : serverVersion = serverVersion ?? "",
+        serverIsF2P = serverIsF2P ?? false;
   factory LocalInfo.fromJson(Map<String, dynamic> json) =>
       _$LocalInfoFromJson(json);
 }
@@ -425,8 +449,8 @@ mixin NtfStreams {
   Stream<GameUpdate> get gameUpdates => _gameUpdatesCtrl.stream;
 
   // --- simplified decoder pipeline (no isolate) ---
-  Uint8List? _pendingRaw;       // keep only the newest raw frame
-  bool _decoding = false;       // serialize decode work
+  Uint8List? _pendingRaw; // keep only the newest raw frame
+  bool _decoding = false; // serialize decode work
   bool _disposed = false;
 
   // Optional frame gate: cap emits to ~120 fps to avoid flooding UI.
@@ -451,7 +475,8 @@ mixin NtfStreams {
             }
           }
         } catch (e, st) {
-          debugPrint('Failed to decode NTUINotification: $e\n$st\nPayload: $payload');
+          debugPrint(
+              'Failed to decode NTUINotification: $e\n$st\nPayload: $payload');
         }
         break;
 
@@ -560,11 +585,11 @@ abstract class PluginPlatform {
   }
 
   Future<Map<String, dynamic>> verifyLogin(
-      String serverAddr,
-      String grpcCertPath,
-      String address,
-      String nonce,
-      String signature,
+    String serverAddr,
+    String grpcCertPath,
+    String address,
+    String nonce,
+    String signature,
   ) async {
     final res = await asyncCall(CTVerifyLogin, {
       'server_addr': serverAddr,
@@ -614,7 +639,8 @@ abstract class PluginPlatform {
     }).toList();
   }
 
-  Future<LocalWaitingRoom> JoinWaitingRoom(String id, {String? escrowId}) async {
+  Future<LocalWaitingRoom> JoinWaitingRoom(String id,
+      {String? escrowId}) async {
     try {
       // Always send JSON object so golib handler can consistently parse
       final payload = {
@@ -663,7 +689,10 @@ abstract class PluginPlatform {
     return Map<String, String>.from(res as Map);
   }
 
-  Future<Map<String, dynamic>> openEscrow({required String payout, required int betAtoms, int csvBlocks = 64}) async {
+  Future<Map<String, dynamic>> openEscrow(
+      {required String payout,
+      required int betAtoms,
+      int csvBlocks = 64}) async {
     final payload = {
       'payout': payout,
       'bet_atoms': betAtoms,
@@ -674,20 +703,20 @@ abstract class PluginPlatform {
   }
 
   Future<void> startPreSign(String matchId) async {
-    await asyncCall(CTStartPreSign, { 'match_id': matchId });
+    await asyncCall(CTStartPreSign, {'match_id': matchId});
   }
 
   Future<void> archiveSettlementSessionKey(String matchId) async {
-    await asyncCall(CTArchiveSessionKey, { 'match_id': matchId });
+    await asyncCall(CTArchiveSessionKey, {'match_id': matchId});
   }
 
   // Player action methods (migrated from Dart gRPC)
   Future<void> sendInput(String input) async {
-    await asyncCall(CTSendInput, { 'input': input });
+    await asyncCall(CTSendInput, {'input': input});
   }
 
   Future<bool> signalReadyToPlay(String gameId) async {
-    final res = await asyncCall(CTSignalReadyToPlay, { 'game_id': gameId });
+    final res = await asyncCall(CTSignalReadyToPlay, {'game_id': gameId});
     return (res as Map<String, dynamic>)['success'] as bool;
   }
 
@@ -711,25 +740,25 @@ const int CTJoinWaitingRoom = 0x07;
 const int CTCreateWaitingRoom = 0x08;
 const int CTLeaveWaitingRoom = 0x09;
 const int CTGenerateSessionKey = 0x0a;
-const int CTOpenEscrow        = 0x0b;
-const int CTStartPreSign      = 0x0c;
-const int CTRequestNonce      = 0x0f;
-const int CTVerifyLogin       = 0x10;
+const int CTOpenEscrow = 0x0b;
+const int CTStartPreSign = 0x0c;
+const int CTRequestNonce = 0x0f;
+const int CTVerifyLogin = 0x10;
 const int CTArchiveSessionKey = 0x0e;
 
 // Player action commands (migrated from Dart gRPC)
-const int CTSendInput         = 0x11;
+const int CTSendInput = 0x11;
 const int CTSignalReadyToPlay = 0x12;
 const int CTUnreadyGameStream = 0x13;
-const int CTStartGameStream   = 0x14;
+const int CTStartGameStream = 0x14;
 
 const int CTCloseLockFile = 0x60;
 
 const int notificationsStartID = 0x1000;
 // Notification types (must match golib)
 const int NTUINotification = 0x1001;
-const int NTClientStopped  = 0x1002;
-const int NTLogLine        = 0x1003;
-const int NTNOP            = 0x1004;
+const int NTClientStopped = 0x1002;
+const int NTLogLine = 0x1003;
+const int NTNOP = 0x1004;
 // Binary game frame (raw pong.GameUpdate bytes)
-const int NTGameFrame      = 0x1011;
+const int NTGameFrame = 0x1011;

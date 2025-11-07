@@ -167,6 +167,7 @@ var PongAuth_ServiceDesc = grpc.ServiceDesc{
 }
 
 const (
+	PongGame_InitConnection_FullMethodName    = "/pong.PongGame/InitConnection"
 	PongGame_SendInput_FullMethodName         = "/pong.PongGame/SendInput"
 	PongGame_StartGameStream_FullMethodName   = "/pong.PongGame/StartGameStream"
 	PongGame_StartNtfnStream_FullMethodName   = "/pong.PongGame/StartNtfnStream"
@@ -178,6 +179,7 @@ const (
 //
 // For semantics around ctx use and closing/ending streaming RPCs, please refer to https://pkg.go.dev/google.golang.org/grpc/?tab=doc#ClientConn.NewStream.
 type PongGameClient interface {
+	InitConnection(ctx context.Context, in *InitConnectionRequest, opts ...grpc.CallOption) (*InitConnectionResponse, error)
 	// pong game
 	SendInput(ctx context.Context, in *PlayerInput, opts ...grpc.CallOption) (*GameUpdate, error)
 	StartGameStream(ctx context.Context, in *StartGameStreamRequest, opts ...grpc.CallOption) (grpc.ServerStreamingClient[GameUpdateBytes], error)
@@ -192,6 +194,16 @@ type pongGameClient struct {
 
 func NewPongGameClient(cc grpc.ClientConnInterface) PongGameClient {
 	return &pongGameClient{cc}
+}
+
+func (c *pongGameClient) InitConnection(ctx context.Context, in *InitConnectionRequest, opts ...grpc.CallOption) (*InitConnectionResponse, error) {
+	cOpts := append([]grpc.CallOption{grpc.StaticMethod()}, opts...)
+	out := new(InitConnectionResponse)
+	err := c.cc.Invoke(ctx, PongGame_InitConnection_FullMethodName, in, out, cOpts...)
+	if err != nil {
+		return nil, err
+	}
+	return out, nil
 }
 
 func (c *pongGameClient) SendInput(ctx context.Context, in *PlayerInput, opts ...grpc.CallOption) (*GameUpdate, error) {
@@ -266,6 +278,7 @@ func (c *pongGameClient) SignalReadyToPlay(ctx context.Context, in *SignalReadyT
 // All implementations must embed UnimplementedPongGameServer
 // for forward compatibility.
 type PongGameServer interface {
+	InitConnection(context.Context, *InitConnectionRequest) (*InitConnectionResponse, error)
 	// pong game
 	SendInput(context.Context, *PlayerInput) (*GameUpdate, error)
 	StartGameStream(*StartGameStreamRequest, grpc.ServerStreamingServer[GameUpdateBytes]) error
@@ -282,6 +295,9 @@ type PongGameServer interface {
 // pointer dereference when methods are called.
 type UnimplementedPongGameServer struct{}
 
+func (UnimplementedPongGameServer) InitConnection(context.Context, *InitConnectionRequest) (*InitConnectionResponse, error) {
+	return nil, status.Errorf(codes.Unimplemented, "method InitConnection not implemented")
+}
 func (UnimplementedPongGameServer) SendInput(context.Context, *PlayerInput) (*GameUpdate, error) {
 	return nil, status.Errorf(codes.Unimplemented, "method SendInput not implemented")
 }
@@ -316,6 +332,24 @@ func RegisterPongGameServer(s grpc.ServiceRegistrar, srv PongGameServer) {
 		t.testEmbeddedByValue()
 	}
 	s.RegisterService(&PongGame_ServiceDesc, srv)
+}
+
+func _PongGame_InitConnection_Handler(srv interface{}, ctx context.Context, dec func(interface{}) error, interceptor grpc.UnaryServerInterceptor) (interface{}, error) {
+	in := new(InitConnectionRequest)
+	if err := dec(in); err != nil {
+		return nil, err
+	}
+	if interceptor == nil {
+		return srv.(PongGameServer).InitConnection(ctx, in)
+	}
+	info := &grpc.UnaryServerInfo{
+		Server:     srv,
+		FullMethod: PongGame_InitConnection_FullMethodName,
+	}
+	handler := func(ctx context.Context, req interface{}) (interface{}, error) {
+		return srv.(PongGameServer).InitConnection(ctx, req.(*InitConnectionRequest))
+	}
+	return interceptor(ctx, in, info, handler)
 }
 
 func _PongGame_SendInput_Handler(srv interface{}, ctx context.Context, dec func(interface{}) error, interceptor grpc.UnaryServerInterceptor) (interface{}, error) {
@@ -401,6 +435,10 @@ var PongGame_ServiceDesc = grpc.ServiceDesc{
 	ServiceName: "pong.PongGame",
 	HandlerType: (*PongGameServer)(nil),
 	Methods: []grpc.MethodDesc{
+		{
+			MethodName: "InitConnection",
+			Handler:    _PongGame_InitConnection_Handler,
+		},
 		{
 			MethodName: "SendInput",
 			Handler:    _PongGame_SendInput_Handler,

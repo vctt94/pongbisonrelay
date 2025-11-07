@@ -268,7 +268,7 @@ func (pc *PongClient) RefStartSettlementHandshake(ctx context.Context, matchID s
 			Hello: &pong.Hello{
 				MatchId:       matchID,
 				CompPubkey:    pubBytes, // X
-				ClientVersion: "poc",
+				ClientVersion: VERSION,
 			},
 		},
 	}); err != nil {

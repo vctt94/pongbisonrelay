@@ -1,6 +1,6 @@
 // This is a generated file - do not edit.
 //
-// Generated from pong.proto.
+// Generated from pongrpc/pong.proto.
 
 // @dart = 3.3
 
