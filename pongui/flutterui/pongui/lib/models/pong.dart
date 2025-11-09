@@ -12,6 +12,8 @@ import 'package:golib_plugin/grpc/generated/pong.pb.dart';
 import 'package:pongui/models/notifications.dart';
 import 'package:path/path.dart' as path;
 
+const String kPongUIVersion = "0.0.1";
+
 // Define a clear enum for game states
 enum GameState {
   idle, // Initial state, not in a game or waiting room
@@ -40,7 +42,7 @@ class PongModel extends ChangeNotifier {
   String fundingStatus = '';
   int escrowConfs = 0;
   // Escrow funding flags derived from notifications
-  bool escrowFunded = false;    // true when deposit seen (0-conf OK)
+  bool escrowFunded = false; // true when deposit seen (0-conf OK)
   bool escrowConfirmed = false; // true when at least 1 confirmation
   String errorMessage = '';
   List<LocalWaitingRoom> waitingRooms = [];
@@ -103,6 +105,14 @@ class PongModel extends ChangeNotifier {
   String authToken = '';
   bool isWalletAuthenticated = false;
   String walletAddress = '';
+  bool serverIsF2P = false;
+  String serverVersion = "";
+
+  bool get escrowReadyForMatches => escrowId.isNotEmpty && escrowFunded;
+  bool get canJoinRooms => serverIsF2P || escrowReadyForMatches;
+  bool get canCreateRoomNow =>
+      currentWR == null &&
+      (serverIsF2P || (betAmt > 0 && escrowReadyForMatches));
 
   PongModel(this.cfg, this.notificationModel);
 
@@ -110,33 +120,33 @@ class PongModel extends ChangeNotifier {
   Future<void> _initPongClient(Config cfg) async {
     try {
       if (clientId.isEmpty) {
-        throw Exception("clientId is required - wallet authentication must be completed first");
+        throw Exception(
+            "clientId is required - wallet authentication must be completed first");
       }
       if (isConnected) {
         return; // Already initialized
       }
-      
+
       final appDataDir = await defaultAppDataDir();
       final logFilePath = path.join(appDataDir, "logs", "pongui.log");
 
       // Let golib load the authoritative BR config from disk; pass UI config as overrides only.
       // Pass wallet-authenticated clientId as required parameter.
       InitClient initArgs = InitClient(
-        clientId, // Wallet-authenticated clientID (required)
-        cfg.serverAddr,
-        cfg.grpcCertPath,
-        appDataDir,
-        logFilePath,
-        "",
-        cfg.debugLevel,
-        cfg.wantsLogNtfns,
-        cfg.rpcWebsocketURL,
-        cfg.rpcCertPath,
-        cfg.rpcClientCertPath,
-        cfg.rpcClientKeyPath,
-        cfg.rpcUser,
-        cfg.rpcPass,
-      );
+          clientId, // Wallet-authenticated clientID (required)
+          cfg.serverAddr,
+          cfg.grpcCertPath,
+          appDataDir,
+          logFilePath,
+          "",
+          cfg.debugLevel,
+          cfg.wantsLogNtfns,
+          cfg.rpcWebsocketURL,
+          cfg.rpcCertPath,
+          cfg.rpcClientCertPath,
+          cfg.rpcClientKeyPath,
+          cfg.rpcUser,
+          cfg.rpcPass);
 
       developer.log("InitClient args: $initArgs");
 
@@ -144,13 +154,16 @@ class PongModel extends ChangeNotifier {
 
       // clientId should match what we passed in
       if (localInfo.id != clientId) {
-        throw Exception("clientId mismatch: expected $clientId, got ${localInfo.id}");
+        throw Exception(
+            "clientId mismatch: expected $clientId, got ${localInfo.id}");
       }
       nick = localInfo.nick;
+      serverIsF2P = localInfo.serverIsF2P;
+      serverVersion = localInfo.serverVersion ?? "";
 
       // Query initial waiting rooms via golib
       waitingRooms = await Golib.getWaitingRooms();
-      
+
       // Initialize game client (notifications come via golib now)
       print("Initializing game client with clientId: $clientId");
       pongGame = PongGame(clientId);
@@ -168,6 +181,9 @@ class PongModel extends ChangeNotifier {
           switch (n.type) {
             case 'bet_update':
               _handleNtfnBetUpdate(n);
+              break;
+            case 'server_config':
+              _handleNtfnServerConfig(n);
               break;
             case 'game_started':
             case 'gamestarted':
@@ -214,7 +230,11 @@ class PongModel extends ChangeNotifier {
 
   // Apply wallet-based auth: set clientId and initialize client.
   // p2pkAddr: P2PK address from wallet authentication (if provided)
-  Future<void> applyWalletAuth({required String newClientId, String token = '', String address = '', String p2pkAddr = ''}) async {
+  Future<void> applyWalletAuth(
+      {required String newClientId,
+      String token = '',
+      String address = '',
+      String p2pkAddr = ''}) async {
     clientId = newClientId;
     authToken = token;
     isWalletAuthenticated = true;
@@ -229,7 +249,6 @@ class PongModel extends ChangeNotifier {
     notifyListeners();
   }
 
-
   void logout() {
     isWalletAuthenticated = false;
     walletAddress = '';
@@ -243,6 +262,7 @@ class PongModel extends ChangeNotifier {
     escrowConfirmed = false;
     currentWR = null;
     _currentGameState = GameState.idle;
+    serverIsF2P = false;
     // Stop UI notifications subscription
     _uiNtfnSub?.cancel();
     _uiNtfnSub = null;
@@ -279,6 +299,31 @@ class PongModel extends ChangeNotifier {
         ? 'Deposit confirmed ($escrowConfs)'
         : 'Deposit seen (mempool)';
     notifyListeners();
+  }
+
+  void _handleNtfnServerConfig(UINotification n) {
+    final extras = _extrasFrom(n);
+    final flag = extras['is_f2p'];
+    bool next = serverIsF2P;
+    if (flag is bool) {
+      next = flag;
+    } else if (flag is num) {
+      next = flag != 0;
+    } else if (flag is String) {
+      next = flag.toLowerCase() == 'true';
+    }
+    final changed = next != serverIsF2P;
+    serverIsF2P = next;
+    final srvVer = extras['server_version'];
+    if (srvVer is String && srvVer.isNotEmpty) {
+      serverVersion = srvVer;
+    }
+    if (n.text.isNotEmpty) {
+      notificationModel.showNotification(n.text);
+    }
+    if (changed) {
+      notifyListeners();
+    }
   }
 
   void _handleNtfnGameStarted(UINotification n) {
@@ -353,7 +398,8 @@ class PongModel extends ChangeNotifier {
     final extras = _extrasFrom(n);
     final rid = (extras['room_id'] ?? '').toString();
     if (rid.isEmpty) return;
-    waitingRooms = waitingRooms.where((r) => r.id != rid).toList(growable: false);
+    waitingRooms =
+        waitingRooms.where((r) => r.id != rid).toList(growable: false);
     if (currentWR?.id == rid) currentWR = null;
     notifyListeners();
   }
@@ -420,24 +466,31 @@ class PongModel extends ChangeNotifier {
 
   Future<void> createWaitingRoom() async {
     try {
-      if (betAmt <= 0) {
-        errorMessage = "bet amount needs to be higher than 0";
-        notifyListeners();
-        return;
-      }
-      if (escrowId.isEmpty) {
-        errorMessage = "Open escrow first in Settings → Settlement panel";
-        notifyListeners();
-        return;
-      }
-      if (!escrowFunded) {
-        errorMessage = "Wait until escrow deposit is seen before creating a room";
-        notifyListeners();
-        return;
+      final sanitizedBet = betAmt >= 0 ? betAmt : 0;
+      if (!serverIsF2P) {
+        if (sanitizedBet <= 0) {
+          errorMessage = "Set a bet amount before creating a room";
+          notifyListeners();
+          return;
+        }
+        if (escrowId.isEmpty) {
+          errorMessage = "Open escrow first in Settings → Settlement panel";
+          notifyListeners();
+          return;
+        }
+        if (!escrowFunded) {
+          errorMessage =
+              "Wait until escrow deposit is seen before creating a room";
+          notifyListeners();
+          return;
+        }
       }
 
-      CreateWaitingRoomArgs createRoomArgs =
-        CreateWaitingRoomArgs(clientId, betAmt, escrowId: escrowId);
+      CreateWaitingRoomArgs createRoomArgs = CreateWaitingRoomArgs(
+        clientId,
+        sanitizedBet,
+        escrowId: serverIsF2P ? null : escrowId,
+      );
 
       developer.log("CreateWaitingRoom args: $createRoomArgs");
       var roomInfo = await Golib.CreateWaitingRoom(createRoomArgs);
@@ -467,8 +520,21 @@ class PongModel extends ChangeNotifier {
 
   Future<void> joinWaitingRoom(String id) async {
     try {
+      if (!serverIsF2P) {
+        if (escrowId.isEmpty) {
+          errorMessage = "Open escrow first in Settings → Settlement panel";
+          notifyListeners();
+          return;
+        }
+        if (!escrowFunded) {
+          errorMessage = "Fund escrow before joining a room";
+          notifyListeners();
+          return;
+        }
+      }
       // Use the returned room info to immediately update UI state.
-      final roomInfo = await Golib.JoinWaitingRoom(id, escrowId: escrowId);
+      final roomInfo = await Golib.JoinWaitingRoom(id,
+          escrowId: serverIsF2P ? null : escrowId);
 
       // Set current room and ensure list reflects joined state without
       // waiting for async notifications.

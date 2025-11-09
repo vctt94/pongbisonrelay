@@ -118,6 +118,13 @@ class PongGameClient extends $grpc.Client {
 
   PongGameClient(super.channel, {super.options, super.interceptors});
 
+  $grpc.ResponseFuture<$0.InitConnectionResponse> initConnection(
+    $0.InitConnectionRequest request, {
+    $grpc.CallOptions? options,
+  }) {
+    return $createUnaryCall(_$initConnection, request, options: options);
+  }
+
   /// pong game
   $grpc.ResponseFuture<$0.GameUpdate> sendInput(
     $0.PlayerInput request, {
@@ -160,6 +167,11 @@ class PongGameClient extends $grpc.Client {
 
   // method descriptors
 
+  static final _$initConnection =
+      $grpc.ClientMethod<$0.InitConnectionRequest, $0.InitConnectionResponse>(
+          '/pong.PongGame/InitConnection',
+          ($0.InitConnectionRequest value) => value.writeToBuffer(),
+          $0.InitConnectionResponse.fromBuffer);
   static final _$sendInput = $grpc.ClientMethod<$0.PlayerInput, $0.GameUpdate>(
       '/pong.PongGame/SendInput',
       ($0.PlayerInput value) => value.writeToBuffer(),
@@ -191,6 +203,15 @@ abstract class PongGameServiceBase extends $grpc.Service {
   $core.String get $name => 'pong.PongGame';
 
   PongGameServiceBase() {
+    $addMethod($grpc.ServiceMethod<$0.InitConnectionRequest,
+            $0.InitConnectionResponse>(
+        'InitConnection',
+        initConnection_Pre,
+        false,
+        false,
+        ($core.List<$core.int> value) =>
+            $0.InitConnectionRequest.fromBuffer(value),
+        ($0.InitConnectionResponse value) => value.writeToBuffer()));
     $addMethod($grpc.ServiceMethod<$0.PlayerInput, $0.GameUpdate>(
         'SendInput',
         sendInput_Pre,
@@ -235,6 +256,15 @@ abstract class PongGameServiceBase extends $grpc.Service {
             $0.SignalReadyToPlayRequest.fromBuffer(value),
         ($0.SignalReadyToPlayResponse value) => value.writeToBuffer()));
   }
+
+  $async.Future<$0.InitConnectionResponse> initConnection_Pre(
+      $grpc.ServiceCall $call,
+      $async.Future<$0.InitConnectionRequest> $request) async {
+    return initConnection($call, await $request);
+  }
+
+  $async.Future<$0.InitConnectionResponse> initConnection(
+      $grpc.ServiceCall call, $0.InitConnectionRequest request);
 
   $async.Future<$0.GameUpdate> sendInput_Pre(
       $grpc.ServiceCall $call, $async.Future<$0.PlayerInput> $request) async {

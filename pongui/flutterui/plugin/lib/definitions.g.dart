@@ -98,11 +98,15 @@ Map<String, dynamic> _$LocalWaitingRoomToJson(LocalWaitingRoom instance) =>
 LocalInfo _$LocalInfoFromJson(Map<String, dynamic> json) => LocalInfo(
       json['id'] as String,
       json['nick'] as String,
+      serverVersion: json['server_version'] as String? ?? '',
+      serverIsF2P: json['server_is_f2p'] as bool? ?? false,
     );
 
 Map<String, dynamic> _$LocalInfoToJson(LocalInfo instance) => <String, dynamic>{
       'id': instance.id,
       'nick': instance.nick,
+      'server_version': instance.serverVersion,
+      'server_is_f2p': instance.serverIsF2P,
     };
 
 ServerCert _$ServerCertFromJson(Map<String, dynamic> json) => ServerCert(

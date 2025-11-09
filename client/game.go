@@ -151,6 +151,11 @@ func (pc *PongClient) restartNtfnStream(ctx context.Context, initialBackoff time
 
 func (pc *PongClient) handleNtfn(ntfn *pong.NtfnStreamResponse) {
 	switch ntfn.NotificationType {
+	case pong.NotificationType_SERVER_CONFIG:
+		pc.updatesCh <- ntfn
+	case pong.NotificationType_HEARTBEAT:
+		// Keepalive ping; no action required.
+
 	case pong.NotificationType_ON_WR_CREATED:
 		pc.ntfns.notifyOnWRCreated(ntfn.Wr, time.Now())
 		// Forward to updates channel for structured UI updates

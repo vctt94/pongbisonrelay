@@ -56,6 +56,7 @@ class _MainContentState extends State<MainContent> {
   // Welcome state UI
   Widget _buildWelcomeState(BuildContext context) {
     final model = widget.pongModel;
+    final joinDisabledReason = _joinRoomDisabledReason(model);
     return SingleChildScrollView(
       padding: const EdgeInsets.only(bottom: 16),
       child: Column(
@@ -70,10 +71,12 @@ class _MainContentState extends State<MainContent> {
             ),
           ),
           const SizedBox(height: 16),
-          const Padding(
-            padding: EdgeInsets.symmetric(horizontal: 24.0),
+          Padding(
+            padding: const EdgeInsets.symmetric(horizontal: 24.0),
             child: Text(
-              "Open escrow to place a bet. Configure payout in Settings.",
+              model.serverIsF2P
+                  ? "This server is currently Free-to-Play. Create or join a waiting room without an escrow."
+                  : "Open escrow to place a bet. Configure payout in Settings.",
               textAlign: TextAlign.center,
               style: TextStyle(
                 fontSize: 16,
@@ -127,6 +130,8 @@ class _MainContentState extends State<MainContent> {
                 model.waitingRooms,
                 currentRoomId: model.currentWR?.id,
                 onJoinRoom: (roomId) => model.joinWaitingRoom(roomId),
+                canJoinRooms: joinDisabledReason == null,
+                joinDisabledTooltip: joinDisabledReason,
               ),
             ),
         ],
@@ -160,7 +165,7 @@ class _MainContentState extends State<MainContent> {
     final model = widget.pongModel;
     final isWin = model.gameEndingMessage.contains("won");
     final isDraw = model.gameEndingMessage.contains("draw");
-    
+
     return Center(
       child: Container(
         padding: const EdgeInsets.all(32),
@@ -170,7 +175,11 @@ class _MainContentState extends State<MainContent> {
           borderRadius: BorderRadius.circular(20),
           boxShadow: [
             BoxShadow(
-              color: (isWin ? Colors.green : isDraw ? Colors.orange : Colors.red)
+              color: (isWin
+                      ? Colors.green
+                      : isDraw
+                          ? Colors.orange
+                          : Colors.red)
                   .withAlpha(76),
               spreadRadius: 4,
               blurRadius: 15,
@@ -182,23 +191,35 @@ class _MainContentState extends State<MainContent> {
           children: [
             // Game over icon
             Icon(
-              isWin ? Icons.emoji_events : isDraw ? Icons.handshake : Icons.sports_tennis,
+              isWin
+                  ? Icons.emoji_events
+                  : isDraw
+                      ? Icons.handshake
+                      : Icons.sports_tennis,
               size: 80,
-              color: isWin ? Colors.green : isDraw ? Colors.orange : Colors.red,
+              color: isWin
+                  ? Colors.green
+                  : isDraw
+                      ? Colors.orange
+                      : Colors.red,
             ),
             const SizedBox(height: 24),
-            
+
             // Game over title
             Text(
               "Game End!",
               style: TextStyle(
                 fontSize: 32,
                 fontWeight: FontWeight.bold,
-                color: isWin ? Colors.green : isDraw ? Colors.orange : Colors.red,
+                color: isWin
+                    ? Colors.green
+                    : isDraw
+                        ? Colors.orange
+                        : Colors.red,
               ),
             ),
             const SizedBox(height: 16),
-            
+
             // Result message
             Text(
               model.gameEndingMessage,
@@ -210,7 +231,7 @@ class _MainContentState extends State<MainContent> {
               textAlign: TextAlign.center,
             ),
             const SizedBox(height: 32),
-            
+
             // Action buttons
             Row(
               mainAxisAlignment: MainAxisAlignment.spaceEvenly,
@@ -225,7 +246,8 @@ class _MainContentState extends State<MainContent> {
                   style: ElevatedButton.styleFrom(
                     backgroundColor: Colors.blueAccent,
                     foregroundColor: Colors.white,
-                    padding: const EdgeInsets.symmetric(horizontal: 24, vertical: 12),
+                    padding: const EdgeInsets.symmetric(
+                        horizontal: 24, vertical: 12),
                   ),
                 ),
                 ElevatedButton.icon(
@@ -238,7 +260,8 @@ class _MainContentState extends State<MainContent> {
                   style: ElevatedButton.styleFrom(
                     backgroundColor: Colors.green,
                     foregroundColor: Colors.white,
-                    padding: const EdgeInsets.symmetric(horizontal: 24, vertical: 12),
+                    padding: const EdgeInsets.symmetric(
+                        horizontal: 24, vertical: 12),
                   ),
                 ),
               ],
@@ -297,7 +320,8 @@ class _MainContentState extends State<MainContent> {
       Positioned.fill(child: gameCanvas),
 
       // Specific overlays
-      if (state == GameState.gameInitialized) _buildReadyToPlayOverlay(state, model),
+      if (state == GameState.gameInitialized)
+        _buildReadyToPlayOverlay(state, model),
       if (state == GameState.readyToPlay) _buildWaitingForPlayersOverlay(),
       if (state == GameState.countdown) _buildCountdownOverlay(model),
     ];
@@ -320,8 +344,8 @@ class _MainContentState extends State<MainContent> {
           child: Builder(
             builder: (context) => model.pongGame.buildReadyToPlayOverlay(
               context,
-              state == GameState.readyToPlay,  // not ready yet in this state
-              false,                           // no countdown here
+              state == GameState.readyToPlay, // not ready yet in this state
+              false, // no countdown here
               '',
               () => model.signalReadyToPlay(),
               model.gameState ??
@@ -373,6 +397,19 @@ class _MainContentState extends State<MainContent> {
         ),
       ),
     );
+  }
+
+  String? _joinRoomDisabledReason(PongModel model) {
+    if (model.serverIsF2P) {
+      return null;
+    }
+    if (model.escrowId.isEmpty) {
+      return 'Open an escrow in Settings → Settlement to join rooms';
+    }
+    if (!model.escrowFunded) {
+      return 'Fund your escrow before joining a waiting room';
+    }
+    return null;
   }
 }
 

@@ -30,6 +30,9 @@ import (
 const (
 	name    = "pong"
 	version = "v0.0.0"
+
+	WarnSendBlock = 50 * time.Millisecond
+	ErrSendBlock  = 250 * time.Millisecond
 )
 
 type ServerConfig struct {
@@ -456,39 +459,32 @@ func (s *Server) handleGameEnd(ctx context.Context, game *ponggame.GameInstance,
 	}
 
 	// Finalize winner branch and broadcast on server (skip in F2P)
-	if winner != nil && !s.isF2P {
+	if s.isF2P {
+		s.removeWaitingRoom(wr, "Waiting room completed (F2P)")
+		return
+	}
+
+	if winner != nil {
 		// Determine branch index anchored to room host: branch 0 pays host (a), 1 pays non-host (b).
-		winnerBranch := int32(0)
-		var hostUID string
-		if len(players) >= 2 {
-			if players[0].WR != nil && players[0].WR.HostID != nil {
-				hostUID = players[0].WR.HostID.String()
-			} else if players[1].WR != nil && players[1].WR.HostID != nil {
-				hostUID = players[1].WR.HostID.String()
-			}
-			if hostUID != "" && winnerID != hostUID {
-				winnerBranch = 1
-			}
+		wrID := wr.ID
+		host := wr.HostID
+		if host == nil {
+			s.log.Errorf("handleGameEnd: waiting room host nil for wr %s", wrID)
+			return
 		}
-		s.log.Debugf("finalize: computed winnerBranch=%d host=%s winner=%s", winnerBranch, hostUID, winnerID)
+		winnerBranch := int32(0)
+		if host.String() != winnerID {
+			winnerBranch = 1
+		}
 
 		// Look up the winner's escrow session bound to this room and gather presigs for the branch.
-		var wrID string
-		for _, p := range players {
-			if p != nil && p.WR != nil {
-				wrID = p.WR.ID
-				break
-			}
-		}
 		s.roomEscrowsMu.RLock()
 		var es *escrowSession
-		if wrID != "" && s.roomEscrows != nil {
-			if m := s.roomEscrows[*winner]; m != nil {
-				if eid := m[wrID]; eid != "" {
-					s.escrowsMu.RLock()
-					es = s.escrows[eid]
-					s.escrowsMu.RUnlock()
-				}
+		if m := s.roomEscrows[*winner]; m != nil {
+			if eid := m[wrID]; eid != "" {
+				s.escrowsMu.RLock()
+				es = s.escrows[eid]
+				s.escrowsMu.RUnlock()
 			}
 		}
 		s.roomEscrowsMu.RUnlock()
@@ -496,7 +492,7 @@ func (s *Server) handleGameEnd(ctx context.Context, game *ponggame.GameInstance,
 			s.log.Errorf("finalize: no room-bound escrow session found for winner %s in wr %s", winnerID, wrID)
 			return
 		}
-		if es.preSign == nil || len(es.preSign) == 0 {
+		if len(es.preSign) == 0 {
 			s.log.Warnf("finalize: no presign contexts stored for winner %s", winnerID)
 			return
 		}
@@ -573,25 +569,7 @@ func (s *Server) handleGameEnd(ctx context.Context, game *ponggame.GameInstance,
 		}
 		// After game finishes, and tx was successfully broadcasted,
 		// remove the associated waiting room  and escrows.
-		if wr != nil {
-			// Cancel room context to stop any related goroutines.
-			if wr.Cancel != nil {
-				wr.Cancel()
-			}
-
-			// Remove from game manager's waiting rooms list.
-			s.gameManager.RemoveWaitingRoom(wr.ID)
-			// Clean up escrow sessions and room mappings for all players in this room
-			s.cleanupEscrowSessionsForPlayers(wr.Players)
-
-			s.notifyallusers(&pong.NtfnStreamResponse{
-				NotificationType: pong.NotificationType_ON_WR_REMOVED,
-				Message:          "Waiting room has been removed",
-				RoomId:           wrID,
-			})
-
-			s.log.Debugf("Waiting room %s removed after game end", wr.ID)
-		}
+		s.removeWaitingRoom(wr, "Waiting room has been removed")
 		txid := h.String()
 
 		// Notify both players of settlement broadcast.
@@ -602,6 +580,26 @@ func (s *Server) handleGameEnd(ctx context.Context, game *ponggame.GameInstance,
 			})
 		}
 	}
+}
+
+func (s *Server) removeWaitingRoom(wr *ponggame.WaitingRoom, msg string) {
+	if wr == nil {
+		return
+	}
+	if msg == "" {
+		msg = "Waiting room removed"
+	}
+	if wr.Cancel != nil {
+		wr.Cancel()
+	}
+	s.gameManager.RemoveWaitingRoom(wr.ID)
+	s.cleanupEscrowSessionsForPlayers(wr.Players)
+	s.notifyallusers(&pong.NtfnStreamResponse{
+		NotificationType: pong.NotificationType_ON_WR_REMOVED,
+		Message:          msg,
+		RoomId:           wr.ID,
+	})
+	s.log.Debugf("Waiting room %s removed (%s)", wr.ID, msg)
 }
 
 // preSignSnapshot returns a consistent snapshot of the presign state while
@@ -723,9 +721,11 @@ func (s *Server) sendGameUpdates(ctx context.Context, player *ponggame.Player, g
 		return fmt.Errorf("nil FrameCh for player %v", player.ID)
 	}
 
+	lastSend := time.Now()
 	for {
 		select {
 		case <-ctx.Done():
+			s.log.Warnf("sendGameUpdates: context done for player %s with error: %v", player.ID, ctx.Err())
 			return ctx.Err()
 		case frame, ok := <-ch:
 			if !ok {
@@ -736,10 +736,28 @@ func (s *Server) sendGameUpdates(ctx context.Context, player *ponggame.Player, g
 				s.log.Errorf("player %s has no game stream", player.ID)
 				continue
 			}
+			// Keep it for debug reasons for now
+			now := time.Now()
+			gap := now.Sub(lastSend)
+			if gap >= ponggame.ErrGap {
+				s.log.Warnf("sendGameUpdates: gap_since_last_send=%s (>=500ms) player=%s", gap.Truncate(time.Millisecond), player.ID)
+			} else if gap >= ponggame.WarnGap {
+				s.log.Debugf("sendGameUpdates: gap_since_last_send=%s (>=100ms) player=%s", gap.Truncate(time.Millisecond), player.ID)
+			}
+
+			t0 := time.Now()
 			err := player.GameStream.Send(&pong.GameUpdateBytes{Data: frame})
 			if err != nil {
 				return err
 			}
+			// Keep it for debug reasons for now
+			sendDur := time.Since(t0)
+			if sendDur >= ErrSendBlock {
+				s.log.Warnf("sendGameUpdates: Send blocked for %s (>=250ms) player=%s", sendDur.Truncate(time.Millisecond), player.ID)
+			} else if sendDur >= WarnSendBlock {
+				s.log.Debugf("sendGameUpdates: Send blocked for %s (>=50ms) player=%s", sendDur.Truncate(time.Millisecond), player.ID)
+			}
+			lastSend = time.Now()
 		}
 	}
 }
@@ -780,7 +798,10 @@ func (s *Server) handleGameLifecycle(ctx context.Context, wr *ponggame.WaitingRo
 					s.log.Warnf("Failed to notify player %s: %v", player.ID, err)
 				}
 			}
-			s.sendGameUpdates(ctx, player, game)
+			err := s.sendGameUpdates(ctx, player, game)
+			if err != nil {
+				s.log.Errorf("Failed to send game updates to player %s: %v", player.ID, err)
+			}
 		}(player)
 	}
 

@@ -49,23 +49,35 @@ func (e *CanvasEngine) Error() error {
 // NewRound resets the ball, players and starts a new round. It accepts
 // a frames channel to write into and input channel to read from
 func (e *CanvasEngine) NewRound(ctx context.Context, framesch chan<- []byte, inputch <-chan []byte, roundResult chan<- int32) {
-	time.Sleep(time.Second)
 	e.reset()
 
+	intermissionUntil := time.Now().Add(time.Second)
 	// Calculates and writes frames
 	go func() {
 		frameTimer := time.NewTicker(time.Duration(1000.0/e.FPS) * time.Millisecond)
 		defer frameTimer.Stop()
 
+		lastTick := time.Now()
 		for {
 			select {
 			case <-ctx.Done():
 				e.log.Debug("exiting")
 				return
 			case <-frameTimer.C:
+				// Keep it for debug reasons for now
+				now := time.Now()
+				dt := now.Sub(lastTick)
+				lastTick = now
+				if dt >= ErrGap {
+					e.log.Errorf("engine tick gap: %s (>=500ms) fps=%0.1f", dt.Truncate(time.Millisecond), e.FPS)
+				} else if dt >= WarnGap {
+					e.log.Warnf("engine tick gap: %s (>=100ms) fps=%0.1f", dt.Truncate(time.Millisecond), e.FPS)
+				}
 				e.mu.Lock()
 
-				e.tick()
+				if time.Now().After(intermissionUntil) {
+					e.tick()
+				}
 				// round end check: read Err under lock
 				p1win := errors.Is(e.Err, engine.ErrP1Win)
 				p2win := errors.Is(e.Err, engine.ErrP2Win)
@@ -117,6 +129,7 @@ func (e *CanvasEngine) NewRound(ctx context.Context, framesch chan<- []byte, inp
 					case <-ctx.Done():
 						return
 					default:
+						e.log.Warnf("frame channel is full, dropping frame")
 						// Channel is full, drop this frame to prevent blocking
 					}
 				}

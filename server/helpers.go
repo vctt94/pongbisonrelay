@@ -23,6 +23,8 @@ func (s *Server) notify(p *ponggame.Player, resp *pong.NtfnStreamResponse) error
 	if resp == nil {
 		return fmt.Errorf("nil response")
 	}
+	// Include server-wide F2P flag on every notification so clients can align UI.
+	resp.ServerIsF2P = s.isF2P
 	if err := p.NotifierStream.Send(resp); err != nil {
 		s.log.Warnf("notify: failed to deliver to %s: %v", p.ID.String(), err)
 		return err

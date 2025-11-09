@@ -1918,6 +1918,7 @@ class NtfnStreamResponse extends $pb.GeneratedMessage {
     $core.bool? ready,
     MatchAllocatedNtfn? matchAlloc,
     $core.int? confs,
+    $core.bool? serverIsF2p,
   }) {
     final result = create();
     if (notificationType != null) result.notificationType = notificationType;
@@ -1932,6 +1933,7 @@ class NtfnStreamResponse extends $pb.GeneratedMessage {
     if (ready != null) result.ready = ready;
     if (matchAlloc != null) result.matchAlloc = matchAlloc;
     if (confs != null) result.confs = confs;
+    if (serverIsF2p != null) result.serverIsF2p = serverIsF2p;
     return result;
   }
 
@@ -1963,6 +1965,7 @@ class NtfnStreamResponse extends $pb.GeneratedMessage {
     ..aOM<MatchAllocatedNtfn>(11, _omitFieldNames ? '' : 'matchAlloc',
         subBuilder: MatchAllocatedNtfn.create)
     ..aI(12, _omitFieldNames ? '' : 'confs', fieldType: $pb.PbFieldType.OU3)
+    ..aOB(13, _omitFieldNames ? '' : 'serverIsF2p')
     ..hasRequiredFields = false;
 
   @$core.Deprecated('See https://github.com/google/protobuf.dart/issues/998.')
@@ -2096,6 +2099,138 @@ class NtfnStreamResponse extends $pb.GeneratedMessage {
   $core.bool hasConfs() => $_has(11);
   @$pb.TagNumber(12)
   void clearConfs() => $_clearField(12);
+
+  /// Server-wide free-to-play flag so clients can auto-toggle escrow UI gating.
+  @$pb.TagNumber(13)
+  $core.bool get serverIsF2p => $_getBF(12);
+  @$pb.TagNumber(13)
+  set serverIsF2p($core.bool value) => $_setBool(12, value);
+  @$pb.TagNumber(13)
+  $core.bool hasServerIsF2p() => $_has(12);
+  @$pb.TagNumber(13)
+  void clearServerIsF2p() => $_clearField(13);
+}
+
+class InitConnectionRequest extends $pb.GeneratedMessage {
+  factory InitConnectionRequest({
+    $core.String? clientVersion,
+  }) {
+    final result = create();
+    if (clientVersion != null) result.clientVersion = clientVersion;
+    return result;
+  }
+
+  InitConnectionRequest._();
+
+  factory InitConnectionRequest.fromBuffer($core.List<$core.int> data,
+          [$pb.ExtensionRegistry registry = $pb.ExtensionRegistry.EMPTY]) =>
+      create()..mergeFromBuffer(data, registry);
+  factory InitConnectionRequest.fromJson($core.String json,
+          [$pb.ExtensionRegistry registry = $pb.ExtensionRegistry.EMPTY]) =>
+      create()..mergeFromJson(json, registry);
+
+  static final $pb.BuilderInfo _i = $pb.BuilderInfo(
+      _omitMessageNames ? '' : 'InitConnectionRequest',
+      package: const $pb.PackageName(_omitMessageNames ? '' : 'pong'),
+      createEmptyInstance: create)
+    ..aOS(1, _omitFieldNames ? '' : 'clientVersion')
+    ..hasRequiredFields = false;
+
+  @$core.Deprecated('See https://github.com/google/protobuf.dart/issues/998.')
+  InitConnectionRequest clone() => deepCopy();
+  @$core.Deprecated('See https://github.com/google/protobuf.dart/issues/998.')
+  InitConnectionRequest copyWith(
+          void Function(InitConnectionRequest) updates) =>
+      super.copyWith((message) => updates(message as InitConnectionRequest))
+          as InitConnectionRequest;
+
+  @$core.override
+  $pb.BuilderInfo get info_ => _i;
+
+  @$core.pragma('dart2js:noInline')
+  static InitConnectionRequest create() => InitConnectionRequest._();
+  @$core.override
+  InitConnectionRequest createEmptyInstance() => create();
+  @$core.pragma('dart2js:noInline')
+  static InitConnectionRequest getDefault() => _defaultInstance ??=
+      $pb.GeneratedMessage.$_defaultFor<InitConnectionRequest>(create);
+  static InitConnectionRequest? _defaultInstance;
+
+  @$pb.TagNumber(1)
+  $core.String get clientVersion => $_getSZ(0);
+  @$pb.TagNumber(1)
+  set clientVersion($core.String value) => $_setString(0, value);
+  @$pb.TagNumber(1)
+  $core.bool hasClientVersion() => $_has(0);
+  @$pb.TagNumber(1)
+  void clearClientVersion() => $_clearField(1);
+}
+
+class InitConnectionResponse extends $pb.GeneratedMessage {
+  factory InitConnectionResponse({
+    $core.String? serverVersion,
+    $core.bool? isF2p,
+  }) {
+    final result = create();
+    if (serverVersion != null) result.serverVersion = serverVersion;
+    if (isF2p != null) result.isF2p = isF2p;
+    return result;
+  }
+
+  InitConnectionResponse._();
+
+  factory InitConnectionResponse.fromBuffer($core.List<$core.int> data,
+          [$pb.ExtensionRegistry registry = $pb.ExtensionRegistry.EMPTY]) =>
+      create()..mergeFromBuffer(data, registry);
+  factory InitConnectionResponse.fromJson($core.String json,
+          [$pb.ExtensionRegistry registry = $pb.ExtensionRegistry.EMPTY]) =>
+      create()..mergeFromJson(json, registry);
+
+  static final $pb.BuilderInfo _i = $pb.BuilderInfo(
+      _omitMessageNames ? '' : 'InitConnectionResponse',
+      package: const $pb.PackageName(_omitMessageNames ? '' : 'pong'),
+      createEmptyInstance: create)
+    ..aOS(1, _omitFieldNames ? '' : 'serverVersion')
+    ..aOB(2, _omitFieldNames ? '' : 'isF2p')
+    ..hasRequiredFields = false;
+
+  @$core.Deprecated('See https://github.com/google/protobuf.dart/issues/998.')
+  InitConnectionResponse clone() => deepCopy();
+  @$core.Deprecated('See https://github.com/google/protobuf.dart/issues/998.')
+  InitConnectionResponse copyWith(
+          void Function(InitConnectionResponse) updates) =>
+      super.copyWith((message) => updates(message as InitConnectionResponse))
+          as InitConnectionResponse;
+
+  @$core.override
+  $pb.BuilderInfo get info_ => _i;
+
+  @$core.pragma('dart2js:noInline')
+  static InitConnectionResponse create() => InitConnectionResponse._();
+  @$core.override
+  InitConnectionResponse createEmptyInstance() => create();
+  @$core.pragma('dart2js:noInline')
+  static InitConnectionResponse getDefault() => _defaultInstance ??=
+      $pb.GeneratedMessage.$_defaultFor<InitConnectionResponse>(create);
+  static InitConnectionResponse? _defaultInstance;
+
+  @$pb.TagNumber(1)
+  $core.String get serverVersion => $_getSZ(0);
+  @$pb.TagNumber(1)
+  set serverVersion($core.String value) => $_setString(0, value);
+  @$pb.TagNumber(1)
+  $core.bool hasServerVersion() => $_has(0);
+  @$pb.TagNumber(1)
+  void clearServerVersion() => $_clearField(1);
+
+  @$pb.TagNumber(2)
+  $core.bool get isF2p => $_getBF(1);
+  @$pb.TagNumber(2)
+  set isF2p($core.bool value) => $_setBool(1, value);
+  @$pb.TagNumber(2)
+  $core.bool hasIsF2p() => $_has(1);
+  @$pb.TagNumber(2)
+  void clearIsF2p() => $_clearField(2);
 }
 
 /// Waiting Room Messages

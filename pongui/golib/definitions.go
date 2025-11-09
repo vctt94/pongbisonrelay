@@ -1,14 +1,14 @@
 package golib
 
 import (
-    "github.com/companyzero/bisonrelay/client"
-    "github.com/companyzero/bisonrelay/client/clientintf"
-    "github.com/companyzero/bisonrelay/zkidentity"
-    "github.com/vctt94/pongbisonrelay/pongrpc/grpc/pong"
+	"github.com/companyzero/bisonrelay/client"
+	"github.com/companyzero/bisonrelay/client/clientintf"
+	"github.com/companyzero/bisonrelay/zkidentity"
+	"github.com/vctt94/pongbisonrelay/pongrpc/grpc/pong"
 )
 
 type initClient struct {
-	ClientID       string `json:"client_id"`        // Wallet-authenticated clientID (required)
+	ClientID       string `json:"client_id"` // Wallet-authenticated clientID (required)
 	ServerAddr     string `json:"server_addr"`
 	GRPCCertPath   string `json:"grpc_cert_path"`
 	DBRoot         string `json:"dbroot"`
@@ -36,8 +36,10 @@ type createWaitingRoom struct {
 }
 
 type localInfo struct {
-	ID   clientintf.UserID `json:"id"`
-	Nick string            `json:"nick"`
+	ID            clientintf.UserID `json:"id"`
+	Nick          string            `json:"nick"`
+	ServerVersion string            `json:"server_version,omitempty"`
+	ServerIsF2P   bool              `json:"server_is_f2p,omitempty"`
 }
 
 // Settlement/escrow payloads
@@ -65,24 +67,24 @@ type waitingRoom struct {
 }
 
 type player struct {
-    UID    string `json:"uid"`
-    Nick   string `json:"nick"`
-    BetAmt int64  `json:"bet_amt"`
-    Ready  bool   `json:"ready"`
+	UID    string `json:"uid"`
+	Nick   string `json:"nick"`
+	BetAmt int64  `json:"bet_amt"`
+	Ready  bool   `json:"ready"`
 }
 
 func playerFromServer(p *pong.Player) (*player, error) {
-    var id zkidentity.ShortID
-    err := id.FromString(p.Uid)
-    if err != nil {
-        return nil, err
-    }
-    return &player{
-        UID:    id.String(),
-        Nick:   p.Nick,
-        BetAmt: p.BetAmt,
-        Ready:  p.Ready,
-    }, nil
+	var id zkidentity.ShortID
+	err := id.FromString(p.Uid)
+	if err != nil {
+		return nil, err
+	}
+	return &player{
+		UID:    id.String(),
+		Nick:   p.Nick,
+		BetAmt: p.BetAmt,
+		Ready:  p.Ready,
+	}, nil
 }
 
 const (
@@ -119,14 +121,14 @@ type runState struct {
 
 // Wallet-auth request payloads for golib (used before InitClient).
 type requestNonceArgs struct {
-    ServerAddr   string `json:"server_addr"`
-    GRPCCertPath string `json:"grpc_cert_path"`
+	ServerAddr   string `json:"server_addr"`
+	GRPCCertPath string `json:"grpc_cert_path"`
 }
 
 type verifyLoginArgs struct {
-    ServerAddr   string `json:"server_addr"`
-    GRPCCertPath string `json:"grpc_cert_path"`
-    Address      string `json:"address"`
-    Nonce        string `json:"nonce"`
-    Signature    string `json:"signature"`
+	ServerAddr   string `json:"server_addr"`
+	GRPCCertPath string `json:"grpc_cert_path"`
+	Address      string `json:"address"`
+	Nonce        string `json:"nonce"`
+	Signature    string `json:"signature"`
 }
