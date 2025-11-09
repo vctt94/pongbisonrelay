@@ -1,14 +1,14 @@
 package golib
 
 import (
-    "encoding/json"
-    "fmt"
-    "encoding/base64"
-    "net/http"
-    _ "net/http/pprof"
-    "os"
-    "sync"
-    "sync/atomic"
+	"encoding/base64"
+	"encoding/json"
+	"fmt"
+	"net/http"
+	_ "net/http/pprof"
+	"os"
+	"sync"
+	"sync/atomic"
 	"time"
 
 	"github.com/companyzero/bisonrelay/client"
@@ -40,10 +40,10 @@ const (
 	CTVerifyLogin  = 0x10
 
 	// Player action commands (migrated from Dart gRPC)
-	CTSendInput          = 0x11
-	CTSignalReadyToPlay  = 0x12
-	CTUnreadyGameStream  = 0x13
-	CTStartGameStream    = 0x14
+	CTSendInput         = 0x11
+	CTSignalReadyToPlay = 0x12
+	CTUnreadyGameStream = 0x13
+	CTStartGameStream   = 0x14
 
 	CTCreateLockFile        = 0x60
 	CTCloseLockFile         = 0x61
@@ -54,13 +54,13 @@ const (
 	CTZipTimedProfilingLogs = 0x87
 	CTEnableTimedProfiling  = 0x89
 
-    NTUINotification = 0x1001
-    NTClientStopped  = 0x1002
-    NTLogLine        = 0x1003
-    NTNOP            = 0x1004
-    NTWRCreated      = 0x1005
-    // High-frequency game frames (raw bytes of pong.GameUpdate)
-    NTGameFrame      = 0x1011
+	NTUINotification = 0x1001
+	NTClientStopped  = 0x1002
+	NTLogLine        = 0x1003
+	NTNOP            = 0x1004
+	NTWRCreated      = 0x1005
+	// High-frequency game frames (raw bytes of pong.GameUpdate)
+	NTGameFrame = 0x1011
 )
 
 type cmd struct {
@@ -86,7 +86,17 @@ type CmdResultLoopCB interface {
 	UINtfn(text string, nick string, ts int64)
 }
 
-var cmdResultChan = make(chan *CmdResult)
+// Buffered channel to prevent blocking when FFI isolate can't keep up with high-frequency frames.
+// Buffer size of 200 allows ~3 seconds of frames at 60fps before blocking.
+var cmdResultChan = make(chan *CmdResult, 200)
+
+// Tracks dropped NTGameFrame notifications when cmdResultChan is full.
+var ntGameFrameDrops atomic.Uint64
+
+// GetAndResetNTGameFrameDrops returns the number of NTGameFrame drops since the last call and resets the counter.
+func GetAndResetNTGameFrameDrops() uint64 {
+	return ntGameFrameDrops.Swap(0)
+}
 
 func call(cmd *cmd) *CmdResult {
 	var v interface{}
@@ -211,26 +221,44 @@ func AsyncCallStr(typ CmdType, id, clientHandle int32, payload string) {
 }
 
 func notify(typ CmdType, payload interface{}, err error) {
-    var resPayload []byte
-    if err == nil {
-        switch v := payload.(type) {
-        case []byte:
-            // Pass-through raw bytes (used by NTGameFrame)
-            resPayload = v
-        default:
-            resPayload, err = json.Marshal(payload)
-        }
-    }
+	var resPayload []byte
+	if err == nil {
+		switch v := payload.(type) {
+		case []byte:
+			// Pass-through raw bytes (used by NTGameFrame)
+			resPayload = v
+		default:
+			resPayload, err = json.Marshal(payload)
+		}
+	}
 
-    r := &CmdResult{Type: typ, Err: err, Payload: resPayload}
-    cmdResultChan <- r
+	r := &CmdResult{Type: typ, Err: err, Payload: resPayload}
+
+	// For high-frequency game frames, use non-blocking send to avoid blocking
+	// the command handler when the FFI isolate is slow.
+	if typ == NTGameFrame {
+		select {
+		case cmdResultChan <- r:
+			// Frame sent successfully
+		default:
+			// Buffer full, drop frame to avoid blocking.
+			// Track drop for per-second visibility on the producer side.
+			ntGameFrameDrops.Add(1)
+			fmt.Println("cmdResultChan full, dropping frame") // keep existing visibility
+			// Buffer full, drop frame to avoid blocking
+			// This prevents the command handler from stalling when FFI isolate is slow
+		}
+	} else {
+		// For other notifications, blocking send is fine (they're low-frequency)
+		cmdResultChan <- r
+	}
 }
 
 func NextCmdResult() *CmdResult {
 	select {
 	case r := <-cmdResultChan:
 		return r
-	case <-time.After(time.Second): // Timeout.
+	case <-time.After(16 * time.Millisecond): // Short timeout to avoid long stalls when idle.
 		return &CmdResult{Type: NTNOP, Payload: []byte{}}
 	}
 }
@@ -334,21 +362,21 @@ func CmdResultLoop(cb CmdResultLoopCB, onlyBgNtfns bool) int32 {
 
 			// If the flutter engine is attached to the process,
 			// deliver the event so that it can be processed.
-            if !onlyBgNtfns {
-                var errMsg, payload string
-                if r.Err != nil {
-                    errMsg = r.Err.Error()
-                }
-                if len(r.Payload) > 0 {
-                    if r.Type == NTGameFrame {
-                        // Encode as base64 for mobile transports that only support string payloads.
-                        payload = base64.StdEncoding.EncodeToString(r.Payload)
-                    } else {
-                        payload = string(r.Payload)
-                    }
-                }
-                cb.F(r.ID, r.Type, payload, errMsg)
-            }
+			if !onlyBgNtfns {
+				var errMsg, payload string
+				if r.Err != nil {
+					errMsg = r.Err.Error()
+				}
+				if len(r.Payload) > 0 {
+					if r.Type == NTGameFrame {
+						// Encode as base64 for mobile transports that only support string payloads.
+						payload = base64.StdEncoding.EncodeToString(r.Payload)
+					} else {
+						payload = string(r.Payload)
+					}
+				}
+				cb.F(r.ID, r.Type, payload, errMsg)
+			}
 
 			// Emit a background ntfn if the flutter engine is
 			// deatched or if it is attached but paused/on

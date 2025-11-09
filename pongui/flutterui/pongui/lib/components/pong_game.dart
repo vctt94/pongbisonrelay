@@ -43,12 +43,30 @@ class PongGame {
   final String clientId;
   final InputThrottler _throttler = InputThrottler();
 
+  // lightweight input logs (per second)
+  int _keysDown = 0;
+  int _keysUp = 0;
+  int _pans = 0;
+  int _lastInputLogMs = DateTime.now().millisecondsSinceEpoch;
+  void _maybeLogInputs() {
+    final nowMs = DateTime.now().millisecondsSinceEpoch;
+    if (nowMs - _lastInputLogMs >= 1000) {
+      debugPrint('[input] keyDown=$_keysDown keyUp=$_keysUp pan=$_pans');
+      _keysDown = 0;
+      _keysUp = 0;
+      _pans = 0;
+      _lastInputLogMs = nowMs;
+    }
+  }
+
   PongGame(this.clientId);
 
   Widget buildWidget(GameUpdate gameState, FocusNode focusNode, {VoidCallback? onReadyHotkey}) {
     return GestureDetector(
       onPanUpdate: (details) {
         _throttler.update(details.delta.dy);
+        _pans++;
+        _maybeLogInputs();
       },
       onPanEnd: (details) {
         _throttler.stop();
@@ -59,6 +77,8 @@ class PongGame {
           focusNode: focusNode..requestFocus(),
           onKeyEvent: (KeyEvent event) {
             if (event is KeyDownEvent || event is KeyRepeatEvent) {
+              _keysDown++;
+              _maybeLogInputs();
               String keyLabel = event.logicalKey.keyLabel;
               if (onReadyHotkey != null) {
                 if (event.logicalKey == LogicalKeyboardKey.space || keyLabel == 'r' || keyLabel == 'R') {
@@ -68,6 +88,8 @@ class PongGame {
               }
               handleInput(clientId, keyLabel);
             } else if (event is KeyUpEvent) {
+              _keysUp++;
+              _maybeLogInputs();
               String keyLabel = event.logicalKey.keyLabel;
               if (keyLabel == 'W' || keyLabel == 'Arrow Up') {
                 stopPaddleMovement(clientId, 'ArrowUpStop');

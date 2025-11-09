@@ -11,8 +11,8 @@ import 'package:flutter/foundation.dart'; // for debugPrint
 
 part 'definitions.g.dart';
 
-// Isolate entry point: decode protobuf -> pack compact typed payload
-// (float32 + int32) and send back as TransferableTypedData.
+// Isolate entry point: decode protobuf -> build a plain Map payload
+// (numbers only) that can cross isolates efficiently.
 void _frameDecodeIsolate(SendPort mainPort) {
   final inbox = ReceivePort();
   mainPort.send(inbox.sendPort);
@@ -448,17 +448,75 @@ mixin NtfStreams {
   final _gameUpdatesCtrl = StreamController<GameUpdate>.broadcast();
   Stream<GameUpdate> get gameUpdates => _gameUpdatesCtrl.stream;
 
-  // --- simplified decoder pipeline (no isolate) ---
-  Uint8List? _pendingRaw; // keep only the newest raw frame
-  bool _decoding = false; // serialize decode work
-  bool _disposed = false;
+  // Perf stats stream for UI overlays / debugging.
+  final _perfStatsCtrl = StreamController<PerfStats>.broadcast();
+  Stream<PerfStats> get perfStats => _perfStatsCtrl.stream;
 
-  // Optional frame gate: cap emits to ~120 fps to avoid flooding UI.
-  int _lastEmitMicros = 0;
-  static const _minEmitIntervalUs = 8000; // 8ms ≈ 125fps
+  // --- simplified decoder pipeline (no isolate) ---
+  // Keep only the latest raw frame to bound backlog during bursts.
+  final List<Uint8List> _frameQueue = <Uint8List>[]; // capacity effectively 1
+  bool _decoding = false; // true while draining the queue
+  bool _disposed = false;
+  // Small jitter buffer: decode as fast as possible, present at steady cadence.
+
+  // Track last emit time (for stall warnings only; no gating)
+  final int _lastEmitMicros = 0;
+
+  // Perf logging (no behavior change)
+  Timer? _perfTimer;
+  // No render timer: UI drives rendering on its own (e.g. via vsync/RenderLoop).
+  int _framesIn = 0;        // frames received from FFI isolate
+  int _framesDecoded = 0;   // frames decoded and emitted
+  // No drop counter now that gating is removed
+  final Stopwatch _decodeSw = Stopwatch();
+  int _lastDecodeMs = 0;
+  int _maxDecodeMs = 0;
+  int _qMax = 0;            // peak queue size per second
+  int _ffiFwd = 0;          // last forwarded frames/sec from FFI isolate
+  // jitter (ms) for incoming notifications and emitted frames
+  int _inDtMin = 1<<30, _inDtMax = 0, _inDtSum = 0, _inDtCount = 0;
+  int _outDtMin = 1<<30, _outDtMax = 0, _outDtSum = 0, _outDtCount = 0;
 
   // call this from your existing notification hook
   void handleNotifications(int cmd, bool isError, Object? payload) {
+    // Start periodic perf log the first time we receive anything.
+    _perfTimer ??= Timer.periodic(const Duration(seconds: 1), (_) {
+      final nowUs = DateTime.now().microsecondsSinceEpoch;
+      final sinceLastUs = nowUs - _lastEmitMicros;
+      final sinceLastMs = sinceLastUs > 0 ? (sinceLastUs ~/ 1000) : 0;
+      debugPrint('[ui] frames in=$_framesIn out=$_framesDecoded decode=${_lastDecodeMs}ms max=${_maxDecodeMs}ms');
+      final inAvg = _inDtCount > 0 ? (_inDtSum ~/ _inDtCount) : 0;
+      final outAvg = _outDtCount > 0 ? (_outDtSum ~/ _outDtCount) : 0;
+      // Push stats to UI subscribers.
+      try {
+        if (!_perfStatsCtrl.isClosed) {
+          _perfStatsCtrl.add(PerfStats(
+            framesIn: _framesIn,
+            framesOut: _framesDecoded,
+            decodeLastMs: _lastDecodeMs,
+            decodeMaxMs: _maxDecodeMs,
+            queueLen: _frameQueue.length,
+            queueMax: _qMax,
+            sinceLastEmitMs: sinceLastMs,
+            ffiFwd: _ffiFwd,
+            inDtMin: (_inDtCount > 0 && _inDtMin < (1<<30)) ? _inDtMin : 0,
+            inDtAvg: inAvg,
+            inDtMax: _inDtMax,
+            outDtMin: (_outDtCount > 0 && _outDtMin < (1<<30)) ? _outDtMin : 0,
+            outDtAvg: outAvg,
+            outDtMax: _outDtMax,
+          ));
+        }
+      } catch (_) {}
+      // reset for next interval
+      _framesIn = 0;
+      _framesDecoded = 0;
+      _maxDecodeMs = 0;
+      _qMax = 0;
+      _inDtMin = 1<<30; _inDtMax = 0; _inDtSum = 0; _inDtCount = 0;
+      _outDtMin = 1<<30; _outDtMax = 0; _outDtSum = 0; _outDtCount = 0;
+
+    });
     switch (cmd) {
       case NTNOP:
         break;
@@ -482,17 +540,27 @@ mixin NtfStreams {
 
       case NTGameFrame:
         // payload is raw bytes of your packed GameUpdate.
-        if (payload is Uint8List) {
-          _pendingRaw = payload; // overwrite → drop older frames
-          if (!_decoding) {
-            // decode soon, but off the hot path
-            scheduleMicrotask(_drainDecode);
-          }
+        final raw = (payload as TransferableTypedData).materialize().asUint8List();
+        _framesIn++;
+        _frameQueue.add(raw); // enqueue; no drop/coalesce
+        if (!_decoding) {
+          // Start draining the queue soon, off the hot path
+          scheduleMicrotask(_drainDecode);
         }
         break;
 
       case NTClientStopped:
         // optional: surface a UI event here
+        break;
+
+      case NTPerfFwd:
+        // Per-second forwarded count reported by FFI isolate.
+        if (payload is int) {
+          _ffiFwd = payload;
+        } else if (payload is String) {
+          final v = int.tryParse(payload.trim());
+          if (v != null) _ffiFwd = v;
+        }
         break;
 
       default:
@@ -502,33 +570,35 @@ mixin NtfStreams {
 
   void _drainDecode() {
     if (_disposed) return;
-    final raw = _pendingRaw;
-    if (raw == null) {
+    if (_frameQueue.isEmpty) {
       _decoding = false;
       return;
     }
-    _pendingRaw = null;
     _decoding = true;
+    final raw = _frameQueue.removeAt(0);
 
     try {
       // Decode protobuf payload sent by Go server.
-      // Previously this expected a pre-packed float buffer; now we parse
-      // the canonical proto and emit it directly.
+      _decodeSw
+        ..reset()
+        ..start();
       final gu = GameUpdate.fromBuffer(raw);
+      _decodeSw.stop();
+      _lastDecodeMs = _decodeSw.elapsedMilliseconds;
+      if (_lastDecodeMs > _maxDecodeMs) _maxDecodeMs = _lastDecodeMs;
 
-      // fps gate (drop oversupply)
-      final nowUs = DateTime.now().microsecondsSinceEpoch;
-      if (nowUs - _lastEmitMicros >= _minEmitIntervalUs) {
-        _lastEmitMicros = nowUs;
-        if (!_gameUpdatesCtrl.isClosed) _gameUpdatesCtrl.add(gu);
-      }
+      // Emit immediately: UI rendering cadence is driven elsewhere (no present queue).
+      if (!_gameUpdatesCtrl.isClosed) _gameUpdatesCtrl.add(gu);
+      _framesDecoded++;
     } catch (e, st) {
       debugPrint('Failed to decode game frame: $e\n$st');
     } finally {
       _decoding = false;
-      // if a newer frame arrived while decoding, handle it next
-      if (_pendingRaw != null && !_disposed) {
+      // Continue draining if there are more frames queued.
+      if (!_disposed && _frameQueue.isNotEmpty) {
         scheduleMicrotask(_drainDecode);
+      } else {
+        _decoding = false;
       }
     }
   }
@@ -536,6 +606,8 @@ mixin NtfStreams {
   // call when your owning object is disposed
   void disposeNtfStreams() {
     _disposed = true;
+    _perfTimer?.cancel();
+    _perfStatsCtrl.close();
     _acceptedInvitesCtrl.close();
     _logLinesCtrl.close();
     _rescanProgressCtrl.close();
@@ -566,6 +638,8 @@ abstract class PluginPlatform {
   Stream<UINotification> get uiNotifications => throw "unimplemented";
   // Expose binary game updates decoded into GameUpdate objects.
   Stream<GameUpdate> get gameUpdates => throw "unimplemented";
+  // Expose perf stats for debugging overlays.
+  Stream<PerfStats> get perfStats => throw "unimplemented";
   // No separate structured stream.
 
   Future<dynamic> asyncCall(int cmd, dynamic payload) async =>
@@ -639,8 +713,7 @@ abstract class PluginPlatform {
     }).toList();
   }
 
-  Future<LocalWaitingRoom> JoinWaitingRoom(String id,
-      {String? escrowId}) async {
+  Future<LocalWaitingRoom> JoinWaitingRoom(String id, {String? escrowId}) async {
     try {
       // Always send JSON object so golib handler can consistently parse
       final payload = {
@@ -762,3 +835,39 @@ const int NTLogLine = 0x1003;
 const int NTNOP = 0x1004;
 // Binary game frame (raw pong.GameUpdate bytes)
 const int NTGameFrame = 0x1011;
+// Per-second forwarded NTGameFrame count from FFI isolate
+const int NTPerfFwd   = 0x10f0;
+// Lightweight perf stats the UI can subscribe to for debugging spikes.
+class PerfStats {
+  final int framesIn;
+  final int framesOut;
+  final int decodeLastMs;
+  final int decodeMaxMs;
+  final int queueLen;
+  final int queueMax;
+  final int sinceLastEmitMs;
+  final int ffiFwd;
+  final int inDtMin;
+  final int inDtAvg;
+  final int inDtMax;
+  final int outDtMin;
+  final int outDtAvg;
+  final int outDtMax;
+
+  const PerfStats({
+    required this.framesIn,
+    required this.framesOut,
+    required this.decodeLastMs,
+    required this.decodeMaxMs,
+    required this.queueLen,
+    required this.queueMax,
+    required this.sinceLastEmitMs,
+    required this.ffiFwd,
+    required this.inDtMin,
+    required this.inDtAvg,
+    required this.inDtMax,
+    required this.outDtMin,
+    required this.outDtAvg,
+    required this.outDtMax,
+  });
+}

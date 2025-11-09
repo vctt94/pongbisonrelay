@@ -6,7 +6,6 @@ import 'package:flutter/cupertino.dart';
 import 'package:golib_plugin/definitions.dart';
 import 'dart:ffi';
 import 'dart:isolate';
-import 'dart:typed_data';
 import 'desktop_dynlib.dart';
 
 class _ReadStrData {
@@ -37,9 +36,51 @@ void _readAsyncResultsIsolate(SendPort sp) async {
   var buffSize = 1024 * 1024;
   var buff = calloc.allocate<Uint8>(buffSize);
 
+  // Perf counters (logs once per second) — no behavioral change.
+  var lastLog = DateTime.now();
+  int framesForwarded = 0; // NTGameFrame forwarded to main isolate
+  // Inter-arrival metrics for NTGameFrame (helps detect isolate stalls).
+  int lastFrameUs = 0;
+  int maxGapMs = 0;
+  int sumGapMs = 0;
+  int gapCount = 0;
+  int gapsOver100 = 0;
+  int gapsOver500 = 0;
+  // Per-iteration timing metrics to localize stalls.
+  int nativeMaxMs = 0, nativeSumMs = 0, nativeCount = 0;
+  int copyMaxUs = 0, copySumUs = 0, copyCount = 0;
+  int sendMaxUs = 0, sendSumUs = 0, sendCount = 0;
+  int payloadMax = 0;
+  // Whole-loop heartbeat to detect isolate stalls irrespective of producer output.
+  int loopLastUs = 0;
+  int loopMaxGapMs = 0;
+  int loopGapsOver100 = 0;
+  int loopGapsOver500 = 0;
+
   await Future.delayed(const Duration(seconds: 1));
   for (;;) {
+    // Loop heartbeat at the very start of the iteration.
+    final tLoopStartUs = DateTime.now().microsecondsSinceEpoch;
+    if (loopLastUs != 0) {
+      final loopGapMs = ((tLoopStartUs - loopLastUs) / 1000).round();
+      if (loopGapMs > loopMaxGapMs) loopMaxGapMs = loopGapMs;
+      if (loopGapMs >= 100) loopGapsOver100++;
+      if (loopGapMs >= 500) loopGapsOver500++;
+    }
+    loopLastUs = tLoopStartUs;
+
+    final tStartUs = DateTime.now().microsecondsSinceEpoch;
     var nr = nextCallResult();
+    // Skip forwarding idle heartbeats to reduce message pressure on the main isolate.
+    if (nr.cmdType == NTNOP) {
+      // No payload copy or send for NTNOP
+      continue;
+    }
+    final tAfterNativeUs = DateTime.now().microsecondsSinceEpoch;
+    final nativeMs = ((tAfterNativeUs - tStartUs) / 1000).round();
+    nativeSumMs += nativeMs;
+    nativeCount++;
+    if (nativeMs > nativeMaxMs) nativeMaxMs = nativeMs;
 
     // Resize response reading buffer if needed.
     if (nr.payloadLen > buffSize) {
@@ -49,20 +90,83 @@ void _readAsyncResultsIsolate(SendPort sp) async {
     }
 
     // Copy the payload.
+    final tCopyStartUs = DateTime.now().microsecondsSinceEpoch;
     var rid = copyCallResult(nr.handle, buff.cast<Utf8>());
+    final tCopyEndUs = DateTime.now().microsecondsSinceEpoch;
+    final copyUs = (tCopyEndUs - tCopyStartUs);
+    copySumUs += copyUs;
+    copyCount++;
+    if (copyUs > copyMaxUs) copyMaxUs = copyUs;
     // Decode payload according to cmdType
     dynamic payload;
     final view = buff.asTypedList(nr.payloadLen);
     if (nr.cmdType == NTGameFrame) {
       // Copy into a new list since buffer is reused
-      payload = Uint8List.fromList(view);
+      // Send as TransferableTypedData to avoid cross-isolate payload copy
+      // and avoid an extra intermediate allocation.
+      payload = TransferableTypedData.fromList([view]);
+      framesForwarded++;
+      if (nr.payloadLen > payloadMax) payloadMax = nr.payloadLen;
+      // Compute inter-arrival gap
+      final nowUs = DateTime.now().microsecondsSinceEpoch;
+      if (lastFrameUs != 0) {
+        final gapMs = ((nowUs - lastFrameUs) / 1000).round();
+        if (gapMs > maxGapMs) maxGapMs = gapMs;
+        sumGapMs += gapMs;
+        gapCount++;
+        if (gapMs >= 100) gapsOver100++;
+        if (gapMs >= 500) {
+          gapsOver500++;
+          // Immediate warning for large gaps can be noisy; rely on per-second summary.
+        }
+      }
+      lastFrameUs = nowUs;
     } else {
       payload = utf8.decode(view);
     }
 
     // Send the response.
+    final tSendStartUs = DateTime.now().microsecondsSinceEpoch;
     var res = [rid, nr.isErr == 1, nr.cmdType, payload];
     sp.send(res);
+    final tSendEndUs = DateTime.now().microsecondsSinceEpoch;
+    final sendUs = (tSendEndUs - tSendStartUs);
+    sendSumUs += sendUs;
+    sendCount++;
+    if (sendUs > sendMaxUs) sendMaxUs = sendUs;
+
+    // Periodic perf log (once per second) — helps track frame rates.
+    final now = DateTime.now();
+    if (now.difference(lastLog).inSeconds >= 1) {
+      final avgGap = gapCount > 0 ? (sumGapMs ~/ gapCount) : 0;
+      final avgNative = nativeCount > 0 ? (nativeSumMs ~/ nativeCount) : 0;
+      final avgCopyUs = copyCount > 0 ? (copySumUs ~/ copyCount) : 0;
+      final avgSendUs = sendCount > 0 ? (sendSumUs ~/ sendCount) : 0;
+      print('[ffi-isolate] NTGameFrame fwd=$framesForwarded '
+          'gap_max=${maxGapMs}ms gap_avg=${avgGap}ms gap>=100ms=$gapsOver100 gap>=500ms=$gapsOver500 '
+          'loop_gap_max=${loopMaxGapMs}ms loop_gap>=100ms=$loopGapsOver100 loop_gap>=500ms=$loopGapsOver500 '
+          'native_max=${nativeMaxMs}ms native_avg=${avgNative}ms '
+          'copy_max=${copyMaxUs}us copy_avg=${avgCopyUs}us '
+          'send_max=${sendMaxUs}us send_avg=${avgSendUs}us '
+          'payload_max=${payloadMax}B');
+      // Also send a perf notification to the UI isolate.
+      sp.send([0, false, NTPerfFwd, framesForwarded]);
+      // Reset counters for next interval.
+      framesForwarded = 0;
+      maxGapMs = 0;
+      sumGapMs = 0;
+      gapCount = 0;
+      gapsOver100 = 0;
+      gapsOver500 = 0;
+      loopMaxGapMs = 0;
+      loopGapsOver100 = 0;
+      loopGapsOver500 = 0;
+      nativeMaxMs = 0; nativeSumMs = 0; nativeCount = 0;
+      copyMaxUs = 0; copySumUs = 0; copyCount = 0;
+      sendMaxUs = 0; sendSumUs = 0; sendCount = 0;
+      payloadMax = 0;
+      lastLog = now;
+    }
   }
 }
 
