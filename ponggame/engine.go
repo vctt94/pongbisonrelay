@@ -69,9 +69,9 @@ func (e *CanvasEngine) NewRound(ctx context.Context, framesch chan<- []byte, inp
 				dt := now.Sub(lastTick)
 				lastTick = now
 				if dt >= ErrGap {
-					e.log.Errorf("tick gap: %v", dt)
+					e.log.Errorf("engine tick gap: %s (>=500ms) fps=%0.1f", dt.Truncate(time.Millisecond), e.FPS)
 				} else if dt >= WarnGap {
-					e.log.Warnf("tick gap: %v", dt)
+					e.log.Warnf("engine tick gap: %s (>=100ms) fps=%0.1f", dt.Truncate(time.Millisecond), e.FPS)
 				}
 				e.mu.Lock()
 

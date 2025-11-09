@@ -283,8 +283,8 @@ func (g *GameInstance) Run() {
 
 	// Wait for players to be ready before starting the actual game
 	go func() {
-		// Check every 50ms if both players are ready
-		ticker := time.NewTicker(50 * time.Millisecond)
+		// Check every 16ms(~ 60fps) if both players are ready (reduce startup latency)
+		ticker := time.NewTicker(16 * time.Millisecond)
 		defer ticker.Stop()
 
 		for {
@@ -538,13 +538,12 @@ func (g *GameInstance) distributeFrames() {
 
 			// Keep it for debug reasons for now
 			now := time.Now()
-			if lastRead.IsZero() {
+			if !lastRead.IsZero() {
 				dt := now.Sub(lastRead)
-				lastRead = now
 				if dt >= ErrGap {
-					g.log.Errorf("read gap: %v", dt)
+					g.log.Errorf("distributeFrames gap: %s (>=500ms)", dt.Truncate(time.Millisecond))
 				} else if dt >= WarnGap {
-					g.log.Warnf("read gap: %v", dt)
+					g.log.Warnf("distributeFrames gap: %s (>=100ms)", dt.Truncate(time.Millisecond))
 				}
 			}
 			lastRead = now
@@ -599,11 +598,11 @@ func (g *GameInstance) distributeFrames() {
 			// Keep it for debug reasons for now
 			if time.Since(lastLog) >= time.Second {
 				if drainCount > 0 || dropCount > 0 {
-					g.log.Infof("drainCount: %d, dropCount: %d", drainCount, dropCount)
+					g.log.Warnf("distributeFrames stats: drained=%d dropped=%d", drainCount, dropCount)
 					drainCount = 0
 					dropCount = 0
 				}
-				lastLog = now
+				lastLog = time.Now()
 			}
 		}
 	}

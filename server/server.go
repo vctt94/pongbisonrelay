@@ -740,10 +740,11 @@ func (s *Server) sendGameUpdates(ctx context.Context, player *ponggame.Player, g
 			now := time.Now()
 			gap := now.Sub(lastSend)
 			if gap >= ponggame.ErrGap {
-				s.log.Errorf("send gap: %v", gap)
+				s.log.Warnf("sendGameUpdates: gap_since_last_send=%s (>=500ms) player=%s", gap.Truncate(time.Millisecond), player.ID)
 			} else if gap >= ponggame.WarnGap {
-				s.log.Warnf("send gap: %v", gap)
+				s.log.Debugf("sendGameUpdates: gap_since_last_send=%s (>=100ms) player=%s", gap.Truncate(time.Millisecond), player.ID)
 			}
+
 			t0 := time.Now()
 			err := player.GameStream.Send(&pong.GameUpdateBytes{Data: frame})
 			if err != nil {
@@ -752,9 +753,9 @@ func (s *Server) sendGameUpdates(ctx context.Context, player *ponggame.Player, g
 			// Keep it for debug reasons for now
 			sendDur := time.Since(t0)
 			if sendDur >= ErrSendBlock {
-				s.log.Errorf("send block: %v", sendDur)
+				s.log.Warnf("sendGameUpdates: Send blocked for %s (>=250ms) player=%s", sendDur.Truncate(time.Millisecond), player.ID)
 			} else if sendDur >= WarnSendBlock {
-				s.log.Warnf("send block: %v", sendDur)
+				s.log.Debugf("sendGameUpdates: Send blocked for %s (>=50ms) player=%s", sendDur.Truncate(time.Millisecond), player.ID)
 			}
 			lastSend = time.Now()
 		}
