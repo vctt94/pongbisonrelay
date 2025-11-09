@@ -109,6 +109,11 @@ func (s *Server) CreateWaitingRoom(ctx context.Context, req *pong.CreateWaitingR
 
 		pongWR := wr.Marshal()
 
+		s.notifyallusers(&pong.NtfnStreamResponse{
+			NotificationType: pong.NotificationType_ON_WR_CREATED,
+			Wr:               pongWR,
+		})
+
 		return &pong.CreateWaitingRoomResponse{Wr: pongWR}, nil
 	}
 

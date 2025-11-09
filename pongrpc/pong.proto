@@ -183,6 +183,7 @@ enum NotificationType {
   GAME_READY_TO_PLAY = 12;
   MATCH_ALLOCATED = 13;
   SERVER_CONFIG = 14;
+  HEARTBEAT = 15; // periodic keepalive so clients keep the stream open
 }
 
 message MatchAllocatedNtfn {

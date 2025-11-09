@@ -15,6 +15,13 @@ import (
 
 const maxScore = 3
 
+// Timing constants for performance monitoring
+const (
+	// Timing constants for performance monitoring
+	WarnGap = 100 * time.Millisecond
+	ErrGap  = 500 * time.Millisecond
+)
+
 // RemovePlayerFromWaitingRoom handles the core logic of removing a player from a waiting room
 func (gm *GameManager) RemovePlayerFromWaitingRoom(clientID zkidentity.ShortID) (isHost bool, roomRemoved bool) {
 	wr := gm.GetWaitingRoomFromPlayer(clientID)
@@ -276,8 +283,8 @@ func (g *GameInstance) Run() {
 
 	// Wait for players to be ready before starting the actual game
 	go func() {
-		// Check every 500ms if both players are ready
-		ticker := time.NewTicker(500 * time.Millisecond)
+		// Check every 50ms if both players are ready
+		ticker := time.NewTicker(50 * time.Millisecond)
 		defer ticker.Stop()
 
 		for {
@@ -510,6 +517,10 @@ func NewEngine(width, height float64, players []*Player, log slog.Logger) *Canva
 // distributeFrames distributes frames from the main channel to individual player channels
 // This prevents one slow client from affecting others by implementing frame dropping
 func (g *GameInstance) distributeFrames() {
+	var lastRead time.Time
+	lastLog := time.Now()
+	var drainCount int
+	var dropCount int
 	for {
 		select {
 		case <-g.ctx.Done():
@@ -525,6 +536,20 @@ func (g *GameInstance) distributeFrames() {
 				return
 			}
 
+			// Keep it for debug reasons for now
+			now := time.Now()
+			if lastRead.IsZero() {
+				dt := now.Sub(lastRead)
+				lastRead = now
+				if dt >= ErrGap {
+					g.log.Errorf("read gap: %v", dt)
+				} else if dt >= WarnGap {
+					g.log.Warnf("read gap: %v", dt)
+				}
+			}
+			lastRead = now
+
+		drainLoop:
 			// Coalesce backlog: keep only the latest frame if multiple are queued.
 			for drain := 0; drain < 8; drain++ {
 				select {
@@ -538,9 +563,10 @@ func (g *GameInstance) distributeFrames() {
 						return
 					}
 					frame = newer
+					drainCount++
 				default:
 					// No more queued frames; proceed with latest.
-					break
+					break drainLoop
 				}
 			}
 
@@ -564,10 +590,20 @@ func (g *GameInstance) distributeFrames() {
 						case player.FrameCh <- frame:
 							// Frame sent successfully after dropping old one
 						default:
+							dropCount++
 							// Still full, just drop this frame
 						}
 					}
 				}
+			}
+			// Keep it for debug reasons for now
+			if time.Since(lastLog) >= time.Second {
+				if drainCount > 0 || dropCount > 0 {
+					g.log.Infof("drainCount: %d, dropCount: %d", drainCount, dropCount)
+					drainCount = 0
+					dropCount = 0
+				}
+				lastLog = now
 			}
 		}
 	}

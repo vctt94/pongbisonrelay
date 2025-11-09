@@ -44,6 +44,8 @@ class NotificationType extends $pb.ProtobufEnum {
       NotificationType._(13, _omitEnumNames ? '' : 'MATCH_ALLOCATED');
   static const NotificationType SERVER_CONFIG =
       NotificationType._(14, _omitEnumNames ? '' : 'SERVER_CONFIG');
+  static const NotificationType HEARTBEAT =
+      NotificationType._(15, _omitEnumNames ? '' : 'HEARTBEAT');
 
   static const $core.List<NotificationType> values = <NotificationType>[
     UNKNOWN,
@@ -60,10 +62,11 @@ class NotificationType extends $pb.ProtobufEnum {
     GAME_READY_TO_PLAY,
     MATCH_ALLOCATED,
     SERVER_CONFIG,
+    HEARTBEAT,
   ];
 
   static final $core.List<NotificationType?> _byValue =
-      $pb.ProtobufEnum.$_initByValueList(values, 14);
+      $pb.ProtobufEnum.$_initByValueList(values, 15);
   static NotificationType? valueOf($core.int value) =>
       value < 0 || value >= _byValue.length ? null : _byValue[value];
 

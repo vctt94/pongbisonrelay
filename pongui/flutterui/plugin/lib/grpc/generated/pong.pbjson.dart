@@ -32,6 +32,7 @@ const NotificationType$json = {
     {'1': 'GAME_READY_TO_PLAY', '2': 12},
     {'1': 'MATCH_ALLOCATED', '2': 13},
     {'1': 'SERVER_CONFIG', '2': 14},
+    {'1': 'HEARTBEAT', '2': 15},
   ],
 };
 
@@ -42,7 +43,7 @@ final $typed_data.Uint8List notificationTypeDescriptor = $convert.base64Decode(
     'T1VOVF9VUERBVEUQBRIUChBQTEFZRVJfSk9JTkVEX1dSEAYSEQoNT05fV1JfQ1JFQVRFRBAHEh'
     'MKD09OX1BMQVlFUl9SRUFEWRAIEhEKDU9OX1dSX1JFTU9WRUQQCRIUChBDT1VOVERPV05fVVBE'
     'QVRFEAsSFgoSR0FNRV9SRUFEWV9UT19QTEFZEAwSEwoPTUFUQ0hfQUxMT0NBVEVEEA0SEQoNU0'
-    'VSVkVSX0NPTkZJRxAO');
+    'VSVkVSX0NPTkZJRxAOEg0KCUhFQVJUQkVBVBAP');
 
 @$core.Deprecated('Use requestNonceRequestDescriptor instead')
 const RequestNonceRequest$json = {
