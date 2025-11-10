@@ -73,7 +73,8 @@ void _readAsyncResultsIsolate(SendPort sp) async {
     var nr = nextCallResult();
     // Skip forwarding idle heartbeats to reduce message pressure on the main isolate.
     if (nr.cmdType == NTNOP) {
-      // No payload copy or send for NTNOP
+      // add a small delay to avoid busy-waiting
+      await Future.delayed(const Duration(milliseconds: 1));
       continue;
     }
     final tAfterNativeUs = DateTime.now().microsecondsSinceEpoch;
