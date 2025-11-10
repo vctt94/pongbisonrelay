@@ -108,6 +108,9 @@ func GetAndResetNTGameFrameDrops() uint64 {
 	return ntGameFrameDrops.Swap(0)
 }
 
+// Shared NTNOP result to avoid allocations in the polling loop
+var ntnopResult = &CmdResult{Type: NTNOP, Payload: []byte{}}
+
 func call(cmd *cmd) *CmdResult {
 	var v interface{}
 	var err error
@@ -268,8 +271,9 @@ func NextCmdResult() *CmdResult {
 	select {
 	case r := <-cmdResultChan:
 		return r
-	default:
-		return &CmdResult{Type: NTNOP, Payload: []byte{}}
+	case <-time.After(16 * time.Millisecond):
+		// Return shared NTNOP result to avoid allocations in the polling loop
+		return ntnopResult
 	}
 }
 

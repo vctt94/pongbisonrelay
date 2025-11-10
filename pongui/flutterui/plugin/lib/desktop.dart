@@ -73,8 +73,6 @@ void _readAsyncResultsIsolate(SendPort sp) async {
     var nr = nextCallResult();
     // Skip forwarding idle heartbeats to reduce message pressure on the main isolate.
     if (nr.cmdType == NTNOP) {
-      // add a small delay to avoid busy-waiting
-      await Future.delayed(const Duration(milliseconds: 1));
       continue;
     }
     final tAfterNativeUs = DateTime.now().microsecondsSinceEpoch;
@@ -162,9 +160,15 @@ void _readAsyncResultsIsolate(SendPort sp) async {
       loopMaxGapMs = 0;
       loopGapsOver100 = 0;
       loopGapsOver500 = 0;
-      nativeMaxMs = 0; nativeSumMs = 0; nativeCount = 0;
-      copyMaxUs = 0; copySumUs = 0; copyCount = 0;
-      sendMaxUs = 0; sendSumUs = 0; sendCount = 0;
+      nativeMaxMs = 0;
+      nativeSumMs = 0;
+      nativeCount = 0;
+      copyMaxUs = 0;
+      copySumUs = 0;
+      copyCount = 0;
+      sendMaxUs = 0;
+      sendSumUs = 0;
+      sendCount = 0;
       payloadMax = 0;
       lastLog = now;
     }
@@ -277,15 +281,34 @@ mixin BaseDesktopPlatform on NtfStreams {
         }
         calls.remove(id);
 
-        dynamic response;
+        // Move JSON decode to microtask to avoid blocking the hot path
         if (payload is String && payload.isNotEmpty) {
-          response = jsonDecode(payload);
-        }
-
-        if (isError) {
-          c.completeError(response);
+          scheduleMicrotask(() {
+            dynamic response;
+            try {
+              response = jsonDecode(payload);
+            } catch (e) {
+              // If decode fails, complete with error
+              if (isError) {
+                c.completeError(payload);
+              } else {
+                c.completeError(e);
+              }
+              return;
+            }
+            if (isError) {
+              c.completeError(response);
+            } else {
+              c.complete(response);
+            }
+          });
         } else {
-          c.complete(response);
+          // No JSON decode needed, complete immediately
+          if (isError) {
+            c.completeError(payload);
+          } else {
+            c.complete(payload);
+          }
         }
       }
     }

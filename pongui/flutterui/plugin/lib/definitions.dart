@@ -463,7 +463,7 @@ mixin NtfStreams {
   // Small jitter buffer: decode as fast as possible, present at steady cadence.
 
   // Track last emit time (for stall warnings only; no gating)
-  final int _lastEmitMicros = 0;
+  int _lastEmitMicros = 0;
 
   // Perf logging (no behavior change)
   Timer? _perfTimer;
@@ -485,8 +485,9 @@ mixin NtfStreams {
     // Start periodic perf log the first time we receive anything.
     _perfTimer ??= Timer.periodic(const Duration(seconds: 1), (_) {
       final nowUs = DateTime.now().microsecondsSinceEpoch;
-      final sinceLastUs = nowUs - _lastEmitMicros;
-      final sinceLastMs = sinceLastUs > 0 ? (sinceLastUs ~/ 1000) : 0;
+      // Calculate time since last emit, or 0 if no frames emitted yet
+      final sinceLastMs =
+          _lastEmitMicros > 0 ? ((nowUs - _lastEmitMicros) ~/ 1000) : 0;
       debugPrint(
           '[ui] frames in=$_framesIn out=$_framesDecoded decode=${_lastDecodeMs}ms max=${_maxDecodeMs}ms');
       final inAvg = _inDtCount > 0 ? (_inDtSum ~/ _inDtCount) : 0;
@@ -532,19 +533,22 @@ mixin NtfStreams {
         break;
 
       case NTUINotification:
-        try {
-          if (payload is String && payload.isNotEmpty) {
-            final decoded = jsonDecode(payload);
-            final n = UINotification.fromJson(
-              Map<String, dynamic>.from(decoded),
-            );
-            if (!_uiNotificationsCtrl.isClosed) {
-              _uiNotificationsCtrl.add(n);
+        // Move JSON decode and stream add to microtask to avoid blocking the hot path
+        if (payload is String && payload.isNotEmpty) {
+          scheduleMicrotask(() {
+            try {
+              final decoded = jsonDecode(payload);
+              final n = UINotification.fromJson(
+                Map<String, dynamic>.from(decoded),
+              );
+              if (!_uiNotificationsCtrl.isClosed) {
+                _uiNotificationsCtrl.add(n);
+              }
+            } catch (e, st) {
+              debugPrint(
+                  'Failed to decode NTUINotification: $e\n$st\nPayload: $payload');
             }
-          }
-        } catch (e, st) {
-          debugPrint(
-              'Failed to decode NTUINotification: $e\n$st\nPayload: $payload');
+          });
         }
         break;
 
@@ -586,7 +590,10 @@ mixin NtfStreams {
       return;
     }
     _decoding = true;
+
+    final queueLenBefore = _frameQueue.length;
     final raw = _frameQueue.removeAt(0);
+    final decodeStartMicros = DateTime.now().microsecondsSinceEpoch;
 
     try {
       // Decode protobuf payload sent by Go server.
@@ -598,8 +605,9 @@ mixin NtfStreams {
       _lastDecodeMs = _decodeSw.elapsedMilliseconds;
       if (_lastDecodeMs > _maxDecodeMs) _maxDecodeMs = _lastDecodeMs;
 
-      // Emit immediately: UI rendering cadence is driven elsewhere (no present queue).
       if (!_gameUpdatesCtrl.isClosed) _gameUpdatesCtrl.add(gu);
+      final emitMicros = DateTime.now().microsecondsSinceEpoch;
+      _lastEmitMicros = emitMicros;
       _framesDecoded++;
     } catch (e, st) {
       debugPrint('Failed to decode game frame: $e\n$st');
