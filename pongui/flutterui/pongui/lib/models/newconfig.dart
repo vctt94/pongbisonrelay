@@ -5,16 +5,11 @@ import 'package:pongui/config.dart';
 
 class NewConfigModel extends ChangeNotifier {
   // ─── Editable fields ────────────────────────────────────────────────────
-  // String rpcUser         = 'defaultuser';
-  // String rpcPass         = 'defaultpass';
-  String serverAddr      = '104.131.180.29:50051';
+
+  String serverAddr      = '178.156.178.191:50051';
   String grpcCertPath    = '';
-  // String rpcCertPath     = '';
-  // String rpcClientCertPath = '';
-  // String rpcClientKeyPath  = '';
-  // String rpcWebsocketURL = 'wss://127.0.0.1:7676/ws';
+  String network         = 'mainnet';
   String debugLevel      = 'info';
-  bool   wantsLogNtfns   = false;
   bool   showPerfOverlay = false;
 
   final List<String> appArgs;
@@ -36,7 +31,6 @@ class NewConfigModel extends ChangeNotifier {
     // ..rpcClientKeyPath   = c.rpcClientKeyPath
     // ..rpcWebsocketURL    = c.rpcWebsocketURL
     ..debugLevel         = c.debugLevel
-    ..wantsLogNtfns      = c.wantsLogNtfns
     ..showPerfOverlay    = c.showPerfOverlay;
 
   // ─── Helpers ────────────────────────────────────────────────────────────
@@ -44,7 +38,7 @@ class NewConfigModel extends ChangeNotifier {
     _appDataDir = await defaultAppDataDir();
     // _brDataDir = await defaultAppDataBRUIGDir();
 
-    grpcCertPath = p.join(_appDataDir, 'server.cert');
+    grpcCertPath = p.join(_appDataDir, 'ca.cert');
     // rpcCertPath  = p.join(_brDataDir, 'rpc.cert');
     // rpcClientCertPath = p.join(_brDataDir, 'rpc-client.cert');
     // rpcClientKeyPath  = p.join(_brDataDir, 'rpc-client.key');
@@ -71,8 +65,10 @@ class NewConfigModel extends ChangeNotifier {
     final file    = File(cfgPath);
 
     final content = (StringBuffer()
+      ..writeln('datadir=$_appDataDir')
       ..writeln('server=$serverAddr')
       ..writeln('grpccertpath=$grpcCertPath')
+      ..writeln('network=$network')
       ..writeln()
       ..writeln('[clientrpc]')
       // ..writeln('rpcuser=$rpcUser')
@@ -81,8 +77,7 @@ class NewConfigModel extends ChangeNotifier {
       // ..writeln('rpccertpath=$rpcCertPath')
       // ..writeln('rpcclientcertpath=$rpcClientCertPath')
       // ..writeln('rpcclientkeypath=$rpcClientKeyPath')
-      ..writeln('wantsLogNtfns=${wantsLogNtfns ? "1" : "0"}')
-      ..writeln('showPerfOverlay=${showPerfOverlay ? "1" : "0"}')
+      ..writeln('showPerfOverlay=${showPerfOverlay ? "true" : "false"}')
       ..writeln()
       ..writeln('[log]')
       ..writeln('debuglevel=$debugLevel')

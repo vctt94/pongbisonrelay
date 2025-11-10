@@ -12,12 +12,12 @@ import (
 	"sync"
 	"time"
 
+	"github.com/decred/dcrd/chaincfg/v3"
 	"github.com/decred/dcrd/dcrec/secp256k1/v4"
 	"github.com/decred/slog"
 
 	tea "github.com/charmbracelet/bubbletea"
 
-	"github.com/vctt94/bisonbotkit/logging"
 	"github.com/vctt94/pongbisonrelay/pongrpc/grpc/pong"
 	"google.golang.org/grpc"
 	"google.golang.org/grpc/codes"
@@ -39,7 +39,7 @@ type PongClient struct {
 	betAmt        int64 // bet amt in mAtoms
 	playerNumber  int32
 	conn          *grpc.ClientConn
-	appCfg        *AppConfig
+	appCfg        *PongConf
 	serverVersion string
 	serverIsF2P   bool
 	// game client
@@ -70,14 +70,14 @@ type PongClient struct {
 }
 
 func NewPongClient(clientID string, cfg *PongClientCfg) (*PongClient, error) {
-	if cfg.Log == nil {
+	if cfg.LogBackend == nil {
 		return nil, fmt.Errorf("client must have logger")
 	}
-	if cfg.AppCfg == nil {
-		return nil, fmt.Errorf("client must have AppCfg")
+	if cfg.PongConf == nil {
+		return nil, fmt.Errorf("client must have PongConf")
 	}
 
-	creds, err := credentials.NewClientTLSFromFile(cfg.AppCfg.GRPCCertPath, "")
+	creds, err := credentials.NewClientTLSFromFile(cfg.PongConf.GRPCCertPath, "")
 	if err != nil {
 		return nil, fmt.Errorf("load TLS cert: %w", err)
 	}
@@ -90,7 +90,7 @@ func NewPongClient(clientID string, cfg *PongClientCfg) (*PongClient, error) {
 		}),
 	}
 
-	conn, err := grpc.NewClient(cfg.AppCfg.ServerAddr, dialOpts...)
+	conn, err := grpc.NewClient(cfg.PongConf.ServerAddr, dialOpts...)
 	if err != nil {
 		return nil, fmt.Errorf("dial server: %w", err)
 	}
@@ -104,20 +104,19 @@ func NewPongClient(clientID string, cfg *PongClientCfg) (*PongClient, error) {
 	pc := &PongClient{
 		id:     clientID,
 		conn:   conn,
-		appCfg: cfg.AppCfg,
+		appCfg: cfg.PongConf,
 		gc:     pong.NewPongGameClient(conn),
 		wr:     pong.NewPongWaitingRoomClient(conn),
 		rc:     pong.NewPongRefereeClient(conn),
 		// Larger buffer to absorb bursty game frames without backpressuring producers
 		updatesCh: make(chan tea.Msg, 1024),
 		errorsCh:  make(chan error, 4),
-		log:       cfg.Log,
+		log:       cfg.LogBackend.Logger("pongclient"),
 		ntfns:     ntfns,
 		ctx:       ctx,
 		cancel:    cancel,
 	}
 
-	// quick check (fail fast)
 	err = func() error {
 		ctx, cancel := context.WithTimeout(ctx, 5*time.Second)
 		defer cancel()
@@ -171,7 +170,7 @@ func (pc *PongClient) ServerVersion() string {
 // ResolveClientID starts a short-lived BR RPC client to fetch the local
 // user's identity and returns it as a hex string. The internal RPC client
 // is stopped before returning.
-func ResolveClientID(ctx context.Context, appCfg *AppConfig) (string, error) {
+func ResolveClientID(ctx context.Context, appCfg *PongConf) (string, error) {
 	// if appCfg == nil || appCfg.BR == nil {
 	// 	return "", fmt.Errorf("missing BR config in AppConfig")
 	// }
@@ -213,30 +212,21 @@ func ResolveClientID(ctx context.Context, appCfg *AppConfig) (string, error) {
 	return hex.EncodeToString(b[:]), nil
 }
 
-func SetupLogging(appCfg *AppConfig, appName string) (*logging.LogBackend, slog.Logger, error) {
-	if appCfg == nil || appCfg.BR == nil {
-		return nil, nil, fmt.Errorf("missing AppConfig or BR config")
-	}
-	useStdout := false
-	lb, err := logging.NewLogBackend(logging.LogConfig{
-		LogFile:        filepath.Join(appCfg.DataDir, "logs", fmt.Sprintf("%s.log", strings.TrimSpace(appName))),
-		DebugLevel:     appCfg.BR.Debug,
-		MaxLogFiles:    10,
-		MaxBufferLines: 1000,
-		UseStdout:      &useStdout,
-	})
-	if err != nil {
-		return nil, nil, err
-	}
-	return lb, lb.Logger("BotClient"), nil
-}
-
 // sessionKeyFilePath returns the path used to persist the settlement session key.
 func (pc *PongClient) sessionKeyFilePath() string {
 	if pc == nil || pc.appCfg == nil || strings.TrimSpace(pc.appCfg.DataDir) == "" {
 		return ""
 	}
 	return filepath.Join(pc.appCfg.DataDir, "settlement_session_key.json")
+}
+
+// GetChainParams returns the chaincfg.Params for the configured network.
+// Returns an error if the network is invalid or config is missing.
+func (pc *PongClient) GetChainParams() (*chaincfg.Params, error) {
+	if pc == nil || pc.appCfg == nil {
+		return nil, fmt.Errorf("client or config is nil")
+	}
+	return pc.appCfg.GetChainParams()
 }
 
 func (pc *PongClient) historicSessionsDir() (string, error) {
@@ -574,27 +564,6 @@ func (pc *PongClient) Close() error {
 		return pc.conn.Close()
 	}
 	return nil
-}
-
-// NewPongClientLocalOnly creates a minimal local-only client that does not
-// connect to any remote services. It is suitable for pre-login flows that only
-// need access to local filesystem state (e.g., historic sessions).
-func NewPongClientLocalOnly(appCfg *AppConfig, log slog.Logger, notifications *NotificationManager) (*PongClient, error) {
-	ctx, cancel := context.WithCancel(context.Background())
-	ntfns := notifications
-	if ntfns == nil {
-		ntfns = NewNotificationManager()
-	}
-	pc := &PongClient{
-		appCfg:    appCfg,
-		log:       log,
-		ntfns:     ntfns,
-		updatesCh: make(chan tea.Msg, 8),
-		errorsCh:  make(chan error, 8),
-		ctx:       ctx,
-		cancel:    cancel,
-	}
-	return pc, nil
 }
 
 // GetSettlementPrivKeyForEscrow returns the private key recorded alongside the

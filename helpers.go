@@ -284,15 +284,19 @@ func FinalizeWinner(gammaHex, draftHex string, inputsForDraft []*pong.NeedPreSig
 }
 
 // PayoutPubkeyFromConfHex parses a 33B/65B pubkey hex or a Decred P2PK ("pubkeyaddr")
-// for any known net and returns a 33-byte compressed secp256k1 pubkey.
+// and returns a 33-byte compressed secp256k1 pubkey.
 //
 // Examples it will accept:
 //   - "034bbf63cf03ecd1...f2e3"              (33B hex)
 //   - "04...."                               (65B hex -> compressed)
 //   - "TkQ3wZu4yVeS1cfxkXJjmYvHd2FEMfSaE5yW1jhrkKFkiwYVX7bGK"  (testnet P2PK)
 //
-// It will *not* accept a P2PKH like "TsoY9N6..." (can’t derive pubkey from hash).
-func PayoutPubkeyFromConfHex(addrOrHex string) ([]byte, error) {
+// It will *not* accept a P2PKH like "TsoY9N6..." (can't derive pubkey from hash).
+// params must not be nil.
+func PayoutPubkeyFromConfHex(addrOrHex string, params *chaincfg.Params) ([]byte, error) {
+	if params == nil {
+		return nil, fmt.Errorf("params must not be nil")
+	}
 	s := strings.TrimSpace(addrOrHex)
 	if s == "" {
 		return nil, fmt.Errorf("empty -address")
@@ -314,43 +318,32 @@ func PayoutPubkeyFromConfHex(addrOrHex string) ([]byte, error) {
 		}
 	}
 
-	// 2) Try as Decred address (prefer testnet first).
-	paramsList := []*chaincfg.Params{
-		chaincfg.TestNet3Params(),
-		chaincfg.MainNetParams(),
-		chaincfg.SimNetParams(),
-		chaincfg.RegNetParams(),
+	// 2) Try as Decred address using provided params.
+	addr, err := stdaddr.DecodeAddress(s, params)
+	if err != nil {
+		return nil, fmt.Errorf("decode failed as hex or address: %v", err)
 	}
-	var lastErr error
-	for _, p := range paramsList {
-		addr, err := stdaddr.DecodeAddress(s, p)
-		if err != nil {
-			lastErr = err
-			continue
-		}
 
-		// Most pubkey address types in stdaddr expose SerializedPubKey().
-		type hasSerializedPubKey interface{ SerializedPubKey() []byte }
-		if pkAddr, ok := addr.(hasSerializedPubKey); ok {
-			b := pkAddr.SerializedPubKey()
-			switch len(b) {
-			case 33:
-				return b, nil
-			case 65:
-				pk, err := secp256k1.ParsePubKey(b)
-				if err != nil {
-					return nil, fmt.Errorf("invalid pubkey inside address: %w", err)
-				}
-				return pk.SerializeCompressed(), nil
-			default:
-				return nil, fmt.Errorf("pubkey in address has unexpected length %d", len(b))
+	// Most pubkey address types in stdaddr expose SerializedPubKey().
+	type hasSerializedPubKey interface{ SerializedPubKey() []byte }
+	if pkAddr, ok := addr.(hasSerializedPubKey); ok {
+		b := pkAddr.SerializedPubKey()
+		switch len(b) {
+		case 33:
+			return b, nil
+		case 65:
+			pk, err := secp256k1.ParsePubKey(b)
+			if err != nil {
+				return nil, fmt.Errorf("invalid pubkey inside address: %w", err)
 			}
+			return pk.SerializeCompressed(), nil
+		default:
+			return nil, fmt.Errorf("pubkey in address has unexpected length %d", len(b))
 		}
-
-		// If we got here, it decoded as some *other* address type (e.g., P2PKH).
-		return nil, fmt.Errorf("address is not P2PK (pubkey). Pass a pubkey address (the 'pubkeyaddr' value) or a 33-byte pubkey hex")
 	}
-	return nil, fmt.Errorf("decode failed as hex or address: %v", lastErr)
+
+	// If we got here, it decoded as some *other* address type (e.g., P2PKH).
+	return nil, fmt.Errorf("address is not P2PK (pubkey). Pass a pubkey address (the 'pubkeyaddr' value) or a 33-byte pubkey hex")
 }
 
 // PubKeyAddressFromXPub derives m/.../0/index from the given xpub and returns
@@ -380,7 +373,11 @@ func PubKeyAddressFromXPub(xpub string, index uint32) (string, error) {
 //
 // It returns a 33-byte compressed pubkey suitable for <pk33> 2 OP_CHECKSIGALT.
 // Returns a 33-byte compressed pubkey.
-func ResolvePayoutKey(input string) ([]byte, error) {
+// params must not be nil.
+func ResolvePayoutKey(input string, params *chaincfg.Params) ([]byte, error) {
+	if params == nil {
+		return nil, fmt.Errorf("params must not be nil")
+	}
 	s := strings.TrimSpace(input)
 	if s == "" {
 		return nil, fmt.Errorf("empty payout")
@@ -388,7 +385,7 @@ func ResolvePayoutKey(input string) ([]byte, error) {
 
 	// If it's an xpub, derive m/.../0/0 and return its 33B pubkey.
 	if strings.HasPrefix(s, "tpub") || strings.HasPrefix(s, "dpub") {
-		pk33, err := childFromXpub_0_0(s)
+		pk33, err := childFromXpub_0_0(s, params)
 		if err != nil {
 			return nil, fmt.Errorf("derive from xpub: %w", err)
 		}
@@ -396,37 +393,29 @@ func ResolvePayoutKey(input string) ([]byte, error) {
 	}
 
 	// Otherwise, expect hex pubkey or Decred P2PK (pubkey) address.
-	return PayoutPubkeyFromConfHex(s)
+	return PayoutPubkeyFromConfHex(s, params)
 }
 
-func childFromXpub_0_0(xpub string) ([]byte, error) {
-	nets := []*chaincfg.Params{
-		chaincfg.TestNet3Params(),
-		chaincfg.MainNetParams(),
-		chaincfg.SimNetParams(),
-		chaincfg.RegNetParams(),
+func childFromXpub_0_0(xpub string, params *chaincfg.Params) ([]byte, error) {
+	if params == nil {
+		return nil, fmt.Errorf("params must not be nil")
 	}
-	var lastErr error
-	for _, net := range nets {
-		acc, err := hdkeychain.NewKeyFromString(xpub, net)
-		if err != nil {
-			lastErr = err
-			continue
-		}
-
-		ext, err := acc.Child(0) // external branch
-		if err != nil {
-			return nil, err
-		}
-		ch, err := ext.Child(0) // index 0
-		if err != nil {
-			return nil, err
-		}
-
-		pub := ch.Neuter()
-		return pub.SerializedPubKey(), nil // 33-byte compressed
+	acc, err := hdkeychain.NewKeyFromString(xpub, params)
+	if err != nil {
+		return nil, fmt.Errorf("xpub didn't match network: %v", err)
 	}
-	return nil, fmt.Errorf("xpub didn't match known nets: %v", lastErr)
+
+	ext, err := acc.Child(0) // external branch
+	if err != nil {
+		return nil, err
+	}
+	ch, err := ext.Child(0) // index 0
+	if err != nil {
+		return nil, err
+	}
+
+	pub := ch.Neuter()
+	return pub.SerializedPubKey(), nil // 33-byte compressed
 }
 
 // ChildCompressedPubFromXPub derives m/.../0/index and returns the 33-byte

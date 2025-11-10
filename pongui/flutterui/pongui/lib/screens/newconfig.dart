@@ -40,20 +40,19 @@ class _NewConfigScreenState extends State<NewConfigScreen> {
 
   // Placeholder certificate content
   static const String placeholderCertContent = '''-----BEGIN CERTIFICATE-----
-MIIBkzCCATmgAwIBAgIRAOCyLu1U/ZKyD33nXFPgJOQwCgYIKoZIzj0EAwIwFjEU
-MBIGA1UEChMLUG9uZyBTZXJ2ZXIwHhcNMjUwMTMxMTg0NzQwWhcNMjYwMTMxMTg0
-NzQwWjAWMRQwEgYDVQQKEwtQb25nIFNlcnZlcjBZMBMGByqGSM49AgEGCCqGSM49
-AwEHA0IABLpaje+KDrdAe77RwOaxYAkxRmlDg1cbLspf1riFhskIUyfILM1r8zPd
-Ql10MGxeKipbE3LCPOn5BV0KVGxfb2mjaDBmMA4GA1UdDwEB/wQEAwICpDATBgNV
-HSUEDDAKBggrBgEFBQcDATAPBgNVHRMBAf8EBTADAQH/MB0GA1UdDgQWBBQLw3WW
-CxxXpNfuuDgGuZ3c8IX0rDAPBgNVHREECDAGhwRog7QdMAoGCCqGSM49BAMCA0gA
-MEUCIEWR7Iw7ua6WAQuIf8Yf0lNzP6s2NczAR0W4uP8zuVK0AiEA6ruxkMcv4CHw
-Aq6RDElOTqAlDbNAuV8b/joQjIDLwqA=
+MIIBizCCATKgAwIBAgIQbtFxrgQfuhUSaHsw+tbNoDAKBggqhkjOPQQDAjAmMREw
+DwYDVQQKEwhnZW5jZXJ0czERMA8GA1UEAxMIZ2VuY2VydHMwHhcNMjUxMTA4MTU1
+MjQzWhcNMzUxMTA3MTU1MjQzWjAmMREwDwYDVQQKEwhnZW5jZXJ0czERMA8GA1UE
+AxMIZ2VuY2VydHMwWTATBgcqhkjOPQIBBggqhkjOPQMBBwNCAAQoLsfKo3eU1B1c
++GuDgatRBnI889XhmVet8aIGlew+A4hsUyduD8LfP1k7aZ3bHNIq+4H5LLg3sVj8
+hNseJ/cFo0IwQDAOBgNVHQ8BAf8EBAMCAoQwDwYDVR0TAQH/BAUwAwEB/zAdBgNV
+HQ4EFgQURzfqDTuTTKzRYgMTW1IZiUhFjRIwCgYIKoZIzj0EAwIDRwAwRAIgfTUP
+ufQQaHv0dXYDwWfYgL2ry5vLM7xPy9l2iDxWRDcCIADhyHCj1r+M3p6/5yaJNZxd
+TLq8HnLRGlOPhEKOCgit
 -----END CERTIFICATE-----''';
   @override
   void initState() {
     super.initState();
-    _wantsLogNtfns = widget.model.wantsLogNtfns;
     _showPerfOverlay = widget.model.showPerfOverlay;
     _initHeaderInfo();
     
@@ -104,14 +103,7 @@ Aq6RDElOTqAlDbNAuV8b/joQjIDLwqA=
       widget.model
         ..serverAddr        = _serverAddr.text
         ..grpcCertPath      = _grpcCert.text
-        // ..rpcCertPath       = _rpcCert.text
-        // ..rpcClientCertPath = _rpcCliCert.text
-        // ..rpcClientKeyPath  = _rpcCliKey.text
-        // ..rpcWebsocketURL   = _wsURL.text
         ..debugLevel        = _debugLvl.text
-        // ..rpcUser           = _user.text
-        // ..rpcPass           = _pass.text
-        ..wantsLogNtfns     = _wantsLogNtfns
         ..showPerfOverlay   = _showPerfOverlay;
 
       await _prepareDataDir();

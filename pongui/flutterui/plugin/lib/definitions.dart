@@ -79,8 +79,6 @@ class InitClient {
   final String msgsRoot;
   @JsonKey(name: 'debug_level')
   final String debugLevel;
-  @JsonKey(name: 'wants_log_ntfns')
-  final bool wantsLogNtfns;
 
   // rpc fields
   @JsonKey(name: 'rpc_websocket_url')
@@ -104,7 +102,6 @@ class InitClient {
     this.logFile,
     this.msgsRoot,
     this.debugLevel,
-    this.wantsLogNtfns,
     this.rpcWebsockeURL,
     this.rpcCertPath,
     this.rpcClientCertpath,

@@ -5,8 +5,6 @@ import (
 	"flag"
 	"fmt"
 	"os"
-	"path/filepath"
-	"strings"
 	"sync"
 	"time"
 
@@ -23,6 +21,7 @@ import (
 
 // UI mode definitions moved to ui.go
 
+const appName = "pongclient"
 const pongClientVersion = "pongclient-dev"
 
 var (
@@ -51,6 +50,7 @@ type appstate struct {
 	cancel        context.CancelFunc
 	pc            *client.PongClient
 	dataDir       string
+	appCfg        *client.PongConf
 
 	selectedRoomIndex int
 	msgCh             chan tea.Msg
@@ -119,7 +119,11 @@ func (m *appstate) resolvePayoutKey() ([]byte, error) {
 	if addressFlag == nil || *addressFlag == "" {
 		return nil, fmt.Errorf("missing -address flag")
 	}
-	return pongbisonrelay.ResolvePayoutKey(*addressFlag)
+	params, err := m.appCfg.GetChainParams()
+	if err != nil {
+		return nil, fmt.Errorf("invalid network config: %w", err)
+	}
+	return pongbisonrelay.ResolvePayoutKey(*addressFlag, params)
 }
 
 func (m *appstate) startSettlement() {
@@ -205,61 +209,32 @@ func realMain() error {
 	}
 
 	// Load consolidated app config and apply overrides from flags
-	appCfg, err := client.LoadAppConfig(*datadir, client.ConfigOverrides{
-		RPCURL:          *flagURL,
-		BRClientCert:    *flagServerCertPath,
-		BRClientRPCCert: *flagClientCertPath,
-		BRClientRPCKey:  *flagClientKeyPath,
-		RPCUser:         *rpcUser,
-		RPCPass:         *rpcPass,
-		ServerAddr:      *serverAddr,
-		GRPCServerCert:  *grpcServerCert,
-	})
+	appCfg, err := client.LoadAppConfig(*datadir, appName+".conf")
 	if err != nil {
 		fmt.Println("Error loading configuration:", err)
 		os.Exit(1)
 	}
 
-	// Determine payout address from flag or config file
-	addrValue := ""
-	if addressFlag != nil && *addressFlag != "" {
-		addrValue = *addressFlag
-	} else {
-		addrValue = appCfg.Address
-	}
-	if strings.TrimSpace(addrValue) == "" {
-		return fmt.Errorf("missing payout address: pass -address flag or set address= in %s", filepath.Join(appCfg.DataDir, "pongclient.conf"))
-	}
-	if _, err := pongbisonrelay.ResolvePayoutKey(addrValue); err != nil {
-		return fmt.Errorf("invalid payout key: %v", err)
-	}
-	*addressFlag = addrValue
-
 	ctx, cancel := context.WithCancel(context.Background())
 	defer cancel()
 
-	lb, log, err := client.SetupLogging(appCfg, "pongclient")
-	if err != nil {
-		return err
-	}
-
-	clientID, err := client.ResolveClientID(ctx, appCfg)
+	clientID, err := client.ResolveClientID(ctx, appCfg.PongConf)
 	if err != nil {
 		return fmt.Errorf("resolve client id: %w", err)
 	}
 
 	as := &appstate{
-		ctx:        ctx,
-		cancel:     cancel,
-		log:        log,
-		logBackend: lb,
-		mode:       gameIdle,
+		ctx:    ctx,
+		cancel: cancel,
+		log:    appCfg.LogBackend.Logger("pongclient"),
+		mode:   gameIdle,
+		appCfg: appCfg.PongConf,
 	}
-	as.dataDir = appCfg.DataDir
+	as.dataDir = appCfg.PongConf.DataDir
 
 	if isF2p {
 		// Will not require escrow for creating/joining rooms
-		log.Infof("F2P mode enabled in client (UI gating relaxed)")
+		as.log.Infof("F2P mode enabled in client (UI gating relaxed)")
 	}
 
 	// Notifications
@@ -336,9 +311,9 @@ func realMain() error {
 	}))
 
 	pc, err := client.NewPongClient(clientID, &client.PongClientCfg{
-		AppCfg:        appCfg,
+		PongConf:      appCfg.PongConf,
 		Notifications: ntfns,
-		Log:           log,
+		LogBackend:    appCfg.LogBackend,
 	})
 	if err != nil {
 		return fmt.Errorf("failed to create pong client: %v", err)
@@ -347,16 +322,16 @@ func realMain() error {
 
 	if *flagIsF2P {
 		isF2p = true
-		log.Infof("Client override: forcing Free-to-Play mode regardless of server setting")
+		as.log.Infof("Client override: forcing Free-to-Play mode regardless of server setting")
 	} else if pc.ServerIsF2P() {
 		isF2p = true
-		log.Infof("Server reports Free-to-Play mode; escrow gating disabled (server %s)", pc.ServerVersion())
+		as.log.Infof("Server reports Free-to-Play mode; escrow gating disabled (server %s)", pc.ServerVersion())
 	} else {
 		isF2p = false
-		log.Infof("Server requires escrow; UI will enforce funding (server %s)", pc.ServerVersion())
+		as.log.Infof("Server requires escrow; UI will enforce funding (server %s)", pc.ServerVersion())
 	}
 
-	log.Infof("Connected to server at %s with ID %s", appCfg.ServerAddr, clientID)
+	as.log.Infof("Connected to server at %s with ID %s", appCfg.PongConf.ServerAddr, clientID)
 
 	defer as.cancel()
 

@@ -1,11 +1,8 @@
 import 'package:flutter/material.dart';
 import 'package:pongui/models/pong.dart';
 import 'package:golib_plugin/golib_plugin.dart';
-import 'package:pongui/config.dart';
-import 'package:path/path.dart' as p;
 import 'package:provider/provider.dart';
 import 'package:pongui/components/refund_dialog.dart';
-import 'package:golib_plugin/definitions.dart' as golib;
 
 class LoginScreen extends StatefulWidget {
   const LoginScreen({super.key});
@@ -38,26 +35,7 @@ class _LoginScreenState extends State<LoginScreen> {
       _preInitDone = true;
       try {
         final model = context.read<PongModel>();
-        final appDataDir = await defaultAppDataDir();
-        final logFilePath = p.join(appDataDir, "logs", "pongui.log");
-        // Empty clientId triggers minimal local-only mode in golib.
-        final initArgs = golib.InitClient(
-          "", // client_id
-          model.cfg.serverAddr,
-          model.cfg.grpcCertPath,
-          appDataDir,
-          logFilePath,
-          "", // msgs_root (unused)
-          model.cfg.debugLevel,
-          model.cfg.wantsLogNtfns,
-          model.cfg.rpcWebsocketURL,
-          model.cfg.rpcCertPath,
-          model.cfg.rpcClientCertPath,
-          model.cfg.rpcClientKeyPath,
-          model.cfg.rpcUser,
-          model.cfg.rpcPass,
-        );
-        await Golib.initClient(initArgs);
+        await model.ensurePreloginInitialized();
       } catch (_) {
         // Best-effort preinit; errors are non-fatal for the login UI.
       }

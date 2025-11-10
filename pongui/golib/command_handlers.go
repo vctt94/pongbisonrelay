@@ -127,59 +127,6 @@ func handleInitClient(handle uint32, args initClient) (*localInfo, error) {
 		return nil, fmt.Errorf("failed to create logs directory %s: %v", logsDir, err)
 	}
 
-	// Load configuration using botclient config
-	// cfg, err := config.LoadClientConfig(args.DataDir, "pongui.conf")
-	// if err != nil {
-	// 	return nil, fmt.Errorf("failed to load config: %v", err)
-	// }
-
-	// // Apply overrides from args when available
-	// if args.RPCWebsocketURL != "" {
-	// 	cfg.RPCURL = args.RPCWebsocketURL
-	// }
-	// if args.RPCCertPath != "" {
-	// 	cfg.BRClientCert = args.RPCCertPath
-	// }
-	// if args.RPCCLientCertPath != "" {
-	// 	cfg.BRClientRPCCert = args.RPCCLientCertPath
-	// }
-	// if args.RPCCLientKeyPath != "" {
-	// 	cfg.BRClientRPCKey = args.RPCCLientKeyPath
-	// }
-	// if args.RPCUser != "" {
-	// 	cfg.RPCUser = args.RPCUser
-	// }
-	// if args.RPCPass != "" {
-	// 	cfg.RPCPass = args.RPCPass
-	// }
-	// if args.DebugLevel != "" {
-	// 	cfg.Debug = args.DebugLevel
-	// }
-
-	// // Validate required BR RPC fields.
-	// var missing []string
-	// if strings.TrimSpace(cfg.RPCURL) == "" {
-	// 	missing = append(missing, "brrpcurl")
-	// }
-	// if strings.TrimSpace(cfg.BRClientCert) == "" {
-	// 	missing = append(missing, "brclientcert")
-	// }
-	// if strings.TrimSpace(cfg.BRClientRPCCert) == "" {
-	// 	missing = append(missing, "brclientrpccert")
-	// }
-	// if strings.TrimSpace(cfg.BRClientRPCKey) == "" {
-	// 	missing = append(missing, "brclientrpckey")
-	// }
-	// if strings.TrimSpace(cfg.RPCUser) == "" {
-	// 	missing = append(missing, "rpcuser")
-	// }
-	// if strings.TrimSpace(cfg.RPCPass) == "" {
-	// 	missing = append(missing, "rpcpass")
-	// }
-	// if len(missing) > 0 {
-	// 	return nil, fmt.Errorf("missing required fields in client config: %s", strings.Join(missing, ", "))
-	// }
-
 	logBackend, err := logging.NewLogBackend(logging.LogConfig{
 		LogFile:        filepath.Join(args.DataDir, "logs", "pongui.log"),
 		DebugLevel:     args.DebugLevel,
@@ -190,19 +137,6 @@ func handleInitClient(handle uint32, args initClient) (*localInfo, error) {
 		return nil, err
 	}
 	log := logBackend.Logger("pongui")
-
-	ctx, cancel := context.WithCancel(context.Background())
-	g, _ := errgroup.WithContext(ctx)
-
-	// Start a BR RPC client
-	// c, err := botclient.NewClient(cfg)
-	// if err != nil {
-	// 	cancel()
-	// 	return nil, fmt.Errorf("failed to create bot client: %v", err)
-	// }
-
-	// Start the bot client
-	// g.Go(func() error { return c.RPCClient.Run(gctx) })
 
 	// If no wallet-authenticated clientID is provided, create a minimal client
 	// context that can serve local/non-auth features (e.g., historic escrows,
@@ -219,12 +153,15 @@ func handleInitClient(handle uint32, args initClient) (*localInfo, error) {
 	}
 
 	// Build consolidated AppConfig for the pong client (without BR auth)
-	appCfg := &client.AppConfig{
-		DataDir:      args.DataDir,
-		BR:           nil,
-		ServerAddr:   args.ServerAddr,
-		GRPCCertPath: args.GRPCCertPath,
+	// Load network from config file (defaults to testnet if not set)
+	appCfg, err := client.LoadAppConfig(args.DataDir, appName+".conf")
+	if err != nil {
+		return nil, fmt.Errorf("failed to load config: %v", err)
 	}
+
+	ctx, cancel := context.WithCancel(context.Background())
+	g, _ := errgroup.WithContext(ctx)
+
 	// Set up NotificationManager to emit UI notifications and forward to Flutter.
 	nmgr := client.NewNotificationManager()
 	// Enable common UI notifications and shorten emit interval for responsiveness.
@@ -236,29 +173,14 @@ func handleInitClient(handle uint32, args initClient) (*localInfo, error) {
 	})
 
 	var pc *client.PongClient
-	if haveAuth {
-		// Full client with connectivity.
-		var err error
-		pc, err = client.NewPongClient(args.ClientID, &client.PongClientCfg{
-			AppCfg:        appCfg,
-			Log:           logBackend.Logger("client"),
-			Notifications: nmgr,
-		})
-		if err != nil {
-			cancel()
-			return nil, err
-		}
-		li.ServerVersion = pc.ServerVersion()
-		li.ServerIsF2P = pc.ServerIsF2P()
-	} else {
-		// Minimal client: no network connections. Only local features.
-		var err error
-		pc, err = client.NewPongClientLocalOnly(appCfg, logBackend.Logger("client"), nmgr)
-		if err != nil {
-			cancel()
-			return nil, err
-		}
+	// Full client with connectivity.
+	pc, err = client.NewPongClient(args.ClientID, appCfg)
+	if err != nil {
+		cancel()
+		return nil, err
 	}
+	li.ServerVersion = pc.ServerVersion()
+	li.ServerIsF2P = pc.ServerIsF2P()
 
 	cctx := &clientCtx{
 		ID:     li,
@@ -624,8 +546,11 @@ func handleClientCmd(cc *clientCtx, cmd *cmd) (interface{}, error) {
 		if strings.HasPrefix(payout, "tpub") || strings.HasPrefix(payout, "dpub") {
 			return nil, fmt.Errorf("xpub not allowed - please login with wallet to use authenticated P2PK address")
 		}
-		// Accept only 33/65B hex pubkey or Decred P2PK address from wallet auth
-		payoutPK33, err := pongbisonrelay.PayoutPubkeyFromConfHex(req.Payout)
+		params, err := cc.c.GetChainParams()
+		if err != nil {
+			return nil, fmt.Errorf("failed to get chain params: %v", err)
+		}
+		payoutPK33, err := pongbisonrelay.PayoutPubkeyFromConfHex(req.Payout, params)
 		if err != nil {
 			return nil, fmt.Errorf("payout key parse failed (expected P2PK address from wallet login): %v", err)
 		}
@@ -948,6 +873,89 @@ func handleClientCmd(cc *clientCtx, cmd *cmd) (interface{}, error) {
 			return nil, err
 		}
 		return map[string]string{"status": "ok"}, nil
+
+	case CTRefundEscrow:
+		var req refundEscrowReq
+		if err := json.Unmarshal(cmd.Payload, &req); err != nil {
+			return nil, fmt.Errorf("bad refund escrow payload: %v", err)
+		}
+
+		// Get escrow details
+		details, err := cc.c.GetEscrowDetails(req.EscrowID)
+		if err != nil {
+			return &refundEscrowRes{
+				CanRefund: false,
+				Reason:    fmt.Sprintf("failed to get escrow details: %v", err),
+			}, nil
+		}
+
+		// Get settlement private key for this escrow
+		privHex, err := cc.c.GetSettlementPrivKeyForEscrow(req.EscrowID)
+		if err != nil {
+			return &refundEscrowRes{
+				CanRefund: false,
+				Reason:    fmt.Sprintf("failed to get settlement private key: %v", err),
+			}, nil
+		}
+
+		// Get chain parameters
+		params, err := cc.c.GetChainParams()
+		if err != nil {
+			return &refundEscrowRes{
+				CanRefund: false,
+				Reason:    fmt.Sprintf("failed to get chain params: %v", err),
+			}, nil
+		}
+		if params == nil {
+			return &refundEscrowRes{
+				CanRefund: false,
+				Reason:    "chain params is nil",
+			}, nil
+		}
+		// Log the network being used for debugging
+		cc.log.Infof("RefundEscrow: using params.Name=%s for address=%s", params.Name, req.DestAddr)
+
+		// Use CSV blocks from request if provided, otherwise use stored value
+		csvBlocks := req.CSVBlocks
+		if csvBlocks == 0 {
+			csvBlocks = details.CSVBlocks
+		}
+
+		// Use fee from request if provided, otherwise default to 20000
+		feeAtoms := req.FeeAtoms
+		if feeAtoms == 0 {
+			feeAtoms = 20000
+		}
+
+		// Build the refund transaction
+		refundTxHex, err := client.BuildCSVRefundTx(
+			privHex,
+			details.FundingTxHash,
+			details.FundingVout,
+			details.FundedAmount,
+			details.RedeemScriptHex,
+			req.DestAddr,
+			feeAtoms,
+			csvBlocks,
+			params,
+		)
+		if err != nil {
+			return &refundEscrowRes{
+				CanRefund: false,
+				Reason:    fmt.Sprintf("failed to build refund transaction: %v", err),
+			}, nil
+		}
+
+		// Return success response
+		return &refundEscrowRes{
+			RefundTxHex: refundTxHex,
+			UTXOTxid:    details.FundingTxHash,
+			UTXOVout:    details.FundingVout,
+			UTXOValue:   details.FundedAmount,
+			RedeemHex:   details.RedeemScriptHex,
+			CSVBlocks:   csvBlocks,
+			CanRefund:   true,
+		}, nil
 	}
 	return nil, nil
 }
