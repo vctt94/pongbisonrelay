@@ -423,7 +423,8 @@ class PongModel extends ChangeNotifier {
   // Removed JSON fallback for game updates. Binary-only via gameUpdates().
 
   void _handleGameUpdateFrame(GameUpdate gu) {
-    // No interpolation: keep only the latest authoritative state.
+    // Push into interpolator for smooth rendering; retain last state for fallback.
+    interpolator.push(gu);
     gameState = gu;
     renderLoop.start();
   }
@@ -644,9 +645,10 @@ class PongModel extends ChangeNotifier {
 
   // Sample current interpolated frame for rendering
   GameUpdate sampleInterpolatedGameState() {
-    // No interpolation: render latest directly, with safe fallback
-    final gs = gameState;
-    if (gs != null && gs.gameWidth > 0 && gs.gameHeight > 0) return gs;
+    // Sample interpolated state with a small render delay to hide jitter.
+    final s = interpolator.sample();
+    if (s.gameWidth > 0 && s.gameHeight > 0) return s;
+    // Fallback before first frame
     return GameUpdate()
       ..gameWidth = 800
       ..gameHeight = 600;

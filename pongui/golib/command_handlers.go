@@ -254,6 +254,9 @@ func handleInitClient(handle uint32, args initClient) (*localInfo, error) {
 
 	// Forward structured state-change events as simplified UINotification payloads.
 	go func() {
+		// Per-second counter of forwarded game frames.
+		lastLog := time.Now()
+		var fwd int
 		for {
 			select {
 			case <-ctx.Done():
@@ -409,6 +412,13 @@ func handleInitClient(handle uint32, args initClient) (*localInfo, error) {
 				} else if gub, ok := msg.(*pong.GameUpdateBytes); ok {
 					// Emit binary frame for high-frequency updates only.
 					notify(NTGameFrame, gub.Data, nil)
+					fwd++
+					if time.Since(lastLog) >= time.Second {
+						drops := GetAndResetNTGameFrameDrops()
+						log.Infof("NTGameFrame out=%d drop=%d", fwd, drops)
+						fwd = 0
+						lastLog = time.Now()
+					}
 				}
 			case err := <-pc.ErrorsCh():
 				if err != nil {

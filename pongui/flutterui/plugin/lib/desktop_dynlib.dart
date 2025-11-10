@@ -56,7 +56,8 @@ String desktopLibPath() {
   if (Platform.isLinux) {
     return path.join(exePath, "lib", "golib.so");
   } else if (Platform.isMacOS) {
-    return "golib.dylib";
+    // On macOS, the executable is in Contents/MacOS, and the dylib is in Contents/Frameworks
+    return path.join(exePath, "..", "Frameworks", "golib.dylib");
   } else if (Platform.isWindows) {
     return path.join(exePath, "golib.dll");
   }

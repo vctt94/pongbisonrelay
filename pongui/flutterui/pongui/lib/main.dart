@@ -17,6 +17,7 @@ import 'package:pongui/screens/login.dart';
 import 'package:pongui/screens/newconfig.dart';
 import 'package:pongui/screens/logs.dart';
 import 'package:pongui/screens/devtools.dart';
+import 'package:pongui/components/perf_overlay.dart';
 
 Future<void> runNewConfigApp(List<String> args) async {
   final newConfig = NewConfigModel(args);
@@ -102,6 +103,11 @@ class MyApp extends StatelessWidget {
             Align(
               alignment: Alignment.topCenter,
               child: NotificationBar(),
+            ),
+            // Small perf overlay to visualize frame spikes.
+            const Align(
+              alignment: Alignment.topLeft,
+              child: PerfOverlay(),
             ),
           ],
         );
