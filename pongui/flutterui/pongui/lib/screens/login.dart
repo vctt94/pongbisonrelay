@@ -1,7 +1,11 @@
 import 'package:flutter/material.dart';
 import 'package:pongui/models/pong.dart';
 import 'package:golib_plugin/golib_plugin.dart';
+import 'package:pongui/config.dart';
+import 'package:path/path.dart' as p;
 import 'package:provider/provider.dart';
+import 'package:pongui/components/refund_dialog.dart';
+import 'package:golib_plugin/definitions.dart' as golib;
 
 class LoginScreen extends StatefulWidget {
   const LoginScreen({super.key});
@@ -16,12 +20,48 @@ class _LoginScreenState extends State<LoginScreen> {
   String _nonce = '';
   String _status = '';
   bool _loading = false;
+  bool _preInitDone = false;
 
   @override
   void dispose() {
     _addrCtrl.dispose();
     _sigCtrl.dispose();
     super.dispose();
+  }
+
+  @override
+  void initState() {
+    super.initState();
+    // Pre-login minimal init so CT* commands have a valid handle.
+    WidgetsBinding.instance.addPostFrameCallback((_) async {
+      if (_preInitDone) return;
+      _preInitDone = true;
+      try {
+        final model = context.read<PongModel>();
+        final appDataDir = await defaultAppDataDir();
+        final logFilePath = p.join(appDataDir, "logs", "pongui.log");
+        // Empty clientId triggers minimal local-only mode in golib.
+        final initArgs = golib.InitClient(
+          "", // client_id
+          model.cfg.serverAddr,
+          model.cfg.grpcCertPath,
+          appDataDir,
+          logFilePath,
+          "", // msgs_root (unused)
+          model.cfg.debugLevel,
+          model.cfg.wantsLogNtfns,
+          model.cfg.rpcWebsocketURL,
+          model.cfg.rpcCertPath,
+          model.cfg.rpcClientCertPath,
+          model.cfg.rpcClientKeyPath,
+          model.cfg.rpcUser,
+          model.cfg.rpcPass,
+        );
+        await Golib.initClient(initArgs);
+      } catch (_) {
+        // Best-effort preinit; errors are non-fatal for the login UI.
+      }
+    });
   }
 
   Future<void> _requestNonce(PongModel m) async {
@@ -97,10 +137,18 @@ class _LoginScreenState extends State<LoginScreen> {
     }
   }
 
+  void _openRefundScreen() {
+    Navigator.of(context).push(
+      MaterialPageRoute(
+        builder: (_) => const RefundEscrowsScreen(),
+      ),
+    );
+  }
+
   @override
   Widget build(BuildContext context) {
     final model = context.watch<PongModel>();
-    
+
     return Scaffold(
       body: Container(
         decoration: const BoxDecoration(
@@ -156,14 +204,14 @@ class _LoginScreenState extends State<LoginScreen> {
                         ),
                       ),
                       const SizedBox(height: 32),
-                      
+
                       // Instructions
                       const Text(
                         '1. Enter your P2PKH address (D... or T...)',
                         style: TextStyle(color: Colors.white70, fontSize: 14),
                       ),
                       const SizedBox(height: 12),
-                      
+
                       // Address input
                       TextField(
                         controller: _addrCtrl,
@@ -172,7 +220,8 @@ class _LoginScreenState extends State<LoginScreen> {
                         decoration: InputDecoration(
                           labelText: 'Wallet Address',
                           labelStyle: const TextStyle(color: Colors.white54),
-                          prefixIcon: const Icon(Icons.account_balance_wallet, color: Colors.blueAccent),
+                          prefixIcon: const Icon(Icons.account_balance_wallet,
+                              color: Colors.blueAccent),
                           filled: true,
                           fillColor: Colors.black26,
                           border: OutlineInputBorder(
@@ -185,12 +234,13 @@ class _LoginScreenState extends State<LoginScreen> {
                           ),
                           focusedBorder: OutlineInputBorder(
                             borderRadius: BorderRadius.circular(8),
-                            borderSide: const BorderSide(color: Colors.blueAccent, width: 2),
+                            borderSide: const BorderSide(
+                                color: Colors.blueAccent, width: 2),
                           ),
                         ),
                       ),
                       const SizedBox(height: 16),
-                      
+
                       // Request nonce button
                       const Text(
                         '2. Request a code to sign',
@@ -198,7 +248,8 @@ class _LoginScreenState extends State<LoginScreen> {
                       ),
                       const SizedBox(height: 12),
                       ElevatedButton.icon(
-                        onPressed: !_loading ? () => _requestNonce(model) : null,
+                        onPressed:
+                            !_loading ? () => _requestNonce(model) : null,
                         icon: const Icon(Icons.refresh),
                         label: const Text('Request Code'),
                         style: ElevatedButton.styleFrom(
@@ -209,7 +260,7 @@ class _LoginScreenState extends State<LoginScreen> {
                           ),
                         ),
                       ),
-                      
+
                       // Show nonce
                       if (_nonce.isNotEmpty) ...[
                         const SizedBox(height: 16),
@@ -225,12 +276,16 @@ class _LoginScreenState extends State<LoginScreen> {
                             children: [
                               const Text(
                                 'Code to sign:',
-                                style: TextStyle(color: Colors.greenAccent, fontWeight: FontWeight.bold),
+                                style: TextStyle(
+                                    color: Colors.greenAccent,
+                                    fontWeight: FontWeight.bold),
                               ),
                               const SizedBox(height: 8),
                               SelectableText(
                                 _nonce,
-                                style: const TextStyle(color: Colors.white, fontFamily: 'monospace'),
+                                style: const TextStyle(
+                                    color: Colors.white,
+                                    fontFamily: 'monospace'),
                               ),
                             ],
                           ),
@@ -246,7 +301,8 @@ class _LoginScreenState extends State<LoginScreen> {
                           enabled: !_loading,
                           minLines: 2,
                           maxLines: 4,
-                          style: const TextStyle(color: Colors.white, fontFamily: 'monospace'),
+                          style: const TextStyle(
+                              color: Colors.white, fontFamily: 'monospace'),
                           decoration: InputDecoration(
                             labelText: 'Base64 Signature',
                             labelStyle: const TextStyle(color: Colors.white54),
@@ -262,24 +318,29 @@ class _LoginScreenState extends State<LoginScreen> {
                             ),
                             enabledBorder: OutlineInputBorder(
                               borderRadius: BorderRadius.circular(8),
-                              borderSide: const BorderSide(color: Colors.white24),
+                              borderSide:
+                                  const BorderSide(color: Colors.white24),
                             ),
                             focusedBorder: OutlineInputBorder(
                               borderRadius: BorderRadius.circular(8),
-                              borderSide: const BorderSide(color: Colors.blueAccent, width: 2),
+                              borderSide: const BorderSide(
+                                  color: Colors.blueAccent, width: 2),
                             ),
                           ),
                         ),
                         const SizedBox(height: 16),
                         ElevatedButton.icon(
-                          onPressed: (!_loading && _nonce.isNotEmpty) ? () => _verify(model) : null,
+                          onPressed: (!_loading && _nonce.isNotEmpty)
+                              ? () => _verify(model)
+                              : null,
                           icon: _loading
                               ? const SizedBox(
                                   width: 20,
                                   height: 20,
                                   child: CircularProgressIndicator(
                                     strokeWidth: 2,
-                                    valueColor: AlwaysStoppedAnimation<Color>(Colors.white),
+                                    valueColor: AlwaysStoppedAnimation<Color>(
+                                        Colors.white),
                                   ),
                                 )
                               : const Icon(Icons.login),
@@ -293,7 +354,7 @@ class _LoginScreenState extends State<LoginScreen> {
                           ),
                         ),
                       ],
-                      
+
                       // Error message
                       if (_status.isNotEmpty) ...[
                         const SizedBox(height: 16),
@@ -311,13 +372,52 @@ class _LoginScreenState extends State<LoginScreen> {
                               Expanded(
                                 child: Text(
                                   _status,
-                                  style: const TextStyle(color: Colors.redAccent),
+                                  style:
+                                      const TextStyle(color: Colors.redAccent),
                                 ),
                               ),
                             ],
                           ),
                         ),
                       ],
+
+                      const SizedBox(height: 32),
+
+                      // Refund button - accessible without login
+                      const Divider(color: Colors.white24),
+                      const SizedBox(height: 16),
+                      const Text(
+                        'Need to refund a CSV-locked escrow?',
+                        textAlign: TextAlign.center,
+                        style: TextStyle(
+                          fontSize: 14,
+                          color: Colors.white70,
+                          fontWeight: FontWeight.bold,
+                        ),
+                      ),
+                      const SizedBox(height: 8),
+                      Text(
+                        'No login required. Refund escrows directly using your wallet.',
+                        textAlign: TextAlign.center,
+                        style: TextStyle(
+                          fontSize: 12,
+                          color: Colors.grey.shade400,
+                          fontStyle: FontStyle.italic,
+                        ),
+                      ),
+                      const SizedBox(height: 12),
+                      ElevatedButton.icon(
+                        onPressed: _openRefundScreen,
+                        icon: const Icon(Icons.refresh, size: 20),
+                        label: const Text('Refund Escrow'),
+                        style: ElevatedButton.styleFrom(
+                          backgroundColor: Colors.orange,
+                          padding: const EdgeInsets.symmetric(vertical: 14),
+                          shape: RoundedRectangleBorder(
+                            borderRadius: BorderRadius.circular(8),
+                          ),
+                        ),
+                      ),
                     ],
                   ),
                 ),
@@ -329,4 +429,3 @@ class _LoginScreenState extends State<LoginScreen> {
     );
   }
 }
-

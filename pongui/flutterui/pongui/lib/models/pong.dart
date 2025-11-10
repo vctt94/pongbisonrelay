@@ -38,7 +38,14 @@ class PongModel extends ChangeNotifier {
   String payoutAddressOrPubkey = '';
   String escrowDepositAddress = '';
   String escrowPkScriptHex = '';
+  String escrowRedeemScriptHex = '';
   int escrowBetAtoms = 0;
+  int escrowCsvBlocks = CSV_BLOCKS;
+  String escrowFundingTxid = '';
+  int escrowFundingVout = -1;
+  int escrowFundingValueAtoms = 0;
+  bool escrowInfoPersisted = false;
+  String escrowInfoError = '';
   String fundingStatus = '';
   int escrowConfs = 0;
   // Escrow funding flags derived from notifications
@@ -48,6 +55,12 @@ class PongModel extends ChangeNotifier {
   List<LocalWaitingRoom> waitingRooms = [];
   LocalWaitingRoom? currentWR;
   GameUpdate? gameState;
+
+  // Historic escrow state (used for refunds)
+  List<Map<String, dynamic>> historicEscrows = [];
+  bool isLoadingHistoricEscrows = false;
+  String historicEscrowsError = '';
+
   final SnapshotInterpolator interpolator = SnapshotInterpolator();
   final RenderLoop renderLoop = RenderLoop();
   StreamSubscription<GameUpdate>? _gameStreamSub;
@@ -71,18 +84,61 @@ class PongModel extends ChangeNotifier {
     notifyListeners();
   }
 
-  void setEscrowDetails(String id, String depositAddr, [String? pkScriptHex]) {
+  void setEscrowDetails(String id, String depositAddr,
+      {String? pkScriptHex, String? redeemScriptHex, int? csvBlocks}) {
     escrowId = id;
     escrowDepositAddress = depositAddr;
     escrowPkScriptHex = pkScriptHex ?? escrowPkScriptHex;
+    if (redeemScriptHex != null && redeemScriptHex.isNotEmpty) {
+      escrowRedeemScriptHex = redeemScriptHex;
+    }
+    if (csvBlocks != null && csvBlocks > 0) {
+      escrowCsvBlocks = csvBlocks;
+    }
     notifyListeners();
   }
 
   void setEscrowBetAtoms(int atoms) {
     escrowBetAtoms = atoms;
+    escrowFundingValueAtoms = atoms;
     // Reflect intended bet in UI immediately
     betAmt = atoms;
     notifyListeners();
+  }
+
+  Future<bool> persistEscrowInfo(Map<String, dynamic> info,
+      {String failureContext = 'Persisting escrow info'}) async {
+    try {
+      await Golib.cacheEscrowInfo(info);
+      escrowInfoPersisted = true;
+      escrowInfoError = '';
+      notifyListeners();
+      return true;
+    } catch (e) {
+      escrowInfoPersisted = false;
+      escrowInfoError = '$failureContext failed: $e';
+      fundingStatus = 'CRITICAL: escrow state not saved. Do not deposit.';
+      notificationModel.showNotification(escrowInfoError);
+      notifyListeners();
+      return false;
+    }
+  }
+
+  Future<bool> persistInitialEscrowInfo({
+    required String escrowId,
+    required int betAtoms,
+    required int csvBlocks,
+    required String pkScriptHex,
+    required String redeemScriptHex,
+  }) {
+    return persistEscrowInfo({
+      'escrow_id': escrowId,
+      'funded_amount': betAtoms,
+      'pk_script_hex': pkScriptHex,
+      'redeem_script_hex': redeemScriptHex,
+      'csv_blocks': csvBlocks,
+      'archived_at': DateTime.now().millisecondsSinceEpoch,
+    }, failureContext: 'Saving initial escrow metadata');
   }
 
   // Getters for the game state
@@ -151,15 +207,14 @@ class PongModel extends ChangeNotifier {
       developer.log("InitClient args: $initArgs");
 
       var localInfo = await Golib.initClient(initArgs);
-
-      // clientId should match what we passed in
-      if (localInfo.id != clientId) {
-        throw Exception(
-            "clientId mismatch: expected $clientId, got ${localInfo.id}");
+      // Use the ID returned by golib (authoritative). If a pre-login client
+      // was already initialized, this may differ; prefer backend-provided ID.
+      if ((localInfo.id).isNotEmpty) {
+        clientId = localInfo.id;
       }
       nick = localInfo.nick;
       serverIsF2P = localInfo.serverIsF2P;
-      serverVersion = localInfo.serverVersion ?? "";
+      serverVersion = localInfo.serverVersion;
 
       // Query initial waiting rooms via golib
       waitingRooms = await Golib.getWaitingRooms();
@@ -257,7 +312,14 @@ class PongModel extends ChangeNotifier {
     escrowId = '';
     escrowDepositAddress = '';
     escrowPkScriptHex = '';
+    escrowRedeemScriptHex = '';
     escrowBetAtoms = 0;
+    escrowCsvBlocks = CSV_BLOCKS;
+    escrowFundingTxid = '';
+    escrowFundingVout = -1;
+    escrowFundingValueAtoms = 0;
+    escrowInfoPersisted = false;
+    escrowInfoError = '';
     escrowFunded = false;
     escrowConfirmed = false;
     currentWR = null;
@@ -298,6 +360,58 @@ class PongModel extends ChangeNotifier {
     fundingStatus = escrowConfirmed
         ? 'Deposit confirmed ($escrowConfs)'
         : 'Deposit seen (mempool)';
+
+    bool metadataUpdated = false;
+    final txid = (extras['funding_txid'] ?? '').toString();
+    if (txid.isNotEmpty) {
+      escrowFundingTxid = txid;
+      metadataUpdated = true;
+    }
+    final vout = extras['funding_vout'];
+    if (vout is num && vout.toInt() >= 0) {
+      escrowFundingVout = vout.toInt();
+      metadataUpdated = true;
+    }
+    final amt = extras['funded_amount'];
+    if (amt is num && amt.toInt() > 0) {
+      escrowFundingValueAtoms = amt.toInt();
+      metadataUpdated = true;
+    }
+    final redeem = (extras['redeem_script_hex'] ?? '').toString();
+    if (redeem.isNotEmpty) {
+      escrowRedeemScriptHex = redeem;
+      metadataUpdated = true;
+    }
+    final pk = (extras['pk_script_hex'] ?? '').toString();
+    if (pk.isNotEmpty) {
+      escrowPkScriptHex = pk;
+    }
+    final csv = extras['csv_blocks'];
+    if (csv is num && csv.toInt() > 0) {
+      escrowCsvBlocks = csv.toInt();
+    }
+
+    if (metadataUpdated && escrowId.isNotEmpty) {
+      final info = <String, dynamic>{
+        'escrow_id': escrowId,
+        'funded_amount': escrowFundingValueAtoms,
+        'pk_script_hex': escrowPkScriptHex,
+        'csv_blocks': escrowCsvBlocks,
+        'archived_at': DateTime.now().millisecondsSinceEpoch,
+      };
+      if (escrowFundingTxid.isNotEmpty) {
+        info['funding_txid'] = escrowFundingTxid;
+      }
+      if (escrowFundingVout >= 0) {
+        info['funding_vout'] = escrowFundingVout;
+      }
+      if (escrowRedeemScriptHex.isNotEmpty) {
+        info['redeem_script_hex'] = escrowRedeemScriptHex;
+      }
+      persistEscrowInfo(info,
+          failureContext: 'Updating escrow funding metadata');
+    }
+
     notifyListeners();
   }
 
@@ -444,19 +558,63 @@ class PongModel extends ChangeNotifier {
   // Clear all escrow-related client state so user can open a fresh escrow
   // after a game ends or when leaving a room.
   void clearEscrowState() {
+    // Archive the session key with escrow info before clearing
+    if (lastMatchId.isNotEmpty && escrowId.isNotEmpty) {
+      final missing = <String>[];
+      if (escrowFundingTxid.isEmpty) missing.add('funding txid');
+      if (escrowFundingVout < 0) missing.add('funding vout');
+      if (escrowRedeemScriptHex.isEmpty) missing.add('redeem script');
+      if (escrowPkScriptHex.isEmpty) missing.add('pk script');
+      if (escrowFundingValueAtoms <= 0) missing.add('funded amount');
+      if (missing.isNotEmpty) {
+        final msg =
+            'Cannot archive escrow $escrowId. Missing: ${missing.join(', ')}';
+        developer.log(msg, name: 'escrow');
+        notificationModel.showNotification(msg);
+      } else {
+        final escrowInfo = {
+          'escrow_id': escrowId,
+          'funding_txid': escrowFundingTxid,
+          'funding_vout': escrowFundingVout,
+          'funded_amount': escrowFundingValueAtoms,
+          'redeem_script_hex': escrowRedeemScriptHex,
+          'pk_script_hex': escrowPkScriptHex,
+          'csv_blocks': escrowCsvBlocks,
+          'archived_at': DateTime.now().millisecondsSinceEpoch,
+        };
+        unawaited(
+          Golib.archiveSettlementSessionKeyWithEscrow(
+            lastMatchId,
+            escrowInfo,
+          ).catchError((e) {
+            developer.log(
+              'Failed to archive settlement session: $e',
+              name: 'escrow',
+            );
+            notificationModel.showNotification(
+              'Failed to archive escrow history: $e',
+            );
+          }),
+        );
+      }
+    }
+
     escrowId = '';
     escrowDepositAddress = '';
     escrowPkScriptHex = '';
+    escrowRedeemScriptHex = '';
     escrowBetAtoms = 0;
+    escrowCsvBlocks = CSV_BLOCKS;
+    escrowFundingTxid = '';
+    escrowFundingVout = -1;
+    escrowFundingValueAtoms = 0;
+    escrowInfoPersisted = false;
+    escrowInfoError = '';
     escrowFunded = false;
     escrowConfirmed = false;
     escrowConfs = 0;
     fundingStatus = '';
-    // Also archive the persisted session key so a new escrow can use a new key
-    // while retaining recovery data for this match.
-    if (lastMatchId.isNotEmpty) {
-      Golib.archiveSettlementSessionKey(lastMatchId);
-    }
+    lastMatchId = '';
     notifyListeners();
   }
 
@@ -657,5 +815,114 @@ class PongModel extends ChangeNotifier {
   void _stopGameStreamAndRenderLoop() {
     renderLoop.stop();
     gameState = null;
+  }
+
+  // Refund-related methods
+  Future<void> loadHistoricEscrows() async {
+    isLoadingHistoricEscrows = true;
+    historicEscrowsError = '';
+    notifyListeners();
+
+    try {
+      developer.log(
+        'loadHistoricEscrows: start',
+        name: 'refunds',
+      );
+      final allEscrows = await Golib.listHistoricEscrows();
+
+      allEscrows.sort((a, b) {
+        final aTime =
+            (a['archived_at'] is num) ? (a['archived_at'] as num).toInt() : 0;
+        final bTime =
+            (b['archived_at'] is num) ? (b['archived_at'] as num).toInt() : 0;
+        return bTime.compareTo(aTime);
+      });
+
+      historicEscrows = allEscrows
+          .map((escrow) => Map<String, dynamic>.from(escrow))
+          .toList();
+
+      developer.log(
+        'loadHistoricEscrows: found ${historicEscrows.length} historic escrows',
+        name: 'refunds',
+      );
+      isLoadingHistoricEscrows = false;
+      notifyListeners();
+    } catch (e) {
+      developer.log('loadHistoricEscrows error: $e', name: 'refunds');
+      isLoadingHistoricEscrows = false;
+      historicEscrowsError = 'Error loading historic escrows: $e';
+      notifyListeners();
+    }
+  }
+
+  Future<Map<String, dynamic>> buildRefundTransaction(
+      String escrowId, String destAddr,
+      {int feeAtoms = 20000, int? csvBlocks}) async {
+    try {
+      final result = await Golib.refundEscrow(
+        escrowId: escrowId,
+        destAddr: destAddr,
+        feeAtoms: feeAtoms,
+        csvBlocks: csvBlocks ?? CSV_BLOCKS,
+      );
+
+      developer.log(
+        'buildRefundTransaction: escrow=$escrowId can_refund=${result['can_refund']}',
+        name: 'refunds',
+      );
+
+      return result;
+    } catch (e) {
+      throw Exception('Failed to build refund transaction: $e');
+    }
+  }
+
+  // Update escrow funding transaction info in historic file
+  Future<void> updateEscrowFundingTx(
+      String escrowId, String txid, int vout) async {
+    try {
+      developer.log(
+        'updateEscrowFundingTx: escrow=$escrowId txid=$txid vout=$vout',
+        name: 'refunds',
+      );
+
+      await Golib.updateHistoricEscrow({
+        'escrow_id': escrowId,
+        'funding_txid': txid,
+        'funding_vout': vout,
+      });
+
+      developer.log(
+        'updateEscrowFundingTx: successfully updated escrow $escrowId',
+        name: 'refunds',
+      );
+    } catch (e) {
+      developer.log(
+        'updateEscrowFundingTx error: $e',
+        name: 'refunds',
+      );
+      throw Exception('Failed to update escrow funding transaction: $e');
+    }
+  }
+
+  Future<void> deleteHistoricEscrow(String escrowId) async {
+    try {
+      developer.log('deleteHistoricEscrow: escrow=$escrowId', name: 'refunds');
+
+      await Golib.deleteHistoricEscrow(escrowId);
+
+      historicEscrows.removeWhere((escrow) {
+        final id = escrow['escrow_id']?.toString() ?? '';
+        return id == escrowId;
+      });
+
+      notifyListeners();
+
+      developer.log('deleteHistoricEscrow: deleted $escrowId', name: 'refunds');
+    } catch (e) {
+      developer.log('deleteHistoricEscrow error: $e', name: 'refunds');
+      throw Exception('Failed to delete escrow: $e');
+    }
   }
 }

@@ -122,13 +122,14 @@ func BuildCSVRefundTx(privHex, utxoTxid string, utxoVout uint32, utxoValue uint6
 		return "", fmt.Errorf("fee %d exceeds input %d", feeAtoms, utxoValue)
 	}
 
-	// Build tx: version 1, one input, one output.
+	// Build tx with current consensus version, one input, one output.
 	var h chainhash.Hash
 	if err := chainhash.Decode(&h, strings.TrimSpace(utxoTxid)); err != nil {
 		return "", fmt.Errorf("bad txid: %w", err)
 	}
 	tx := wire.NewMsgTx()
-	tx.Version = 1
+	// Schnorr via OP_CHECKSIGALTVERIFY requires tx version >= 3 (consensus).
+	tx.Version = 3
 	tx.AddTxIn(&wire.TxIn{PreviousOutPoint: wire.OutPoint{Hash: h, Index: utxoVout}, ValueIn: int64(utxoValue)})
 	// Set sequence to satisfy CSV.
 	tx.TxIn[0].Sequence = csvBlocks

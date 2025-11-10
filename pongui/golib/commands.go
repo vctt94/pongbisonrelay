@@ -45,6 +45,16 @@ const (
 	CTUnreadyGameStream = 0x13
 	CTStartGameStream   = 0x14
 
+	// Refund command for CSV-locked escrows
+	CTRefundEscrow = 0x15
+
+	// List all historic escrows for refund checking
+	CTListHistoricEscrows = 0x16
+	// Cache partial escrow info to disk to prevent fund loss
+	CTCacheEscrowInfo      = 0x17
+	CTUpdateHistoricEscrow = 0x18
+	CTDeleteHistoricEscrow = 0x19
+
 	CTCreateLockFile        = 0x60
 	CTCloseLockFile         = 0x61
 	CTGetRunState           = 0x83

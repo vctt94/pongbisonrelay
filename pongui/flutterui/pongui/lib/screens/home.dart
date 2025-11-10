@@ -4,6 +4,7 @@ import 'package:golib_plugin/golib_plugin.dart';
 import 'package:pongui/components/home/main_content.dart';
 import 'package:pongui/components/shared_layout.dart';
 import 'package:pongui/models/pong.dart';
+import 'package:golib_plugin/definitions.dart';
 import 'package:provider/provider.dart';
 
 class HomeScreen extends StatefulWidget {
@@ -195,7 +196,7 @@ class _HomeScreenState extends State<HomeScreen> {
                                             final res = await Golib.openEscrow(
                                               payout: payout,
                                               betAtoms: betAtoms,
-                                              csvBlocks: 64,
+                                              csvBlocks: CSV_BLOCKS,
                                             );
                                             final id =
                                                 (res['escrow_id'] as String?) ??
@@ -206,8 +207,48 @@ class _HomeScreenState extends State<HomeScreen> {
                                             final pk = (res['pk_script_hex']
                                                     as String?) ??
                                                 '';
-                                            pongModel.setEscrowDetails(
-                                                id, dep, pk);
+                                            final redeem =
+                                                (res['redeem_script_hex']
+                                                        as String?) ??
+                                                    '';
+                                            final csvBlocks =
+                                                (res['csv_blocks'] as int?) ??
+                                                    CSV_BLOCKS;
+                                            if (id.isEmpty ||
+                                                dep.isEmpty ||
+                                                redeem.isEmpty ||
+                                                pk.isEmpty) {
+                                              if (!context.mounted) return;
+                                              ScaffoldMessenger.of(context)
+                                                  .showSnackBar(
+                                                const SnackBar(
+                                                    content: Text(
+                                                        'Escrow error: missing critical data. Try again.')),
+                                              );
+                                              return;
+                                            }
+                                            final persisted = await pongModel
+                                                .persistInitialEscrowInfo(
+                                              escrowId: id,
+                                              betAtoms: betAtoms,
+                                              csvBlocks: csvBlocks,
+                                              pkScriptHex: pk,
+                                              redeemScriptHex: redeem,
+                                            );
+                                            if (!persisted) {
+                                              if (!context.mounted) return;
+                                              ScaffoldMessenger.of(context)
+                                                  .showSnackBar(
+                                                const SnackBar(
+                                                    content: Text(
+                                                        'Failed to save escrow info. Deposit address not shown.')),
+                                              );
+                                              return;
+                                            }
+                                            pongModel.setEscrowDetails(id, dep,
+                                                pkScriptHex: pk,
+                                                redeemScriptHex: redeem,
+                                                csvBlocks: csvBlocks);
                                             pongModel
                                                 .setEscrowBetAtoms(betAtoms);
                                             if (!context.mounted) return;
@@ -342,8 +383,8 @@ class _HomeScreenState extends State<HomeScreen> {
                             child: Column(
                               crossAxisAlignment: CrossAxisAlignment.start,
                               children: [
-                                if (pongModel
-                                    .escrowDepositAddress.isNotEmpty) ...[
+                                if (pongModel.escrowDepositAddress.isNotEmpty &&
+                                    pongModel.escrowInfoPersisted) ...[
                                   Row(
                                     children: [
                                       const Icon(Icons.account_balance_wallet,
@@ -382,6 +423,18 @@ class _HomeScreenState extends State<HomeScreen> {
                                   ),
                                   const SizedBox(height: 12),
                                 ],
+                                if (pongModel.escrowInfoError.isNotEmpty)
+                                  Padding(
+                                    padding:
+                                        const EdgeInsets.only(bottom: 12.0),
+                                    child: Text(
+                                      pongModel.escrowInfoError,
+                                      style: const TextStyle(
+                                        color: Colors.redAccent,
+                                        fontSize: 12,
+                                      ),
+                                    ),
+                                  ),
                                 const Text(
                                   "Current Waiting Room",
                                   style: TextStyle(

@@ -11,6 +11,9 @@ import 'package:flutter/foundation.dart'; // for debugPrint
 
 part 'definitions.g.dart';
 
+// CSV blocks for escrow timelock - change this for testing (2 for testing, 64 for production)
+const int CSV_BLOCKS = 2;
+
 // Isolate entry point: decode protobuf -> build a plain Map payload
 // (numbers only) that can cross isolates efficiently.
 void _frameDecodeIsolate(SendPort mainPort) {
@@ -465,17 +468,17 @@ mixin NtfStreams {
   // Perf logging (no behavior change)
   Timer? _perfTimer;
   // No render timer: UI drives rendering on its own (e.g. via vsync/RenderLoop).
-  int _framesIn = 0;        // frames received from FFI isolate
-  int _framesDecoded = 0;   // frames decoded and emitted
+  int _framesIn = 0; // frames received from FFI isolate
+  int _framesDecoded = 0; // frames decoded and emitted
   // No drop counter now that gating is removed
   final Stopwatch _decodeSw = Stopwatch();
   int _lastDecodeMs = 0;
   int _maxDecodeMs = 0;
-  int _qMax = 0;            // peak queue size per second
-  int _ffiFwd = 0;          // last forwarded frames/sec from FFI isolate
+  int _qMax = 0; // peak queue size per second
+  int _ffiFwd = 0; // last forwarded frames/sec from FFI isolate
   // jitter (ms) for incoming notifications and emitted frames
-  int _inDtMin = 1<<30, _inDtMax = 0, _inDtSum = 0, _inDtCount = 0;
-  int _outDtMin = 1<<30, _outDtMax = 0, _outDtSum = 0, _outDtCount = 0;
+  int _inDtMin = 1 << 30, _inDtMax = 0, _inDtSum = 0, _inDtCount = 0;
+  int _outDtMin = 1 << 30, _outDtMax = 0, _outDtSum = 0, _outDtCount = 0;
 
   // call this from your existing notification hook
   void handleNotifications(int cmd, bool isError, Object? payload) {
@@ -484,7 +487,8 @@ mixin NtfStreams {
       final nowUs = DateTime.now().microsecondsSinceEpoch;
       final sinceLastUs = nowUs - _lastEmitMicros;
       final sinceLastMs = sinceLastUs > 0 ? (sinceLastUs ~/ 1000) : 0;
-      debugPrint('[ui] frames in=$_framesIn out=$_framesDecoded decode=${_lastDecodeMs}ms max=${_maxDecodeMs}ms');
+      debugPrint(
+          '[ui] frames in=$_framesIn out=$_framesDecoded decode=${_lastDecodeMs}ms max=${_maxDecodeMs}ms');
       final inAvg = _inDtCount > 0 ? (_inDtSum ~/ _inDtCount) : 0;
       final outAvg = _outDtCount > 0 ? (_outDtSum ~/ _outDtCount) : 0;
       // Push stats to UI subscribers.
@@ -499,10 +503,11 @@ mixin NtfStreams {
             queueMax: _qMax,
             sinceLastEmitMs: sinceLastMs,
             ffiFwd: _ffiFwd,
-            inDtMin: (_inDtCount > 0 && _inDtMin < (1<<30)) ? _inDtMin : 0,
+            inDtMin: (_inDtCount > 0 && _inDtMin < (1 << 30)) ? _inDtMin : 0,
             inDtAvg: inAvg,
             inDtMax: _inDtMax,
-            outDtMin: (_outDtCount > 0 && _outDtMin < (1<<30)) ? _outDtMin : 0,
+            outDtMin:
+                (_outDtCount > 0 && _outDtMin < (1 << 30)) ? _outDtMin : 0,
             outDtAvg: outAvg,
             outDtMax: _outDtMax,
           ));
@@ -513,9 +518,14 @@ mixin NtfStreams {
       _framesDecoded = 0;
       _maxDecodeMs = 0;
       _qMax = 0;
-      _inDtMin = 1<<30; _inDtMax = 0; _inDtSum = 0; _inDtCount = 0;
-      _outDtMin = 1<<30; _outDtMax = 0; _outDtSum = 0; _outDtCount = 0;
-
+      _inDtMin = 1 << 30;
+      _inDtMax = 0;
+      _inDtSum = 0;
+      _inDtCount = 0;
+      _outDtMin = 1 << 30;
+      _outDtMax = 0;
+      _outDtSum = 0;
+      _outDtCount = 0;
     });
     switch (cmd) {
       case NTNOP:
@@ -540,7 +550,8 @@ mixin NtfStreams {
 
       case NTGameFrame:
         // payload is raw bytes of your packed GameUpdate.
-        final raw = (payload as TransferableTypedData).materialize().asUint8List();
+        final raw =
+            (payload as TransferableTypedData).materialize().asUint8List();
         _framesIn++;
         _frameQueue.add(raw); // enqueue; no drop/coalesce
         if (!_decoding) {
@@ -713,7 +724,8 @@ abstract class PluginPlatform {
     }).toList();
   }
 
-  Future<LocalWaitingRoom> JoinWaitingRoom(String id, {String? escrowId}) async {
+  Future<LocalWaitingRoom> JoinWaitingRoom(String id,
+      {String? escrowId}) async {
     try {
       // Always send JSON object so golib handler can consistently parse
       final payload = {
@@ -765,7 +777,7 @@ abstract class PluginPlatform {
   Future<Map<String, dynamic>> openEscrow(
       {required String payout,
       required int betAtoms,
-      int csvBlocks = 64}) async {
+      int csvBlocks = CSV_BLOCKS}) async {
     final payload = {
       'payout': payout,
       'bet_atoms': betAtoms,
@@ -775,12 +787,59 @@ abstract class PluginPlatform {
     return Map<String, dynamic>.from(res as Map);
   }
 
+  Future<Map<String, dynamic>> refundEscrow(
+      {required String escrowId,
+      required String destAddr,
+      int feeAtoms = 20000,
+      int csvBlocks = CSV_BLOCKS}) async {
+    final payload = {
+      'escrow_id': escrowId,
+      'dest_addr': destAddr,
+      'fee_atoms': feeAtoms,
+      'csv_blocks': csvBlocks,
+    };
+    final res = await asyncCall(CTRefundEscrow, payload);
+    return Map<String, dynamic>.from(res as Map);
+  }
+
+  Future<List<Map<String, dynamic>>> listHistoricEscrows() async {
+    // The Go side uses the already-initialized client handle and its data dir.
+    // No payload needed here.
+    final res = await asyncCall(CTListHistoricEscrows, "");
+    if (res == null) return [];
+    final data = Map<String, dynamic>.from(res as Map);
+    final raw = data['escrows'];
+    final List<dynamic> escrows =
+        raw is List ? raw : (raw == null ? const [] : [raw]);
+    return escrows.map((e) => Map<String, dynamic>.from(e)).toList();
+  }
+
   Future<void> startPreSign(String matchId) async {
     await asyncCall(CTStartPreSign, {'match_id': matchId});
   }
 
   Future<void> archiveSettlementSessionKey(String matchId) async {
     await asyncCall(CTArchiveSessionKey, {'match_id': matchId});
+  }
+
+  Future<void> archiveSettlementSessionKeyWithEscrow(
+      String matchId, Map<String, dynamic> escrowInfo) async {
+    await asyncCall(CTArchiveSessionKey, {
+      'match_id': matchId,
+      'escrow_info': escrowInfo,
+    });
+  }
+
+  Future<void> cacheEscrowInfo(Map<String, dynamic> escrowInfo) async {
+    await asyncCall(CTCacheEscrowInfo, escrowInfo);
+  }
+
+  Future<void> updateHistoricEscrow(Map<String, dynamic> escrowInfo) async {
+    await asyncCall(CTUpdateHistoricEscrow, escrowInfo);
+  }
+
+  Future<void> deleteHistoricEscrow(String escrowId) async {
+    await asyncCall(CTDeleteHistoricEscrow, {'escrow_id': escrowId});
   }
 
   // Player action methods (migrated from Dart gRPC)
@@ -806,7 +865,7 @@ const int CTUnknown = 0x00;
 const int CTHello = 0x01;
 const int CTInitClient = 0x02;
 const int CTGetUserNick = 0x03;
-const int CTCreateLockFile = 0x04;
+const int CTStopClient = 0x04;
 const int CTGetWRPlayers = 0x05;
 const int CTGetWaitingRooms = 0x06;
 const int CTJoinWaitingRoom = 0x07;
@@ -815,17 +874,21 @@ const int CTLeaveWaitingRoom = 0x09;
 const int CTGenerateSessionKey = 0x0a;
 const int CTOpenEscrow = 0x0b;
 const int CTStartPreSign = 0x0c;
+const int CTArchiveSessionKey = 0x0e;
 const int CTRequestNonce = 0x0f;
 const int CTVerifyLogin = 0x10;
-const int CTArchiveSessionKey = 0x0e;
-
-// Player action commands (migrated from Dart gRPC)
 const int CTSendInput = 0x11;
 const int CTSignalReadyToPlay = 0x12;
 const int CTUnreadyGameStream = 0x13;
 const int CTStartGameStream = 0x14;
+const int CTRefundEscrow = 0x15;
+const int CTListHistoricEscrows = 0x16;
+const int CTCacheEscrowInfo = 0x17;
+const int CTUpdateHistoricEscrow = 0x18;
+const int CTDeleteHistoricEscrow = 0x19;
 
-const int CTCloseLockFile = 0x60;
+const int CTCreateLockFile = 0x60;
+const int CTCloseLockFile = 0x61;
 
 const int notificationsStartID = 0x1000;
 // Notification types (must match golib)
@@ -836,7 +899,8 @@ const int NTNOP = 0x1004;
 // Binary game frame (raw pong.GameUpdate bytes)
 const int NTGameFrame = 0x1011;
 // Per-second forwarded NTGameFrame count from FFI isolate
-const int NTPerfFwd   = 0x10f0;
+const int NTPerfFwd = 0x10f0;
+
 // Lightweight perf stats the UI can subscribe to for debugging spikes.
 class PerfStats {
   final int framesIn;

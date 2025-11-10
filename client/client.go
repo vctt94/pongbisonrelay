@@ -6,7 +6,6 @@ import (
 	"encoding/hex"
 	"encoding/json"
 	"fmt"
-	"io"
 	"os"
 	"path/filepath"
 	"strings"
@@ -65,8 +64,9 @@ type PongClient struct {
 	errorsCh  chan error
 
 	// Settlement session key (in-memory, per-process)
-	settlePrivHex string
-	settlePubHex  string
+	settlePrivHex    string
+	settlePubHex     string
+	activeEscrowInfo *EscrowInfo
 }
 
 func NewPongClient(clientID string, cfg *PongClientCfg) (*PongClient, error) {
@@ -239,26 +239,75 @@ func (pc *PongClient) sessionKeyFilePath() string {
 	return filepath.Join(pc.appCfg.DataDir, "settlement_session_key.json")
 }
 
+func (pc *PongClient) historicSessionsDir() (string, error) {
+	base := strings.TrimSpace(pc.sessionKeyFilePath())
+	if base == "" {
+		return "", fmt.Errorf("session key storage path not configured")
+	}
+	return filepath.Join(filepath.Dir(base), "historic_sessions"), nil
+}
+
+func (pc *PongClient) sessionDataForEscrow(escrowID string) (*SessionKeyData, error) {
+	escrowID = strings.TrimSpace(escrowID)
+	if escrowID == "" {
+		return nil, fmt.Errorf("escrowID required")
+	}
+	dir, err := pc.historicSessionsDir()
+	if err != nil {
+		return nil, err
+	}
+	entries, err := os.ReadDir(dir)
+	if err != nil {
+		return nil, fmt.Errorf("read historic sessions dir: %w", err)
+	}
+	for _, entry := range entries {
+		if entry.IsDir() {
+			continue
+		}
+		name := entry.Name()
+		if !strings.HasPrefix(name, "sessionkey_") || !strings.HasSuffix(name, ".json") {
+			continue
+		}
+		path := filepath.Join(dir, name)
+		data, err := os.ReadFile(path)
+		if err != nil {
+			continue
+		}
+		var session SessionKeyData
+		if err := json.Unmarshal(data, &session); err != nil {
+			continue
+		}
+		if session.EscrowInfo != nil && session.EscrowInfo.EscrowID == escrowID {
+			return &session, nil
+		}
+	}
+	return nil, fmt.Errorf("escrow %s not found in historic sessions", escrowID)
+}
+
 // saveSettlementSessionKey writes the current session keypair to disk (0600) in JSON.
 func (pc *PongClient) saveSettlementSessionKey() error {
 	path := pc.sessionKeyFilePath()
 	if strings.TrimSpace(path) == "" {
 		return nil // no datadir configured; skip persistence in POC mode
 	}
-	type pair struct {
-		Priv string `json:"priv"`
-		Pub  string `json:"pub"`
-	}
 	pc.RLock()
-	data, err := json.MarshalIndent(pair{Priv: pc.settlePrivHex, Pub: pc.settlePubHex}, "", "  ")
+	data := SessionKeyData{
+		Priv: pc.settlePrivHex,
+		Pub:  pc.settlePubHex,
+	}
+	if pc.activeEscrowInfo != nil {
+		copyInfo := *pc.activeEscrowInfo
+		data.EscrowInfo = &copyInfo
+	}
 	pc.RUnlock()
+	blob, err := json.MarshalIndent(data, "", "  ")
 	if err != nil {
 		return err
 	}
 	if err := os.MkdirAll(filepath.Dir(path), 0700); err != nil {
 		return err
 	}
-	return os.WriteFile(path, data, 0600)
+	return os.WriteFile(path, blob, 0600)
 }
 
 // loadSettlementSessionKey loads a previously saved session keypair from disk.
@@ -275,28 +324,30 @@ func (pc *PongClient) loadSettlementSessionKey() (bool, error) {
 		}
 		return false, err
 	}
-	type pair struct {
-		Priv string `json:"priv"`
-		Pub  string `json:"pub"`
-	}
-	var p pair
-	if err := json.Unmarshal(b, &p); err != nil {
+	var data SessionKeyData
+	if err := json.Unmarshal(b, &data); err != nil {
 		return false, err
 	}
-	p.Priv = strings.TrimSpace(p.Priv)
-	p.Pub = strings.TrimSpace(p.Pub)
-	if p.Priv == "" || p.Pub == "" {
+	data.Priv = strings.TrimSpace(data.Priv)
+	data.Pub = strings.TrimSpace(data.Pub)
+	if data.Priv == "" || data.Pub == "" {
 		return false, fmt.Errorf("empty session key file")
 	}
-	if _, err := hex.DecodeString(p.Priv); err != nil {
+	if _, err := hex.DecodeString(data.Priv); err != nil {
 		return false, fmt.Errorf("bad session privkey in file: %w", err)
 	}
-	if pubB, err := hex.DecodeString(p.Pub); err != nil || len(pubB) != 33 {
+	if pubB, err := hex.DecodeString(data.Pub); err != nil || len(pubB) != 33 {
 		return false, fmt.Errorf("bad session pubkey in file")
 	}
 	pc.Lock()
-	pc.settlePrivHex = p.Priv
-	pc.settlePubHex = p.Pub
+	pc.settlePrivHex = data.Priv
+	pc.settlePubHex = data.Pub
+	if data.EscrowInfo != nil {
+		copyInfo := *data.EscrowInfo
+		pc.activeEscrowInfo = &copyInfo
+	} else {
+		pc.activeEscrowInfo = nil
+	}
 	pc.Unlock()
 	return true, nil
 }
@@ -326,12 +377,68 @@ func sanitize(matchID string) string {
 	return mapped
 }
 
+// EscrowInfo represents the data we need to store about an escrow for potential refund
+type EscrowInfo struct {
+	EscrowID        string `json:"escrow_id"`
+	FundingTxid     string `json:"funding_txid"`
+	FundingVout     uint32 `json:"funding_vout"`
+	FundedAmount    uint64 `json:"funded_amount"`
+	RedeemScriptHex string `json:"redeem_script_hex"`
+	PKScriptHex     string `json:"pk_script_hex"`
+	CSVBlocks       uint32 `json:"csv_blocks"`
+	ArchivedAt      int64  `json:"archived_at"`
+	FundingVoutSet  bool   `json:"-"`
+	FundedAmountSet bool   `json:"-"`
+	CSVBlocksSet    bool   `json:"-"`
+}
+
+// SessionKeyData includes both the keypair and escrow info for archiving
+type SessionKeyData struct {
+	Priv       string      `json:"priv"`
+	Pub        string      `json:"pub"`
+	EscrowInfo *EscrowInfo `json:"escrow_info,omitempty"`
+}
+
+// ArchiveSettlementSessionKeyWithEscrow moves the current session key file to a historical
+// directory, includes escrow information, and clears in-memory keys.
+func (pc *PongClient) ArchiveSettlementSessionKeyWithEscrow(matchID string, escrowInfo *EscrowInfo) error {
+	// Clear cached keys in memory
+	pc.Lock()
+	priv, pub := pc.settlePrivHex, pc.settlePubHex
+	pc.settlePrivHex, pc.settlePubHex = "", ""
+	pc.activeEscrowInfo = nil
+	pc.Unlock()
+
+	if priv == "" || pub == "" {
+		return fmt.Errorf("no session key to archive")
+	}
+
+	if escrowInfo == nil {
+		escrowInfo = &EscrowInfo{}
+	}
+	base := strings.TrimSpace(pc.sessionKeyFilePath())
+	if base == "" {
+		return nil
+	}
+
+	data := SessionKeyData{Priv: priv, Pub: pub, EscrowInfo: escrowInfo}
+	if err := pc.writeHistoricSession(matchID, data, false); err != nil {
+		return err
+	}
+	// Remove the original session key file
+	_ = os.Remove(base)
+
+	return nil
+}
+
 // ArchiveSettlementSessionKey moves the current session key file to a historical
 // directory, namespaced by match ID, and clears in-memory keys.
+// This is the legacy version without escrow info - use ArchiveSettlementSessionKeyWithEscrow instead.
 func (pc *PongClient) ArchiveSettlementSessionKey(matchID string) error {
 	// Clear cached keys in memory
 	pc.Lock()
 	pc.settlePrivHex, pc.settlePubHex = "", ""
+	pc.activeEscrowInfo = nil
 	pc.Unlock()
 
 	base := strings.TrimSpace(pc.sessionKeyFilePath())
@@ -345,51 +452,61 @@ func (pc *PongClient) ArchiveSettlementSessionKey(matchID string) error {
 		return err
 	}
 
-	// Ensure destination dir
+	raw, err := os.ReadFile(base)
+	if err != nil {
+		return err
+	}
+	var data SessionKeyData
+	if err := json.Unmarshal(raw, &data); err != nil {
+		return err
+	}
+	if err := pc.writeHistoricSession(matchID, data, false); err != nil {
+		return err
+	}
+	return os.Remove(base)
+}
+
+func (pc *PongClient) writeHistoricSession(matchID string, data SessionKeyData, allowOverwrite bool) error {
+	base := strings.TrimSpace(pc.sessionKeyFilePath())
+	if base == "" {
+		return nil
+	}
 	dir := filepath.Join(filepath.Dir(base), "historic_sessions")
 	if err := os.MkdirAll(dir, 0o700); err != nil {
 		return err
 	}
-
-	// Safe, portable name (fallback to timestamp)
 	safe := sanitize(matchID)
 	if safe == "" {
 		safe = fmt.Sprintf("unknown_%d", time.Now().Unix())
 	}
 	dst := filepath.Join(dir, fmt.Sprintf("sessionkey_%s.json", safe))
-
-	// If a file with same name exists, add a short timestamp suffix
-	if _, err := os.Stat(dst); err == nil {
-		dst = filepath.Join(dir, fmt.Sprintf("sessionkey_%s_%s.json",
-			safe, time.Now().Format("20060102-150405")))
-	}
-
-	// Move: try rename; if cross-device, copy then remove
-	if err := os.Rename(base, dst); err != nil {
-		srcF, rerr := os.Open(base)
-		if rerr != nil {
-			return rerr
-		}
-		defer srcF.Close()
-
-		// 0600: only current user can read the archived key
-		dstF, werr := os.OpenFile(dst, os.O_CREATE|os.O_WRONLY|os.O_TRUNC, 0o600)
-		if werr != nil {
-			return werr
-		}
-		if _, cerr := io.Copy(dstF, srcF); cerr != nil {
-			dstF.Close()
-			_ = os.Remove(dst) // best effort cleanup
-			return cerr
-		}
-		if cerr := dstF.Close(); cerr != nil {
-			return cerr
-		}
-		if derr := os.Remove(base); derr != nil {
-			return derr
+	if !allowOverwrite {
+		if _, err := os.Stat(dst); err == nil {
+			dst = filepath.Join(dir, fmt.Sprintf("sessionkey_%s_%s.json", safe, time.Now().Format("20060102-150405")))
 		}
 	}
-	return nil
+	blob, err := json.MarshalIndent(data, "", "  ")
+	if err != nil {
+		return err
+	}
+	return os.WriteFile(dst, blob, 0o600)
+}
+
+func (pc *PongClient) snapshotActiveSession(name string) error {
+	pc.RLock()
+	priv, pub := pc.settlePrivHex, pc.settlePubHex
+	info := pc.activeEscrowInfo
+	pc.RUnlock()
+	if priv == "" || pub == "" {
+		return fmt.Errorf("no settlement session key present")
+	}
+	var copyInfo *EscrowInfo
+	if info != nil {
+		ci := *info
+		copyInfo = &ci
+	}
+	data := SessionKeyData{Priv: priv, Pub: pub, EscrowInfo: copyInfo}
+	return pc.writeHistoricSession(name, data, true)
 }
 
 // GenerateNewSettlementSessionKey always creates a new session key and overwrites the cached one.
@@ -457,4 +574,322 @@ func (pc *PongClient) Close() error {
 		return pc.conn.Close()
 	}
 	return nil
+}
+
+// NewPongClientLocalOnly creates a minimal local-only client that does not
+// connect to any remote services. It is suitable for pre-login flows that only
+// need access to local filesystem state (e.g., historic sessions).
+func NewPongClientLocalOnly(appCfg *AppConfig, log slog.Logger, notifications *NotificationManager) (*PongClient, error) {
+	ctx, cancel := context.WithCancel(context.Background())
+	ntfns := notifications
+	if ntfns == nil {
+		ntfns = NewNotificationManager()
+	}
+	pc := &PongClient{
+		appCfg:    appCfg,
+		log:       log,
+		ntfns:     ntfns,
+		updatesCh: make(chan tea.Msg, 8),
+		errorsCh:  make(chan error, 8),
+		ctx:       ctx,
+		cancel:    cancel,
+	}
+	return pc, nil
+}
+
+// GetSettlementPrivKeyForEscrow returns the private key recorded alongside the
+// archived session for the supplied escrow ID.
+func (pc *PongClient) GetSettlementPrivKeyForEscrow(escrowID string) (string, error) {
+	session, err := pc.sessionDataForEscrow(escrowID)
+	if err != nil {
+		return "", err
+	}
+	priv := strings.TrimSpace(session.Priv)
+	if priv == "" {
+		return "", fmt.Errorf("historic session missing private key for escrow %s", escrowID)
+	}
+	return priv, nil
+}
+
+// CurrentSettlementPubKey returns the currently cached settlement session pubkey.
+func (pc *PongClient) CurrentSettlementPubKey() (string, error) {
+	pc.RLock()
+	defer pc.RUnlock()
+	if pc.settlePubHex == "" {
+		return "", fmt.Errorf("no settlement session key present")
+	}
+	return pc.settlePubHex, nil
+}
+
+// EscrowDetails contains information about a funded escrow
+type EscrowDetails struct {
+	EscrowID        string
+	FundingTxHash   string
+	FundingOutpoint string
+	FundingVout     uint32
+	FundedAmount    uint64
+	RedeemScriptHex string
+	PKScriptHex     string
+	CSVBlocks       uint32
+}
+
+// GetEscrowDetails returns details for a given escrow ID
+func (pc *PongClient) GetEscrowDetails(escrowID string) (*EscrowDetails, error) {
+	session, err := pc.sessionDataForEscrow(escrowID)
+	if err != nil {
+		return nil, err
+	}
+	info := session.EscrowInfo
+	if info == nil {
+		return nil, fmt.Errorf("historic session missing escrow info for %s", escrowID)
+	}
+	if strings.TrimSpace(info.FundingTxid) == "" {
+		return nil, fmt.Errorf("historic escrow %s missing funding txid", escrowID)
+	}
+	return &EscrowDetails{
+		EscrowID:        info.EscrowID,
+		FundingTxHash:   info.FundingTxid,
+		FundingOutpoint: fmt.Sprintf("%s:%d", info.FundingTxid, info.FundingVout),
+		FundingVout:     info.FundingVout,
+		FundedAmount:    info.FundedAmount,
+		RedeemScriptHex: info.RedeemScriptHex,
+		PKScriptHex:     info.PKScriptHex,
+		CSVBlocks:       info.CSVBlocks,
+	}, nil
+}
+
+// CacheEscrowInfo merges the provided escrow info into the active session file
+// so refunds remain possible even if the UI crashes before archiving.
+func (pc *PongClient) CacheEscrowInfo(info *EscrowInfo) error {
+	if info == nil || strings.TrimSpace(info.EscrowID) == "" {
+		return fmt.Errorf("escrow info requires escrow_id")
+	}
+	pc.Lock()
+	if pc.activeEscrowInfo == nil {
+		pc.activeEscrowInfo = &EscrowInfo{}
+	}
+	mergeEscrowInfo(pc.activeEscrowInfo, info)
+	pc.Unlock()
+	if err := pc.saveSettlementSessionKey(); err != nil {
+		return err
+	}
+	name := fmt.Sprintf("escrow_%s_pending", info.EscrowID)
+	return pc.snapshotActiveSession(name)
+}
+
+func mergeEscrowInfo(dst, src *EscrowInfo) {
+	if dst == nil || src == nil {
+		return
+	}
+	if src.EscrowID != "" {
+		dst.EscrowID = src.EscrowID
+	}
+	if src.FundingTxid != "" {
+		dst.FundingTxid = src.FundingTxid
+	}
+	if src.FundingVoutSet || src.FundingVout != 0 {
+		dst.FundingVout = src.FundingVout
+	}
+	if src.FundedAmountSet || src.FundedAmount != 0 {
+		dst.FundedAmount = src.FundedAmount
+	}
+	if src.RedeemScriptHex != "" {
+		dst.RedeemScriptHex = src.RedeemScriptHex
+	}
+	if src.PKScriptHex != "" {
+		dst.PKScriptHex = src.PKScriptHex
+	}
+	if src.CSVBlocksSet || src.CSVBlocks != 0 {
+		dst.CSVBlocks = src.CSVBlocks
+	}
+	if src.ArchivedAt != 0 {
+		dst.ArchivedAt = src.ArchivedAt
+	}
+}
+
+// LoadHistoricEscrows loads all escrow information from historic session key files
+func (pc *PongClient) LoadHistoricEscrows() ([]*EscrowInfo, error) {
+	base := strings.TrimSpace(pc.sessionKeyFilePath())
+	if base == "" {
+		return nil, nil
+	}
+
+	dir := filepath.Join(filepath.Dir(base), "historic_sessions")
+	entries, err := os.ReadDir(dir)
+	if err != nil {
+		if os.IsNotExist(err) {
+			return nil, nil // No historic sessions yet
+		}
+		return nil, fmt.Errorf("failed to read historic sessions dir: %w", err)
+	}
+
+	var escrows []*EscrowInfo
+	skippedLegacy := 0
+	for _, entry := range entries {
+		if entry.IsDir() || !strings.HasPrefix(entry.Name(), "sessionkey_") || !strings.HasSuffix(entry.Name(), ".json") {
+			continue
+		}
+
+		path := filepath.Join(dir, entry.Name())
+		data, err := os.ReadFile(path)
+		if err != nil {
+			continue // Skip unreadable files
+		}
+
+		var sessionData SessionKeyData
+		if err := json.Unmarshal(data, &sessionData); err != nil {
+			continue // Skip invalid JSON
+		}
+
+		if sessionData.EscrowInfo != nil {
+			escrows = append(escrows, sessionData.EscrowInfo)
+			continue
+		}
+		skippedLegacy++
+		if pc.log != nil {
+			pc.log.Warnf("LoadHistoricEscrows: %s missing escrow_info (legacy format)", entry.Name())
+		}
+	}
+	if pc.log != nil {
+		pc.log.Infof("LoadHistoricEscrows: loaded %d escrows (skipped %d legacy files)", len(escrows), skippedLegacy)
+	}
+
+	return escrows, nil
+}
+
+// UpdateHistoricEscrow merges the provided escrow info into an existing historic session file.
+func (pc *PongClient) UpdateHistoricEscrow(info *EscrowInfo) error {
+	if info == nil || strings.TrimSpace(info.EscrowID) == "" {
+		return fmt.Errorf("escrow info requires escrow_id")
+	}
+	dir, err := pc.historicSessionsDir()
+	if err != nil {
+		return err
+	}
+	entries, err := os.ReadDir(dir)
+	if err != nil {
+		return fmt.Errorf("read historic sessions dir: %w", err)
+	}
+	for _, entry := range entries {
+		if entry.IsDir() || !strings.HasPrefix(entry.Name(), "sessionkey_") || !strings.HasSuffix(entry.Name(), ".json") {
+			continue
+		}
+		path := filepath.Join(dir, entry.Name())
+		data, err := os.ReadFile(path)
+		if err != nil {
+			continue
+		}
+		var session SessionKeyData
+		if err := json.Unmarshal(data, &session); err != nil {
+			continue
+		}
+		if session.EscrowInfo == nil || session.EscrowInfo.EscrowID != info.EscrowID {
+			continue
+		}
+		mergeEscrowInfo(session.EscrowInfo, info)
+		if session.EscrowInfo.ArchivedAt == 0 {
+			session.EscrowInfo.ArchivedAt = time.Now().Unix()
+		}
+		blob, err := json.MarshalIndent(session, "", "  ")
+		if err != nil {
+			return err
+		}
+		if err := os.WriteFile(path, blob, 0o600); err != nil {
+			return err
+		}
+		if pc.log != nil {
+			pc.log.Infof("UpdateHistoricEscrow: updated %s", entry.Name())
+		}
+		return nil
+	}
+	return fmt.Errorf("historic escrow %s not found", info.EscrowID)
+}
+
+// DeleteHistoricEscrow removes the historic session file associated with the
+// provided escrow ID. This allows users to clean up refunded escrows.
+func (pc *PongClient) DeleteHistoricEscrow(escrowID string) error {
+	escrowID = strings.TrimSpace(escrowID)
+	if escrowID == "" {
+		return fmt.Errorf("escrow_id required")
+	}
+	dir, err := pc.historicSessionsDir()
+	if err != nil {
+		return err
+	}
+	entries, err := os.ReadDir(dir)
+	if err != nil {
+		if os.IsNotExist(err) {
+			return fmt.Errorf("historic sessions directory not found")
+		}
+		return fmt.Errorf("read historic sessions dir: %w", err)
+	}
+	for _, entry := range entries {
+		if entry.IsDir() {
+			continue
+		}
+		name := entry.Name()
+		if !strings.HasPrefix(name, "sessionkey_") || !strings.HasSuffix(name, ".json") {
+			continue
+		}
+		path := filepath.Join(dir, name)
+		data, err := os.ReadFile(path)
+		if err != nil {
+			continue
+		}
+		var session SessionKeyData
+		if err := json.Unmarshal(data, &session); err != nil {
+			continue
+		}
+		if session.EscrowInfo == nil || session.EscrowInfo.EscrowID != escrowID {
+			continue
+		}
+		if err := os.Remove(path); err != nil {
+			return fmt.Errorf("remove historic escrow file: %w", err)
+		}
+		if pc.log != nil {
+			pc.log.Infof("DeleteHistoricEscrow: removed %s (escrow_id=%s)", name, escrowID)
+		}
+		return nil
+	}
+	return fmt.Errorf("historic escrow %s not found", escrowID)
+}
+
+// LoadHistoricEscrowsFromDir loads all escrow information from historic session key files in the given directory
+func LoadHistoricEscrowsFromDir(dataDir string) ([]*EscrowInfo, error) {
+	if dataDir == "" {
+		return nil, nil
+	}
+
+	dir := filepath.Join(dataDir, "historic_sessions")
+	entries, err := os.ReadDir(dir)
+	if err != nil {
+		if os.IsNotExist(err) {
+			return nil, nil // No historic sessions yet
+		}
+		return nil, fmt.Errorf("failed to read historic sessions dir: %w", err)
+	}
+
+	var escrows []*EscrowInfo
+	for _, entry := range entries {
+		if entry.IsDir() || !strings.HasPrefix(entry.Name(), "sessionkey_") || !strings.HasSuffix(entry.Name(), ".json") {
+			continue
+		}
+
+		path := filepath.Join(dir, entry.Name())
+		data, err := os.ReadFile(path)
+		if err != nil {
+			continue // Skip unreadable files
+		}
+
+		var sessionData SessionKeyData
+		if err := json.Unmarshal(data, &sessionData); err != nil {
+			continue // Skip invalid JSON
+		}
+
+		if sessionData.EscrowInfo != nil {
+			escrows = append(escrows, sessionData.EscrowInfo)
+		}
+	}
+
+	return escrows, nil
 }
