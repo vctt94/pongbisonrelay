@@ -19,6 +19,7 @@ class Config {
   late final String rpcUser;
   late final String rpcPass;
   late final bool wantsLogNtfns;
+  late final bool showPerfOverlay;
   late final String dataDir;
 
   Config();
@@ -34,6 +35,7 @@ class Config {
     this.rpcUser = "",
     this.rpcPass = "",
     this.wantsLogNtfns = false,
+    this.showPerfOverlay = false,
     this.dataDir = "",
   });
 
@@ -54,6 +56,7 @@ class Config {
     set("clientrpc", "rpcuser", rpcUser);
     set("clientrpc", "rpcpass", rpcPass);
     set("clientrpc", "wantsLogNtfns", wantsLogNtfns ? "1" : "0");
+    set("clientrpc", "showPerfOverlay", showPerfOverlay ? "1" : "0");
 
     // Write the config file
     await File(filepath).parent.create(recursive: true);
@@ -75,6 +78,7 @@ class Config {
       rpcPass: f.get("clientrpc", "rpcpass") ?? "",
       rpcWebsocketURL: f.get("clientrpc", "rpcwebsocketurl") ?? "",
       wantsLogNtfns: f.get("clientrpc", "wantsLogNtfns") == "1",
+      showPerfOverlay: f.get("clientrpc", "showPerfOverlay") == "1",
       dataDir: await defaultAppDataDir(),
     );
   }
@@ -192,6 +196,7 @@ Future<Config> loadConfig(String filepath) async {
       rpcUser: f.get("clientrpc", "rpcuser") ?? "",
       rpcPass: f.get("clientrpc", "rpcpass") ?? "",
       wantsLogNtfns: getBool("clientrpc", "wantsLogNtfns"),
+      showPerfOverlay: getBool("clientrpc", "showPerfOverlay"),
       dataDir: await defaultAppDataDir());
 
   return c;

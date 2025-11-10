@@ -15,6 +15,7 @@ class NewConfigModel extends ChangeNotifier {
   // String rpcWebsocketURL = 'wss://127.0.0.1:7676/ws';
   String debugLevel      = 'info';
   bool   wantsLogNtfns   = false;
+  bool   showPerfOverlay = false;
 
   final List<String> appArgs;
   String _appDataDir = '';
@@ -35,7 +36,8 @@ class NewConfigModel extends ChangeNotifier {
     // ..rpcClientKeyPath   = c.rpcClientKeyPath
     // ..rpcWebsocketURL    = c.rpcWebsocketURL
     ..debugLevel         = c.debugLevel
-    ..wantsLogNtfns      = c.wantsLogNtfns;
+    ..wantsLogNtfns      = c.wantsLogNtfns
+    ..showPerfOverlay    = c.showPerfOverlay;
 
   // ─── Helpers ────────────────────────────────────────────────────────────
   Future<void> _initialiseDefaults() async {
@@ -80,6 +82,7 @@ class NewConfigModel extends ChangeNotifier {
       // ..writeln('rpcclientcertpath=$rpcClientCertPath')
       // ..writeln('rpcclientkeypath=$rpcClientKeyPath')
       ..writeln('wantsLogNtfns=${wantsLogNtfns ? "1" : "0"}')
+      ..writeln('showPerfOverlay=${showPerfOverlay ? "1" : "0"}')
       ..writeln()
       ..writeln('[log]')
       ..writeln('debuglevel=$debugLevel')

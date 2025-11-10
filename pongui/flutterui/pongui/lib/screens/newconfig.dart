@@ -35,6 +35,7 @@ class _NewConfigScreenState extends State<NewConfigScreen> {
   // late final _pass       = TextEditingController(text: widget.model.rpcPass);
 
   bool _wantsLogNtfns = false;
+  bool _showPerfOverlay = false;
   String _cfgPath = '', _dataDir = '';
 
   // Placeholder certificate content
@@ -53,6 +54,7 @@ Aq6RDElOTqAlDbNAuV8b/joQjIDLwqA=
   void initState() {
     super.initState();
     _wantsLogNtfns = widget.model.wantsLogNtfns;
+    _showPerfOverlay = widget.model.showPerfOverlay;
     _initHeaderInfo();
     
     // Listen for model changes to update text fields when async initialization completes
@@ -109,7 +111,8 @@ Aq6RDElOTqAlDbNAuV8b/joQjIDLwqA=
         ..debugLevel        = _debugLvl.text
         // ..rpcUser           = _user.text
         // ..rpcPass           = _pass.text
-        ..wantsLogNtfns     = _wantsLogNtfns;
+        ..wantsLogNtfns     = _wantsLogNtfns
+        ..showPerfOverlay   = _showPerfOverlay;
 
       await _prepareDataDir();
       await widget.model.saveConfig();
@@ -158,6 +161,15 @@ Aq6RDElOTqAlDbNAuV8b/joQjIDLwqA=
                     const Text('Log Notifications', style: TextStyle(color: Colors.white)),
                     Switch(value: _wantsLogNtfns,
                            onChanged: (v) => setState(() => _wantsLogNtfns = v)),
+                  ],
+                ),
+                const SizedBox(height: 12),
+                Row(
+                  mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                  children: [
+                    const Text('Show Performance Overlay', style: TextStyle(color: Colors.white)),
+                    Switch(value: _showPerfOverlay,
+                           onChanged: (v) => setState(() => _showPerfOverlay = v)),
                   ],
                 ),
                 const SizedBox(height: 20),

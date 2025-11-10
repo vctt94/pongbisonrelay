@@ -105,10 +105,11 @@ class MyApp extends StatelessWidget {
               child: NotificationBar(),
             ),
             // Small perf overlay to visualize frame spikes.
-            const Align(
-              alignment: Alignment.topLeft,
-              child: PerfOverlay(),
-            ),
+            if (cfg.showPerfOverlay)
+              const Align(
+                alignment: Alignment.topRight,
+                child: PerfOverlay(),
+              ),
           ],
         );
       },
