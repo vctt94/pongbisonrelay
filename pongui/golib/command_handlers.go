@@ -3,6 +3,7 @@ package golib
 import (
 	"bytes"
 	"context"
+	"encoding/hex"
 	"encoding/json"
 	"fmt"
 	"net/http"
@@ -87,8 +88,32 @@ func handleInitClient(handle uint32, args initClient) (*localInfo, error) {
 	if cs == nil {
 		cs = make(map[uint32]*clientCtx)
 	}
-	if cs[handle] != nil {
-		return cs[handle].ID, nil
+	// If an existing client exists for this handle, decide whether to reuse or re-init.
+	if existing := cs[handle]; existing != nil {
+		needReinit := false
+		reqCID := strings.TrimSpace(args.ClientID)
+		if reqCID == "" {
+			// Pre-login init request: keep existing client (prelogin or full) as-is.
+			return existing.ID, nil
+		}
+		// Parse requested ID.
+		var reqID zkidentity.ShortID
+		if err := reqID.FromString(reqCID); err != nil {
+			return nil, fmt.Errorf("invalid client_id format: %v", err)
+		}
+		// If existing ID is zero or differs from requested, reinit.
+		if existing.ID == nil || existing.ID.ID == (clientintf.UserID{}) || existing.ID.ID != reqID {
+			needReinit = true
+		}
+		if !needReinit {
+			// Same authenticated client already loaded.
+			return existing.ID, nil
+		}
+		// Stop and remove existing client before reinitializing.
+		if existing.cancel != nil {
+			existing.cancel()
+		}
+		delete(cs, handle)
 	}
 
 	// Ensure the data directory exists first
@@ -179,17 +204,19 @@ func handleInitClient(handle uint32, args initClient) (*localInfo, error) {
 	// Start the bot client
 	// g.Go(func() error { return c.RPCClient.Run(gctx) })
 
-	// Require wallet-authenticated clientID (no random ID generation).
-	if strings.TrimSpace(args.ClientID) == "" {
-		cancel()
-		return nil, fmt.Errorf("client_id is required - wallet authentication must be completed before initializing client")
-	}
+	// If no wallet-authenticated clientID is provided, create a minimal client
+	// context that can serve local/non-auth features (e.g., historic escrows,
+	// archiving session keys), without connecting to any server.
+	var li *localInfo
+	var haveAuth bool
 	var id zkidentity.ShortID
-	if err := id.FromString(args.ClientID); err != nil {
-		cancel()
-		return nil, fmt.Errorf("invalid client_id format: %v", err)
+	if strings.TrimSpace(args.ClientID) != "" && id.FromString(args.ClientID) == nil {
+		haveAuth = true
+		li = &localInfo{ID: id, Nick: "anon"}
+	} else {
+		// Minimal pre-login mode: leave ID zeroed out, no server info.
+		li = &localInfo{Nick: "prelogin"}
 	}
-	localInfo := &localInfo{ID: id, Nick: "anon"}
 
 	// Build consolidated AppConfig for the pong client (without BR auth)
 	appCfg := &client.AppConfig{
@@ -208,21 +235,33 @@ func handleInitClient(handle uint32, args initClient) (*localInfo, error) {
 		CancelEmissionChannel: ctx.Done(),
 	})
 
-	pc, err := client.NewPongClient(args.ClientID, &client.PongClientCfg{
-		AppCfg:        appCfg,
-		Log:           logBackend.Logger("client"),
-		Notifications: nmgr,
-	})
-	if err != nil {
-		cancel()
-		return nil, err
+	var pc *client.PongClient
+	if haveAuth {
+		// Full client with connectivity.
+		var err error
+		pc, err = client.NewPongClient(args.ClientID, &client.PongClientCfg{
+			AppCfg:        appCfg,
+			Log:           logBackend.Logger("client"),
+			Notifications: nmgr,
+		})
+		if err != nil {
+			cancel()
+			return nil, err
+		}
+		li.ServerVersion = pc.ServerVersion()
+		li.ServerIsF2P = pc.ServerIsF2P()
+	} else {
+		// Minimal client: no network connections. Only local features.
+		var err error
+		pc, err = client.NewPongClientLocalOnly(appCfg, logBackend.Logger("client"), nmgr)
+		if err != nil {
+			cancel()
+			return nil, err
+		}
 	}
 
-	localInfo.ServerVersion = pc.ServerVersion()
-	localInfo.ServerIsF2P = pc.ServerIsF2P()
-
 	cctx := &clientCtx{
-		ID:     localInfo,
+		ID:     li,
 		ctx:    ctx,
 		c:      pc,
 		cancel: cancel,
@@ -230,13 +269,15 @@ func handleInitClient(handle uint32, args initClient) (*localInfo, error) {
 	}
 	cs[handle] = cctx
 
-	// Start the notification stream to receive server notifications
-	if err := pc.RefStartNtfnStream(ctx); err != nil {
-		cancel()
-		cmtx.Lock()
-		delete(cs, handle)
-		cmtx.Unlock()
-		return nil, fmt.Errorf("failed to start notification stream: %w", err)
+	if haveAuth {
+		// Start the notification stream to receive server notifications
+		if err := pc.RefStartNtfnStream(ctx); err != nil {
+			cancel()
+			cmtx.Lock()
+			delete(cs, handle)
+			cmtx.Unlock()
+			return nil, fmt.Errorf("failed to start notification stream: %w", err)
+		}
 	}
 
 	// Forward only UI notifications to Flutter via NTUINotification.
@@ -280,6 +321,14 @@ func handleInitClient(handle uint32, args initClient) (*localInfo, error) {
 							"player_id": ntfn.PlayerId,
 							"bet_amt":   ntfn.BetAmt,
 							"confs":     ntfn.Confs,
+						}
+						if strings.TrimSpace(ntfn.Message) != "" {
+							var meta map[string]interface{}
+							if err := json.Unmarshal([]byte(ntfn.Message), &meta); err == nil {
+								for k, v := range meta {
+									extras[k] = v
+								}
+							}
 						}
 						fromJSON, _ := json.Marshal(extras)
 						payload := map[string]interface{}{
@@ -446,7 +495,7 @@ func handleInitClient(handle uint32, args initClient) (*localInfo, error) {
 		}
 	}()
 
-	return localInfo, nil
+	return li, nil
 }
 
 func handleClientCmd(cc *clientCtx, cmd *cmd) (interface{}, error) {
@@ -587,10 +636,25 @@ func handleClientCmd(cc *clientCtx, cmd *cmd) (interface{}, error) {
 		if err != nil {
 			return nil, err
 		}
+		pubHex, err := cc.c.CurrentSettlementPubKey()
+		if err != nil {
+			return nil, err
+		}
+		var redeemHex string
+		if pubBytes, derr := hex.DecodeString(pubHex); derr == nil {
+			if redeem, rerr := pongbisonrelay.BuildPerDepositorRedeemScript(pubBytes, req.CSVBlocks); rerr == nil {
+				redeemHex = hex.EncodeToString(redeem)
+			}
+		}
+		if redeemHex == "" {
+			return nil, fmt.Errorf("failed to derive redeem script for escrow")
+		}
 		return map[string]any{
-			"escrow_id":       res.EscrowId,
-			"deposit_address": res.DepositAddress,
-			"pk_script_hex":   res.PkScriptHex,
+			"escrow_id":         res.EscrowId,
+			"deposit_address":   res.DepositAddress,
+			"pk_script_hex":     res.PkScriptHex,
+			"redeem_script_hex": redeemHex,
+			"csv_blocks":        req.CSVBlocks,
 		}, nil
 
 	case CTStartPreSign:
@@ -607,15 +671,248 @@ func handleClientCmd(cc *clientCtx, cmd *cmd) (interface{}, error) {
 
 	case CTArchiveSessionKey:
 		var req struct {
-			MatchID string `json:"match_id"`
+			MatchID    string                 `json:"match_id"`
+			EscrowInfo map[string]interface{} `json:"escrow_info,omitempty"`
 		}
 		if err := json.Unmarshal(cmd.Payload, &req); err != nil {
 			return nil, fmt.Errorf("bad archive payload: %v", err)
 		}
-		if err := cc.c.ArchiveSettlementSessionKey(req.MatchID); err != nil {
+		if req.EscrowInfo == nil {
+			return nil, fmt.Errorf("archive payload requires escrow_info with funding details")
+		}
+
+		// Convert map to EscrowInfo struct and validate required fields.
+		escrowInfo := &client.EscrowInfo{}
+		if id, ok := req.EscrowInfo["escrow_id"].(string); ok {
+			escrowInfo.EscrowID = id
+		}
+		if txid, ok := req.EscrowInfo["funding_txid"].(string); ok {
+			escrowInfo.FundingTxid = txid
+		}
+		hasVout := false
+		if vout, ok := req.EscrowInfo["funding_vout"].(float64); ok {
+			escrowInfo.FundingVout = uint32(vout)
+			hasVout = true
+		}
+		hasAmount := false
+		if amount, ok := req.EscrowInfo["funded_amount"].(float64); ok {
+			escrowInfo.FundedAmount = uint64(amount)
+			hasAmount = true
+		}
+		if redeem, ok := req.EscrowInfo["redeem_script_hex"].(string); ok {
+			escrowInfo.RedeemScriptHex = redeem
+		}
+		if pk, ok := req.EscrowInfo["pk_script_hex"].(string); ok {
+			escrowInfo.PKScriptHex = pk
+		}
+		hasCSV := false
+		if csv, ok := req.EscrowInfo["csv_blocks"].(float64); ok {
+			escrowInfo.CSVBlocks = uint32(csv)
+			hasCSV = true
+		}
+		if archived, ok := req.EscrowInfo["archived_at"].(float64); ok {
+			escrowInfo.ArchivedAt = int64(archived)
+		}
+
+		switch {
+		case escrowInfo.EscrowID == "":
+			return nil, fmt.Errorf("escrow_info missing escrow_id")
+		case escrowInfo.FundingTxid == "":
+			return nil, fmt.Errorf("escrow_info missing funding_txid")
+		case !hasVout:
+			return nil, fmt.Errorf("escrow_info missing funding_vout")
+		case !hasAmount:
+			return nil, fmt.Errorf("escrow_info missing funded_amount")
+		case escrowInfo.RedeemScriptHex == "":
+			return nil, fmt.Errorf("escrow_info missing redeem_script_hex")
+		case escrowInfo.PKScriptHex == "":
+			return nil, fmt.Errorf("escrow_info missing pk_script_hex")
+		case !hasCSV:
+			return nil, fmt.Errorf("escrow_info missing csv_blocks")
+		}
+		if escrowInfo.ArchivedAt == 0 {
+			escrowInfo.ArchivedAt = time.Now().Unix()
+		}
+
+		if err := cc.c.ArchiveSettlementSessionKeyWithEscrow(req.MatchID, escrowInfo); err != nil {
 			return nil, err
 		}
 		return map[string]string{"status": "archived"}, nil
+
+	case CTCacheEscrowInfo:
+		var payload map[string]interface{}
+		if err := json.Unmarshal(cmd.Payload, &payload); err != nil {
+			return nil, fmt.Errorf("bad cache escrow payload: %v", err)
+		}
+		info := &client.EscrowInfo{}
+		if id, ok := payload["escrow_id"].(string); ok {
+			info.EscrowID = id
+		}
+		if info.EscrowID == "" {
+			return nil, fmt.Errorf("cache escrow payload missing escrow_id")
+		}
+		if txid, ok := payload["funding_txid"].(string); ok {
+			info.FundingTxid = txid
+		}
+		if v, exists := payload["funding_vout"]; exists {
+			if vout, ok := v.(float64); ok {
+				info.FundingVout = uint32(vout)
+				info.FundingVoutSet = true
+			}
+		}
+		if v, exists := payload["funded_amount"]; exists {
+			if amount, ok := v.(float64); ok {
+				info.FundedAmount = uint64(amount)
+				info.FundedAmountSet = true
+			}
+		}
+		if redeem, ok := payload["redeem_script_hex"].(string); ok {
+			info.RedeemScriptHex = redeem
+		}
+		if pk, ok := payload["pk_script_hex"].(string); ok {
+			info.PKScriptHex = pk
+		}
+		if v, exists := payload["csv_blocks"]; exists {
+			if csv, ok := v.(float64); ok {
+				info.CSVBlocks = uint32(csv)
+				info.CSVBlocksSet = true
+			}
+		}
+		if archived, ok := payload["archived_at"].(float64); ok {
+			info.ArchivedAt = int64(archived)
+		}
+		if err := cc.c.CacheEscrowInfo(info); err != nil {
+			return nil, err
+		}
+		return map[string]string{"status": "cached"}, nil
+
+	case CTUpdateHistoricEscrow:
+		var payload map[string]interface{}
+		if err := json.Unmarshal(cmd.Payload, &payload); err != nil {
+			return nil, fmt.Errorf("bad update historic escrow payload: %v", err)
+		}
+		info := &client.EscrowInfo{}
+		if id, ok := payload["escrow_id"].(string); ok {
+			info.EscrowID = strings.TrimSpace(id)
+		}
+		if info.EscrowID == "" {
+			return nil, fmt.Errorf("update historic escrow payload missing escrow_id")
+		}
+		if txid, ok := payload["funding_txid"].(string); ok {
+			info.FundingTxid = strings.TrimSpace(txid)
+		}
+		if v, exists := payload["funding_vout"]; exists {
+			switch vv := v.(type) {
+			case float64:
+				info.FundingVout = uint32(vv)
+				info.FundingVoutSet = true
+			case int:
+				info.FundingVout = uint32(vv)
+				info.FundingVoutSet = true
+			case int32:
+				info.FundingVout = uint32(vv)
+				info.FundingVoutSet = true
+			case int64:
+				info.FundingVout = uint32(vv)
+				info.FundingVoutSet = true
+			}
+		}
+		if amount, exists := payload["funded_amount"]; exists {
+			switch av := amount.(type) {
+			case float64:
+				info.FundedAmount = uint64(av)
+				info.FundedAmountSet = true
+			case int:
+				info.FundedAmount = uint64(av)
+				info.FundedAmountSet = true
+			case int32:
+				info.FundedAmount = uint64(av)
+				info.FundedAmountSet = true
+			case int64:
+				info.FundedAmount = uint64(av)
+				info.FundedAmountSet = true
+			}
+		}
+		if redeem, ok := payload["redeem_script_hex"].(string); ok {
+			info.RedeemScriptHex = strings.TrimSpace(redeem)
+		}
+		if pk, ok := payload["pk_script_hex"].(string); ok {
+			info.PKScriptHex = strings.TrimSpace(pk)
+		}
+		if csv, exists := payload["csv_blocks"]; exists {
+			switch cv := csv.(type) {
+			case float64:
+				info.CSVBlocks = uint32(cv)
+				info.CSVBlocksSet = true
+			case int:
+				info.CSVBlocks = uint32(cv)
+				info.CSVBlocksSet = true
+			case int32:
+				info.CSVBlocks = uint32(cv)
+				info.CSVBlocksSet = true
+			case int64:
+				info.CSVBlocks = uint32(cv)
+				info.CSVBlocksSet = true
+			}
+		}
+		if archived, exists := payload["archived_at"]; exists {
+			switch av := archived.(type) {
+			case float64:
+				info.ArchivedAt = int64(av)
+			case int:
+				info.ArchivedAt = int64(av)
+			case int32:
+				info.ArchivedAt = int64(av)
+			case int64:
+				info.ArchivedAt = av
+			}
+		}
+		if err := cc.c.UpdateHistoricEscrow(info); err != nil {
+			return nil, err
+		}
+		return map[string]string{"status": "updated"}, nil
+
+	case CTDeleteHistoricEscrow:
+		var req deleteHistoricEscrowReq
+		if err := json.Unmarshal(cmd.Payload, &req); err != nil {
+			return nil, fmt.Errorf("bad delete historic escrow payload: %v", err)
+		}
+		escrowID := strings.TrimSpace(req.EscrowID)
+		if escrowID == "" {
+			return nil, fmt.Errorf("delete historic escrow payload missing escrow_id")
+		}
+		if err := cc.c.DeleteHistoricEscrow(escrowID); err != nil {
+			return nil, fmt.Errorf("failed to delete historic escrow: %w", err)
+		}
+		cc.log.Infof("CTDeleteHistoricEscrow: deleted escrow %s", escrowID)
+		return map[string]string{"status": "deleted"}, nil
+
+	case CTListHistoricEscrows:
+		escrows, err := cc.c.LoadHistoricEscrows()
+		if err != nil {
+			return nil, fmt.Errorf("failed to load historic escrows: %v", err)
+		}
+
+		// Convert to a format the UI can use
+		result := make([]map[string]interface{}, 0)
+		for _, escrow := range escrows {
+			result = append(result, map[string]interface{}{
+				"escrow_id":         escrow.EscrowID,
+				"funding_txid":      escrow.FundingTxid,
+				"funding_vout":      escrow.FundingVout,
+				"funded_amount":     escrow.FundedAmount,
+				"redeem_script_hex": escrow.RedeemScriptHex,
+				"pk_script_hex":     escrow.PKScriptHex,
+				"csv_blocks":        escrow.CSVBlocks,
+				"archived_at":       escrow.ArchivedAt,
+			})
+		}
+
+		cc.log.Infof("CTListHistoricEscrows: returning %d escrows", len(result))
+
+		return map[string]interface{}{
+			"escrows": result,
+		}, nil
 
 	// Player action commands
 	case CTSendInput:

@@ -4,6 +4,7 @@ import (
 	"bytes"
 	"context"
 	"encoding/hex"
+	"encoding/json"
 	"fmt"
 	"sort"
 	"strings"
@@ -74,7 +75,27 @@ func (s *Server) trackEscrow(ctx context.Context, es *escrowSession, ch <-chan c
 			// Emit a single structured update when funded and state changed.
 			if es.ownerUID.String() != "" && u.UTXOCount > 0 && (u.UTXOCount != prev.UTXOCount || u.Confs != prev.Confs) {
 				s.log.Debugf("trackEscrow: funding update owner=%s pk=%s utxos=%d confs=%d", es.ownerUID, u.PkScriptHex, u.UTXOCount, u.Confs)
-				_ = s.notify(es.player, &pong.NtfnStreamResponse{NotificationType: pong.NotificationType_BET_AMOUNT_UPDATE, PlayerId: es.ownerUID.String(), BetAmt: int64(es.betAtoms), Confs: u.Confs})
+				var metaJSON string
+				if err := s.ensureBoundFunding(es); err == nil {
+					es.mu.RLock()
+					bound := es.boundInput
+					es.mu.RUnlock()
+					if bound != nil {
+						meta := map[string]interface{}{
+							"escrow_id":         es.escrowID,
+							"funding_txid":      bound.Txid,
+							"funding_vout":      bound.Vout,
+							"funded_amount":     bound.Value,
+							"redeem_script_hex": es.redeemScriptHex,
+							"pk_script_hex":     es.pkScriptHex,
+							"csv_blocks":        es.csvBlocks,
+						}
+						if b, err := json.Marshal(meta); err == nil {
+							metaJSON = string(b)
+						}
+					}
+				}
+				_ = s.notify(es.player, &pong.NtfnStreamResponse{NotificationType: pong.NotificationType_BET_AMOUNT_UPDATE, PlayerId: es.ownerUID.String(), BetAmt: int64(es.betAtoms), Confs: u.Confs, Message: metaJSON})
 			}
 		}
 	}
@@ -412,7 +433,8 @@ func (s *Server) buildTwoInputDrafts(a *escrowSession, au *pong.EscrowUTXO, b *e
 
 	build := func(payTo *escrowSession) (string, []*pong.NeedPreSigs_PerInput, error) {
 		tx := wire.NewMsgTx()
-		tx.Version = 1
+		// Schnorr via OP_CHECKSIGALTVERIFY requires tx version >= 3 (consensus).
+		tx.Version = 3
 		total := int64(0)
 		for _, ic := range ins {
 			var h chainhash.Hash

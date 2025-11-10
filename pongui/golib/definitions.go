@@ -54,6 +54,28 @@ type preSignReq struct {
 	MatchID string `json:"match_id"` // "<wrID>|<hostId>"
 }
 
+type refundEscrowReq struct {
+	EscrowID  string `json:"escrow_id"`
+	DestAddr  string `json:"dest_addr"`
+	FeeAtoms  uint64 `json:"fee_atoms"`
+	CSVBlocks uint32 `json:"csv_blocks"`
+}
+
+type refundEscrowRes struct {
+	RefundTxHex string `json:"refund_tx_hex"`
+	UTXOTxid    string `json:"utxo_txid"`
+	UTXOVout    uint32 `json:"utxo_vout"`
+	UTXOValue   uint64 `json:"utxo_value"`
+	RedeemHex   string `json:"redeem_hex"`
+	CSVBlocks   uint32 `json:"csv_blocks"`
+	CanRefund   bool   `json:"can_refund"`
+	Reason      string `json:"reason,omitempty"`
+}
+
+type deleteHistoricEscrowReq struct {
+	EscrowID string `json:"escrow_id"`
+}
+
 type joinWaitingRoom struct {
 	RoomID   string `json:"room_id"`
 	EscrowId string `json:"escrow_id"`
