@@ -103,6 +103,17 @@ class SharedLayout extends StatelessWidget {
                         Navigator.of(context).pushNamed('/devtools');
                       },
                     ),
+                    const Divider(height: 1),
+                    ListTile(
+                      leading: const Icon(Icons.logout, color: Colors.red),
+                      title: const Text('Logout',
+                          style: TextStyle(color: Colors.red)),
+                      onTap: () {
+                        Navigator.of(context).pop(); // Close drawer first
+                        pongModel!.logout();
+                        Navigator.of(context).pushReplacementNamed('/login');
+                      },
+                    ),
                   ],
                 ),
               ),

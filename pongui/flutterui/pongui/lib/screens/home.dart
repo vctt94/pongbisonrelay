@@ -53,312 +53,320 @@ class _HomeScreenState extends State<HomeScreen> {
                               crossAxisAlignment: CrossAxisAlignment.start,
                               children: [
                                 Row(
+                                  mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                                  crossAxisAlignment: CrossAxisAlignment.center,
                                   children: [
-                                    const Icon(Icons.attach_money,
-                                        color: Colors.amber),
-                                    const SizedBox(width: 8),
-                                    Text(
-                                      "Bet: ${pongModel.betAmt / 1e8}",
-                                      style: const TextStyle(
-                                        color: Colors.white,
-                                        fontSize: 16,
-                                        fontWeight: FontWeight.bold,
-                                      ),
-                                    ),
-                                    const Spacer(),
-                                    if (pongModel.walletAddress.isNotEmpty)
-                                      Tooltip(
-                                        message: pongModel.walletAddress,
-                                        child: Container(
-                                          padding: const EdgeInsets.symmetric(
-                                              horizontal: 10, vertical: 6),
-                                          decoration: BoxDecoration(
-                                            color:
-                                                Colors.green.withOpacity(0.15),
-                                            borderRadius:
-                                                BorderRadius.circular(8),
-                                            border: Border.all(
-                                                color: Colors.greenAccent,
-                                                width: 1),
-                                          ),
-                                          child: Row(
-                                            mainAxisSize: MainAxisSize.min,
-                                            children: [
-                                              const Icon(Icons.check_circle,
-                                                  color: Colors.greenAccent,
-                                                  size: 16),
-                                              const SizedBox(width: 6),
-                                              Text(
-                                                '${pongModel.walletAddress.substring(0, 8)}...${pongModel.walletAddress.substring(pongModel.walletAddress.length - 6)}',
-                                                style: const TextStyle(
-                                                    color: Colors.greenAccent,
-                                                    fontFamily: 'monospace'),
-                                              ),
-                                            ],
-                                          ),
-                                        ),
-                                      ),
-                                    const SizedBox(width: 8),
-                                    ElevatedButton.icon(
-                                      onPressed: () {
-                                        pongModel.logout();
-                                        Navigator.of(context)
-                                            .pushReplacementNamed('/login');
-                                      },
-                                      icon: const Icon(Icons.logout, size: 18),
-                                      label: const Text('Logout'),
-                                      style: ElevatedButton.styleFrom(
-                                        backgroundColor: Colors.red.shade700,
-                                        padding: const EdgeInsets.symmetric(
-                                            horizontal: 12, vertical: 8),
-                                      ),
-                                    ),
-                                    const SizedBox(width: 8),
-                                    if (pongModel.escrowFunded) ...[
-                                      Tooltip(
-                                        message: pongModel
-                                                .fundingStatus.isNotEmpty
-                                            ? pongModel.fundingStatus
-                                            : (pongModel.escrowConfirmed
-                                                ? 'Deposit confirmed (${pongModel.escrowConfs})'
-                                                : 'Deposit seen (mempool)'),
-                                        child: Row(
-                                          children: const [
-                                            Icon(Icons.check_circle,
-                                                color: Colors.greenAccent,
-                                                size: 16),
-                                            SizedBox(width: 6),
-                                            Text('Funding seen',
-                                                style: TextStyle(
-                                                    color: Colors.greenAccent)),
-                                          ],
-                                        ),
-                                      ),
-                                      const SizedBox(width: 12),
-                                    ],
-                                    if (pongModel.escrowId.isNotEmpty)
-                                      Container(
-                                        padding: const EdgeInsets.symmetric(
-                                            horizontal: 10, vertical: 6),
-                                        decoration: BoxDecoration(
-                                          color: Colors.green.withOpacity(0.15),
-                                          borderRadius:
-                                              BorderRadius.circular(8),
-                                          border: Border.all(
-                                              color: Colors.greenAccent,
-                                              width: 1),
-                                        ),
-                                        child: Row(
+                                    // Left side: Bet amount and address
+                                    Wrap(
+                                      spacing: 8,
+                                      runSpacing: 8,
+                                      crossAxisAlignment: WrapCrossAlignment.center,
+                                      children: [
+                                        Row(
+                                          mainAxisSize: MainAxisSize.min,
                                           children: [
-                                            const Icon(Icons.lock,
-                                                color: Colors.greenAccent,
-                                                size: 16),
-                                            const SizedBox(width: 6),
+                                            const Icon(Icons.attach_money,
+                                                color: Colors.amber),
+                                            const SizedBox(width: 8),
                                             Text(
-                                              'Escrow: ${pongModel.escrowId}',
+                                              "Bet: ${pongModel.betAmt / 1e8}",
                                               style: const TextStyle(
-                                                  color: Colors.greenAccent),
+                                                color: Colors.white,
+                                                fontSize: 16,
+                                                fontWeight: FontWeight.bold,
+                                              ),
                                             ),
                                           ],
                                         ),
-                                      )
-                                    else
-                                      ElevatedButton.icon(
-                                        onPressed: () async {
-                                          try {
-                                            if (!pongModel
-                                                .isWalletAuthenticated) {
-                                              ScaffoldMessenger.of(context)
-                                                  .showSnackBar(
-                                                const SnackBar(
-                                                    content: Text(
-                                                        'Please login first')),
-                                              );
-                                              return;
-                                            }
-                                            await Golib
-                                                .generateSettlementSessionKey();
-                                            final payout =
-                                                pongModel.payoutAddressOrPubkey;
-                                            if (payout.trim().isEmpty) {
-                                              ScaffoldMessenger.of(context)
-                                                  .showSnackBar(
-                                                const SnackBar(
-                                                    content: Text(
-                                                        'Payout address not set. Please login again.')),
-                                              );
-                                              return;
-                                            }
-                                            final betAtoms =
-                                                pongModel.betAmt > 0
-                                                    ? pongModel.betAmt
-                                                    : 100000000;
-                                            final res = await Golib.openEscrow(
-                                              payout: payout,
-                                              betAtoms: betAtoms,
-                                              csvBlocks: CSV_BLOCKS,
-                                            );
-                                            final id =
-                                                (res['escrow_id'] as String?) ??
-                                                    '';
-                                            final dep = (res['deposit_address']
-                                                    as String?) ??
-                                                '';
-                                            final pk = (res['pk_script_hex']
-                                                    as String?) ??
-                                                '';
-                                            final redeem =
-                                                (res['redeem_script_hex']
-                                                        as String?) ??
-                                                    '';
-                                            final csvBlocks =
-                                                (res['csv_blocks'] as int?) ??
-                                                    CSV_BLOCKS;
-                                            if (id.isEmpty ||
-                                                dep.isEmpty ||
-                                                redeem.isEmpty ||
-                                                pk.isEmpty) {
-                                              if (!context.mounted) return;
-                                              ScaffoldMessenger.of(context)
-                                                  .showSnackBar(
-                                                const SnackBar(
-                                                    content: Text(
-                                                        'Escrow error: missing critical data. Try again.')),
-                                              );
-                                              return;
-                                            }
-                                            final persisted = await pongModel
-                                                .persistInitialEscrowInfo(
-                                              escrowId: id,
-                                              betAtoms: betAtoms,
-                                              csvBlocks: csvBlocks,
-                                              pkScriptHex: pk,
-                                              redeemScriptHex: redeem,
-                                            );
-                                            if (!persisted) {
-                                              if (!context.mounted) return;
-                                              ScaffoldMessenger.of(context)
-                                                  .showSnackBar(
-                                                const SnackBar(
-                                                    content: Text(
-                                                        'Failed to save escrow info. Deposit address not shown.')),
-                                              );
-                                              return;
-                                            }
-                                            pongModel.setEscrowDetails(id, dep,
-                                                pkScriptHex: pk,
-                                                redeemScriptHex: redeem,
-                                                csvBlocks: csvBlocks);
-                                            pongModel
-                                                .setEscrowBetAtoms(betAtoms);
-                                            if (!context.mounted) return;
-                                            ScaffoldMessenger.of(context)
-                                                .showSnackBar(
-                                              SnackBar(
-                                                  content: Text(
-                                                      'Escrow opened. Deposit to ${res['deposit_address']}')),
-                                            );
-                                          } catch (e) {
-                                            if (!context.mounted) return;
-                                            ScaffoldMessenger.of(context)
-                                                .showSnackBar(
-                                              SnackBar(
-                                                  content:
-                                                      Text('Escrow error: $e')),
-                                            );
-                                          }
-                                        },
-                                        icon: const Icon(Icons.lock_open),
-                                        label: const Text('Open Escrow'),
-                                        style: ElevatedButton.styleFrom(
-                                            backgroundColor: Colors.blueAccent),
-                                      ),
-                                    const SizedBox(width: 8),
-                                    Builder(builder: (ctx) {
-                                      final canPresign =
-                                          pongModel.escrowConfirmed &&
-                                              pongModel.currentWR != null;
-                                      final onPressed = canPresign
-                                          ? () async {
-                                              final wr = pongModel.currentWR!;
-                                              final matchId =
-                                                  '${wr.id}|${wr.host}';
-                                              pongModel.lastMatchId = matchId;
-                                              try {
-                                                await Golib.startPreSign(
-                                                    matchId);
-                                                if (!ctx.mounted) return;
-                                                ScaffoldMessenger.of(ctx)
-                                                    .showSnackBar(
-                                                  const SnackBar(
-                                                      content: Text(
-                                                          'Presign completed')),
-                                                );
-                                              } catch (e) {
-                                                if (!ctx.mounted) return;
-                                                ScaffoldMessenger.of(ctx)
-                                                    .showSnackBar(
-                                                  SnackBar(
-                                                      content: Text(
-                                                          'Presign error: $e')),
-                                                );
-                                              }
-                                            }
-                                          : null;
-                                      final button = ElevatedButton.icon(
-                                        onPressed: onPressed,
-                                        icon: const Icon(Icons.fact_check),
-                                        label: const Text('Presign'),
-                                        style: ElevatedButton.styleFrom(
-                                          backgroundColor: canPresign
-                                              ? Colors.teal
-                                              : Colors.grey,
-                                        ),
-                                      );
-                                      if (canPresign) return button;
-                                      final msg = pongModel.currentWR == null
-                                          ? 'Join or create a room to presign'
-                                          : (pongModel.escrowConfirmed
-                                              ? ''
-                                              : 'Wait for deposit confirmation');
-                                      if (msg.isEmpty) {
-                                        return button;
-                                      }
-                                      return Tooltip(
-                                          message: msg,
-                                          child: AbsorbPointer(child: button));
-                                    }),
-                                    const SizedBox(width: 8),
-                                    if (pongModel.currentWR == null)
-                                      Builder(builder: (ctx) {
-                                        final reason =
-                                            _createRoomDisabledReason(
-                                                pongModel);
-                                        final canCreate = reason == null;
-                                        final btn = ElevatedButton.icon(
-                                          onPressed: canCreate
-                                              ? pongModel.createWaitingRoom
-                                              : null,
-                                          icon: const Icon(Icons.meeting_room),
-                                          label: const Text('Create Room'),
-                                          style: ElevatedButton.styleFrom(
-                                            backgroundColor: canCreate
-                                                ? Colors.blueGrey
-                                                : Colors.blueGrey.shade200,
+                                        if (pongModel.walletAddress.isNotEmpty)
+                                          Tooltip(
+                                            message: pongModel.walletAddress,
+                                            child: Container(
+                                              padding: const EdgeInsets.symmetric(
+                                                  horizontal: 10, vertical: 6),
+                                              decoration: BoxDecoration(
+                                                color:
+                                                    Colors.green.withOpacity(0.15),
+                                                borderRadius:
+                                                    BorderRadius.circular(8),
+                                                border: Border.all(
+                                                    color: Colors.greenAccent,
+                                                    width: 1),
+                                              ),
+                                              child: Row(
+                                                mainAxisSize: MainAxisSize.min,
+                                                children: [
+                                                  const Icon(Icons.check_circle,
+                                                      color: Colors.greenAccent,
+                                                      size: 16),
+                                                  const SizedBox(width: 6),
+                                                  Text(
+                                                    '${pongModel.walletAddress.substring(0, 8)}...${pongModel.walletAddress.substring(pongModel.walletAddress.length - 6)}',
+                                                    style: const TextStyle(
+                                                        color: Colors.greenAccent,
+                                                        fontFamily: 'monospace'),
+                                                  ),
+                                                ],
+                                              ),
+                                            ),
                                           ),
-                                        );
-                                        if (canCreate ||
-                                            (reason ?? '').isEmpty) {
-                                          return btn;
-                                        }
-                                        return Tooltip(
-                                            message: reason!,
-                                            child: AbsorbPointer(child: btn));
-                                      }),
+                                      ],
+                                    ),
+                                    // Right side: Buttons
+                                    Wrap(
+                                      spacing: 8,
+                                      runSpacing: 8,
+                                      crossAxisAlignment: WrapCrossAlignment.center,
+                                      children: [
+                                        if (!pongModel.serverIsF2P) ...[
+                                          if (pongModel.escrowFunded) ...[
+                                            Tooltip(
+                                              message: pongModel
+                                                      .fundingStatus.isNotEmpty
+                                                  ? pongModel.fundingStatus
+                                                  : (pongModel.escrowConfirmed
+                                                      ? 'Deposit confirmed (${pongModel.escrowConfs})'
+                                                      : 'Deposit seen (mempool)'),
+                                              child: Row(
+                                                mainAxisSize: MainAxisSize.min,
+                                                children: const [
+                                                  Icon(Icons.check_circle,
+                                                      color: Colors.greenAccent,
+                                                      size: 16),
+                                                  SizedBox(width: 6),
+                                                  Text('Funding seen',
+                                                      style: TextStyle(
+                                                          color: Colors.greenAccent)),
+                                                ],
+                                              ),
+                                            ),
+                                          ],
+                                          if (pongModel.escrowId.isNotEmpty)
+                                            Container(
+                                              padding: const EdgeInsets.symmetric(
+                                                  horizontal: 10, vertical: 6),
+                                              decoration: BoxDecoration(
+                                                color: Colors.green.withOpacity(0.15),
+                                                borderRadius:
+                                                    BorderRadius.circular(8),
+                                                border: Border.all(
+                                                    color: Colors.greenAccent,
+                                                    width: 1),
+                                              ),
+                                              child: Row(
+                                                mainAxisSize: MainAxisSize.min,
+                                                children: [
+                                                  const Icon(Icons.lock,
+                                                      color: Colors.greenAccent,
+                                                      size: 16),
+                                                  const SizedBox(width: 6),
+                                                  Text(
+                                                    'Escrow: ${pongModel.escrowId}',
+                                                    style: const TextStyle(
+                                                        color: Colors.greenAccent),
+                                                  ),
+                                                ],
+                                              ),
+                                            )
+                                          else
+                                            ElevatedButton.icon(
+                                              onPressed: () async {
+                                                try {
+                                                  if (!pongModel
+                                                      .isWalletAuthenticated) {
+                                                    ScaffoldMessenger.of(context)
+                                                        .showSnackBar(
+                                                      const SnackBar(
+                                                          content: Text(
+                                                              'Please login first')),
+                                                    );
+                                                    return;
+                                                  }
+                                                  await Golib
+                                                      .generateSettlementSessionKey();
+                                                  final payout =
+                                                      pongModel.payoutAddressOrPubkey;
+                                                  if (payout.trim().isEmpty) {
+                                                    ScaffoldMessenger.of(context)
+                                                        .showSnackBar(
+                                                      const SnackBar(
+                                                          content: Text(
+                                                              'Payout address not set. Please login again.')),
+                                                    );
+                                                    return;
+                                                  }
+                                                  final betAtoms =
+                                                      pongModel.betAmt > 0
+                                                          ? pongModel.betAmt
+                                                          : 100000000;
+                                                  final res = await Golib.openEscrow(
+                                                    payout: payout,
+                                                    betAtoms: betAtoms,
+                                                    csvBlocks: CSV_BLOCKS,
+                                                  );
+                                                  final id =
+                                                      (res['escrow_id'] as String?) ??
+                                                          '';
+                                                  final dep = (res['deposit_address']
+                                                          as String?) ??
+                                                      '';
+                                                  final pk = (res['pk_script_hex']
+                                                          as String?) ??
+                                                      '';
+                                                  final redeem =
+                                                      (res['redeem_script_hex']
+                                                              as String?) ??
+                                                          '';
+                                                  final csvBlocks =
+                                                      (res['csv_blocks'] as int?) ??
+                                                          CSV_BLOCKS;
+                                                  if (id.isEmpty ||
+                                                      dep.isEmpty ||
+                                                      redeem.isEmpty ||
+                                                      pk.isEmpty) {
+                                                    if (!context.mounted) return;
+                                                    ScaffoldMessenger.of(context)
+                                                        .showSnackBar(
+                                                      const SnackBar(
+                                                          content: Text(
+                                                              'Escrow error: missing critical data. Try again.')),
+                                                    );
+                                                    return;
+                                                  }
+                                                  final persisted = await pongModel
+                                                      .persistInitialEscrowInfo(
+                                                    escrowId: id,
+                                                    betAtoms: betAtoms,
+                                                    csvBlocks: csvBlocks,
+                                                    pkScriptHex: pk,
+                                                    redeemScriptHex: redeem,
+                                                  );
+                                                  if (!persisted) {
+                                                    if (!context.mounted) return;
+                                                    ScaffoldMessenger.of(context)
+                                                        .showSnackBar(
+                                                      const SnackBar(
+                                                          content: Text(
+                                                              'Failed to save escrow info. Deposit address not shown.')),
+                                                    );
+                                                    return;
+                                                  }
+                                                  pongModel.setEscrowDetails(id, dep,
+                                                      pkScriptHex: pk,
+                                                      redeemScriptHex: redeem,
+                                                      csvBlocks: csvBlocks);
+                                                  pongModel
+                                                      .setEscrowBetAtoms(betAtoms);
+                                                  if (!context.mounted) return;
+                                                  ScaffoldMessenger.of(context)
+                                                      .showSnackBar(
+                                                    SnackBar(
+                                                        content: Text(
+                                                            'Escrow opened. Deposit to ${res['deposit_address']}')),
+                                                  );
+                                                } catch (e) {
+                                                  if (!context.mounted) return;
+                                                  ScaffoldMessenger.of(context)
+                                                      .showSnackBar(
+                                                    SnackBar(
+                                                        content:
+                                                            Text('Escrow error: $e')),
+                                                  );
+                                                }
+                                              },
+                                              icon: const Icon(Icons.lock_open),
+                                              label: const Text('Open Escrow'),
+                                              style: ElevatedButton.styleFrom(
+                                                  backgroundColor: Colors.blueAccent),
+                                            ),
+                                        ],
+                                        Builder(builder: (ctx) {
+                                          final canPresign =
+                                              pongModel.escrowConfirmed &&
+                                                  pongModel.currentWR != null;
+                                          final onPressed = canPresign
+                                              ? () async {
+                                                  final wr = pongModel.currentWR!;
+                                                  final matchId =
+                                                      '${wr.id}|${wr.host}';
+                                                  pongModel.lastMatchId = matchId;
+                                                  try {
+                                                    await Golib.startPreSign(
+                                                        matchId);
+                                                    if (!ctx.mounted) return;
+                                                    ScaffoldMessenger.of(ctx)
+                                                        .showSnackBar(
+                                                      const SnackBar(
+                                                          content: Text(
+                                                              'Presign completed')),
+                                                    );
+                                                  } catch (e) {
+                                                    if (!ctx.mounted) return;
+                                                    ScaffoldMessenger.of(ctx)
+                                                        .showSnackBar(
+                                                      SnackBar(
+                                                          content: Text(
+                                                              'Presign error: $e')),
+                                                    );
+                                                  }
+                                                }
+                                              : null;
+                                          final button = ElevatedButton.icon(
+                                            onPressed: onPressed,
+                                            icon: const Icon(Icons.fact_check),
+                                            label: const Text('Presign'),
+                                            style: ElevatedButton.styleFrom(
+                                              backgroundColor: canPresign
+                                                  ? Colors.teal
+                                                  : Colors.grey,
+                                            ),
+                                          );
+                                          if (canPresign) return button;
+                                          final msg = pongModel.currentWR == null
+                                              ? 'Join or create a room to presign'
+                                              : (pongModel.escrowConfirmed
+                                                  ? ''
+                                                  : 'Wait for deposit confirmation');
+                                          if (msg.isEmpty) {
+                                            return button;
+                                          }
+                                          return Tooltip(
+                                              message: msg,
+                                              child: AbsorbPointer(child: button));
+                                        }),
+                                        if (pongModel.currentWR == null)
+                                          Builder(builder: (ctx) {
+                                            final reason =
+                                                _createRoomDisabledReason(
+                                                    pongModel);
+                                            final canCreate = reason == null;
+                                            final btn = ElevatedButton.icon(
+                                              onPressed: canCreate
+                                                  ? pongModel.createWaitingRoom
+                                                  : null,
+                                              icon: const Icon(Icons.meeting_room),
+                                              label: const Text('Create Room'),
+                                              style: ElevatedButton.styleFrom(
+                                                backgroundColor: canCreate
+                                                    ? Colors.blueGrey
+                                                    : Colors.blueGrey.shade200,
+                                              ),
+                                            );
+                                            if (canCreate) {
+                                              return btn;
+                                            }
+                                            return Tooltip(
+                                                message: reason,
+                                                child: AbsorbPointer(child: btn));
+                                          }),
+                                      ],
+                                    ),
                                   ],
                                 ),
-                                const SizedBox(height: 12),
-                                _buildServerModeBanner(pongModel),
+                                if (pongModel.serverIsF2P) ...[
+                                  const SizedBox(height: 12),
+                                  _buildServerModeBanner(pongModel),
+                                ],
                               ],
                             ),
                           ),
@@ -591,27 +599,21 @@ class _HomeScreenState extends State<HomeScreen> {
   }
 
   Widget _buildServerModeBanner(PongModel model) {
-    final isF2P = model.serverIsF2P;
-    final color = isF2P ? Colors.greenAccent : Colors.orangeAccent;
-    final icon = isF2P ? Icons.videogame_asset : Icons.lock;
-    final subtitle = isF2P
-        ? 'No escrow needed. Create or join rooms instantly.'
-        : 'Escrow must be opened and funded before starting a match.';
     return Row(
       children: [
         Chip(
-          avatar: Icon(icon, color: color, size: 16),
-          label: Text(
-            isF2P ? 'Free-to-Play enabled' : 'Escrow required',
-            style: TextStyle(color: color, fontWeight: FontWeight.w600),
+          avatar: const Icon(Icons.videogame_asset, color: Colors.greenAccent, size: 16),
+          label: const Text(
+            'Free-to-Play enabled',
+            style: TextStyle(color: Colors.greenAccent, fontWeight: FontWeight.w600),
           ),
-          backgroundColor: color.withOpacity(0.15),
+          backgroundColor: Colors.greenAccent.withOpacity(0.15),
         ),
         const SizedBox(width: 12),
-        Expanded(
+        const Expanded(
           child: Text(
-            subtitle,
-            style: const TextStyle(color: Colors.white70),
+            'No escrow needed. Create or join rooms instantly.',
+            style: TextStyle(color: Colors.white70),
           ),
         ),
       ],

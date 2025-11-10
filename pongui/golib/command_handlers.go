@@ -463,8 +463,6 @@ func handleInitClient(handle uint32, args initClient) (*localInfo, error) {
 					notify(NTGameFrame, gub.Data, nil)
 					fwd++
 					if time.Since(lastLog) >= time.Second {
-						drops := GetAndResetNTGameFrameDrops()
-						log.Infof("NTGameFrame out=%d drop=%d", fwd, drops)
 						fwd = 0
 						lastLog = time.Now()
 					}

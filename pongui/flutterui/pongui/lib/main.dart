@@ -106,9 +106,10 @@ class MyApp extends StatelessWidget {
             ),
             // Small perf overlay to visualize frame spikes.
             if (cfg.showPerfOverlay)
-              const Align(
-                alignment: Alignment.topRight,
-                child: PerfOverlay(),
+              Positioned(
+                top: MediaQuery.of(context).padding.top + kToolbarHeight,
+                right: 0,
+                child: const PerfOverlay(),
               ),
           ],
         );
