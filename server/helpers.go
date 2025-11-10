@@ -2,8 +2,10 @@ package server
 
 import (
 	"fmt"
+	"strings"
 
 	"github.com/companyzero/bisonrelay/zkidentity"
+	"github.com/decred/dcrd/chaincfg/v3"
 	"github.com/vctt94/pongbisonrelay/ponggame"
 	"github.com/vctt94/pongbisonrelay/pongrpc/grpc/pong"
 )
@@ -146,4 +148,25 @@ func (es *escrowSession) clearPreSigns() {
 	if es.preSign != nil {
 		es.preSign = make(map[string]*PreSignCtx)
 	}
+}
+
+// initChainParams initializes chain parameters based on network config.
+func initChainParams(network string) (*chaincfg.Params, error) {
+	network = strings.ToLower(strings.TrimSpace(network))
+	if network == "" {
+		network = "mainnet"
+	}
+	var params *chaincfg.Params
+	switch network {
+	case "mainnet":
+		params = chaincfg.MainNetParams()
+	case "testnet":
+		params = chaincfg.TestNet3Params()
+	case "simnet":
+		params = chaincfg.SimNetParams()
+	}
+	if params == nil {
+		return nil, fmt.Errorf("invalid network: %s", network)
+	}
+	return params, nil
 }
