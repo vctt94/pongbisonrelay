@@ -954,12 +954,19 @@ func handleClientCmd(cc *clientCtx, cmd *cmd) (interface{}, error) {
 			feeAtoms = 20000
 		}
 
+		// Use UTXO value from request if provided, otherwise use stored value
+		utxoValue := details.FundedAmount
+		if req.UtxoValue > 0 {
+			utxoValue = req.UtxoValue
+			cc.log.Infof("RefundEscrow: using provided utxo_value=%d instead of stored funded_amount=%d", req.UtxoValue, details.FundedAmount)
+		}
+
 		// Build the refund transaction
 		refundTxHex, err := client.BuildCSVRefundTx(
 			privHex,
 			details.FundingTxHash,
 			details.FundingVout,
-			details.FundedAmount,
+			utxoValue,
 			details.RedeemScriptHex,
 			req.DestAddr,
 			feeAtoms,
@@ -978,7 +985,7 @@ func handleClientCmd(cc *clientCtx, cmd *cmd) (interface{}, error) {
 			RefundTxHex: refundTxHex,
 			UTXOTxid:    details.FundingTxHash,
 			UTXOVout:    details.FundingVout,
-			UTXOValue:   details.FundedAmount,
+			UTXOValue:   utxoValue,
 			RedeemHex:   details.RedeemScriptHex,
 			CSVBlocks:   csvBlocks,
 			CanRefund:   true,

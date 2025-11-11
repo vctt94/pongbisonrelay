@@ -909,13 +909,14 @@ class PongModel extends ChangeNotifier {
 
   Future<Map<String, dynamic>> buildRefundTransaction(
       String escrowId, String destAddr,
-      {int feeAtoms = 20000, int? csvBlocks}) async {
+      {int feeAtoms = 20000, int? csvBlocks, int? utxoValue}) async {
     try {
       final result = await Golib.refundEscrow(
         escrowId: escrowId,
         destAddr: destAddr,
         feeAtoms: feeAtoms,
         csvBlocks: csvBlocks ?? CSV_BLOCKS,
+        utxoValue: utxoValue,
       );
 
       developer.log(
