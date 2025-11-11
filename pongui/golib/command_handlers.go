@@ -21,6 +21,7 @@ import (
 	"github.com/companyzero/bisonrelay/zkidentity"
 	"github.com/decred/slog"
 	"github.com/vctt94/bisonbotkit/logging"
+	"github.com/vctt94/bisonbotkit/utils"
 	"github.com/vctt94/pongbisonrelay"
 	"github.com/vctt94/pongbisonrelay/client"
 	"github.com/vctt94/pongbisonrelay/pongrpc/grpc/pong"
@@ -116,18 +117,29 @@ func handleInitClient(handle uint32, args initClient) (*localInfo, error) {
 	}
 
 	// Ensure the data directory exists first
+	if strings.TrimSpace(args.DataDir) == "" {
+		args.DataDir = utils.AppDataDir(appName, false)
+	}
 	if err := os.MkdirAll(args.DataDir, 0755); err != nil {
 		return nil, fmt.Errorf("failed to create data directory %s: %v", args.DataDir, err)
 	}
 
 	// Ensure the logs subdirectory exists
-	logsDir := filepath.Dir(args.LogFile)
+	logFile := strings.TrimSpace(args.LogFile)
+	if logFile == "" {
+		logFile = filepath.Join(args.DataDir, "logs", appName+".log")
+	}
+	logsDir := filepath.Dir(logFile)
+	if !strings.HasPrefix(logsDir, args.DataDir) {
+		logFile = filepath.Join(args.DataDir, "logs", appName+".log")
+		logsDir = filepath.Dir(logFile)
+	}
 	if err := os.MkdirAll(logsDir, 0755); err != nil {
 		return nil, fmt.Errorf("failed to create logs directory %s: %v", logsDir, err)
 	}
 
 	logBackend, err := logging.NewLogBackend(logging.LogConfig{
-		LogFile:        args.LogFile,
+		LogFile:        logFile,
 		DebugLevel:     args.DebugLevel,
 		MaxLogFiles:    10,
 		MaxBufferLines: 1000,
@@ -1101,7 +1113,17 @@ func handleGetClientConfig() (interface{}, error) {
 	// Load current config from default app data dir.
 	appCfg, err := client.LoadAppConfig("", appName)
 	if err != nil {
-		return nil, fmt.Errorf("load config: %w", err)
+		// On first run, config might not exist yet. Return default values
+		// so the UI can show the config page without errors.
+		defaultDataDir := utils.AppDataDir(appName, false)
+		return map[string]any{
+			"server_addr":      "",
+			"grpc_cert_path":   "",
+			"network":          "mainnet",
+			"debug":            "info",
+			"show_perfoverlay": false,
+			"data_dir":         defaultDataDir,
+		}, nil
 	}
 	pc := appCfg.PongConf
 	return map[string]any{
