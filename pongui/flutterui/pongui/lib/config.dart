@@ -81,12 +81,14 @@ Future<String> defaultAppDataDir() async {
       Platform.environment.containsKey("LOCALAPPDATA")) {
     return path.join(Platform.environment["LOCALAPPDATA"]!, APPNAME);
   } else if (Platform.isMacOS) {
-    final baseDir = (await getApplicationSupportDirectory()).parent.path;
+    // Use the platform-provided Application Support directory to remain within
+    // writable sandboxed locations. Avoid walking to parent to strip bundle id.
+    final baseDir = (await getApplicationSupportDirectory()).path;
     return path.join(baseDir, APPNAME);
   }
 
   // For other platforms, get the parent directory to avoid bundle identifier paths
-  final dir = (await getApplicationSupportDirectory()).parent;
+  final dir = await getApplicationSupportDirectory();
   return path.join(dir.path, APPNAME);
 }
 
@@ -101,7 +103,8 @@ Future<String> defaultAppDataBRUIGDir() async {
       Platform.environment.containsKey("LOCALAPPDATA")) {
     return path.join(Platform.environment["LOCALAPPDATA"]!, BRUIGNAME);
   } else if (Platform.isMacOS) {
-    final baseDir = (await getApplicationSupportDirectory()).parent.path;
+    // Stay within the app's writable Application Support directory.
+    final baseDir = (await getApplicationSupportDirectory()).path;
     return path.join(baseDir, BRUIGNAME);
   }
 

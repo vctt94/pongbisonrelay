@@ -837,6 +837,8 @@ class PongModel extends ChangeNotifier {
     notifyListeners();
 
     try {
+      // Ensure the minimal client is initialized (prelogin mode is enough).
+      await ensurePreloginInitialized();
       developer.log(
         'loadHistoricEscrows: start',
         name: 'refunds',

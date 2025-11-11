@@ -54,6 +54,10 @@ func parseClientConfigFile(configPath string) (*PongConf, error) {
 	scanner := bufio.NewScanner(file)
 	for scanner.Scan() {
 		line := scanner.Text()
+		line = strings.TrimSpace(line)
+		if line == "" || strings.HasPrefix(line, "#") {
+			continue
+		}
 		parts := strings.SplitN(line, "=", 2)
 		if len(parts) != 2 {
 			continue

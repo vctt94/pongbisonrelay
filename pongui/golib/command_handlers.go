@@ -128,7 +128,7 @@ func handleInitClient(handle uint32, args initClient) (*localInfo, error) {
 	}
 
 	logBackend, err := logging.NewLogBackend(logging.LogConfig{
-		LogFile:        filepath.Join(args.DataDir, "logs", "pongui.log"),
+		LogFile:        args.LogFile,
 		DebugLevel:     args.DebugLevel,
 		MaxLogFiles:    10,
 		MaxBufferLines: 1000,

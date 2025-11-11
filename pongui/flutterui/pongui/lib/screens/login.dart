@@ -18,6 +18,9 @@ class _LoginScreenState extends State<LoginScreen> {
   String _status = '';
   bool _loading = false;
   bool _preInitDone = false;
+  bool _preInitOk = false;
+  bool _preInitLoading = true;
+  String _preInitErr = '';
 
   @override
   void dispose() {
@@ -30,16 +33,36 @@ class _LoginScreenState extends State<LoginScreen> {
   void initState() {
     super.initState();
     // Pre-login minimal init so CT* commands have a valid handle.
-    WidgetsBinding.instance.addPostFrameCallback((_) async {
-      if (_preInitDone) return;
-      _preInitDone = true;
-      try {
-        final model = context.read<PongModel>();
-        await model.ensurePreloginInitialized();
-      } catch (_) {
-        // Best-effort preinit; errors are non-fatal for the login UI.
-      }
+    WidgetsBinding.instance.addPostFrameCallback((_) {
+      _startPreInit();
     });
+  }
+
+  void _startPreInit() async {
+    if (_preInitDone) return;
+    _preInitDone = true;
+    setState(() {
+      _preInitLoading = true;
+      _preInitErr = '';
+      _preInitOk = false;
+    });
+    try {
+      final model = context.read<PongModel>();
+      await model.ensurePreloginInitialized();
+      if (!mounted) return;
+      setState(() {
+        _preInitOk = true;
+        _preInitLoading = false;
+      });
+    } catch (e) {
+      if (!mounted) return;
+      setState(() {
+        _preInitErr = e.toString();
+        _preInitLoading = false;
+        _preInitOk = false;
+        _preInitDone = false; // allow retry
+      });
+    }
   }
 
   Future<void> _requestNonce(PongModel m) async {
@@ -125,6 +148,92 @@ class _LoginScreenState extends State<LoginScreen> {
 
   @override
   Widget build(BuildContext context) {
+    // Gate the login UI until the minimal prelogin client is initialized.
+    if (!_preInitOk) {
+      return Scaffold(
+        body: Container(
+          decoration: const BoxDecoration(
+            gradient: LinearGradient(
+              begin: Alignment.topLeft,
+              end: Alignment.bottomRight,
+              colors: [
+                Color.fromARGB(255, 25, 23, 44),
+                Color.fromARGB(255, 35, 33, 54),
+              ],
+            ),
+          ),
+          child: Center(
+            child: ConstrainedBox(
+              constraints: const BoxConstraints(maxWidth: 520),
+              child: Card(
+                color: const Color(0xFF1B1E2C),
+                elevation: 8,
+                shape: RoundedRectangleBorder(
+                  borderRadius: BorderRadius.circular(16),
+                ),
+                child: Padding(
+                  padding: const EdgeInsets.all(32.0),
+                  child: Column(
+                    mainAxisSize: MainAxisSize.min,
+                    crossAxisAlignment: CrossAxisAlignment.center,
+                    children: [
+                      const Icon(Icons.settings, size: 56, color: Colors.blueAccent),
+                      const SizedBox(height: 16),
+                      Text(
+                        _preInitLoading ? 'Starting local engine…' : 'Initialization failed',
+                        style: const TextStyle(
+                          fontSize: 18,
+                          fontWeight: FontWeight.bold,
+                          color: Colors.white,
+                        ),
+                      ),
+                      const SizedBox(height: 12),
+                      if (_preInitLoading)
+                        const SizedBox(
+                          width: 28,
+                          height: 28,
+                          child: CircularProgressIndicator(strokeWidth: 3),
+                        )
+                      else ...[
+                        Container(
+                          width: double.infinity,
+                          margin: const EdgeInsets.only(top: 8),
+                          padding: const EdgeInsets.all(12),
+                          decoration: BoxDecoration(
+                            color: Colors.red.withOpacity(0.15),
+                            borderRadius: BorderRadius.circular(8),
+                            border: Border.all(color: Colors.redAccent),
+                          ),
+                          child: Text(
+                            _preInitErr.isNotEmpty ? _preInitErr : 'Unknown error',
+                            style: const TextStyle(color: Colors.redAccent, fontSize: 12),
+                            textAlign: TextAlign.center,
+                          ),
+                        ),
+                        const SizedBox(height: 12),
+                        ElevatedButton.icon(
+                          onPressed: _startPreInit,
+                          icon: const Icon(Icons.refresh),
+                          label: const Text('Try Again'),
+                          style: ElevatedButton.styleFrom(
+                            backgroundColor: Colors.orange,
+                            padding: const EdgeInsets.symmetric(vertical: 14, horizontal: 18),
+                            shape: RoundedRectangleBorder(
+                              borderRadius: BorderRadius.circular(8),
+                            ),
+                          ),
+                        ),
+                      ],
+                    ],
+                  ),
+                ),
+              ),
+            ),
+          ),
+        ),
+      );
+    }
+
     final model = context.watch<PongModel>();
 
     return Scaffold(
