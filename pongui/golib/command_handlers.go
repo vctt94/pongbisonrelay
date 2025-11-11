@@ -1009,26 +1009,37 @@ func handleCloseLockFile(rootDir string) error {
 
 // --- Wallet-auth handlers (no running client required) ---
 
-func handleRequestNonce(args requestNonceArgs) (interface{}, error) {
-	if strings.TrimSpace(args.ServerAddr) == "" {
+// handleRequestNonceForHandle prefers the running client's server config for the given handle.
+func handleRequestNonce(handle uint32, args requestNonceArgs) (interface{}, error) {
+	// Prefer the active client's server address and cert path if a client exists.
+	cmtx.Lock()
+	var cctx *clientCtx
+	if cs != nil {
+		cctx = cs[handle]
+	}
+	cmtx.Unlock()
+
+	serverAddr := strings.TrimSpace(args.ServerAddr)
+	grpcCertPath := strings.TrimSpace(args.GRPCCertPath)
+	if cctx != nil && cctx.c != nil {
+		if sa := strings.TrimSpace(cctx.c.ServerAddr()); sa != "" {
+			serverAddr = sa
+		}
+		if cp := strings.TrimSpace(cctx.c.GRPCCertPath()); cp != "" {
+			grpcCertPath = cp
+		}
+	}
+	if serverAddr == "" {
 		return nil, fmt.Errorf("missing server_addr")
 	}
-	// Build TLS creds using shared helper (resolves path, falls back, and creates default if needed).
-	var pc *client.PongConf
-	if appCfg, err := client.LoadAppConfig("", appName); err == nil && appCfg.PongConf != nil {
-		pc = appCfg.PongConf
-	}
-	if pc == nil {
-		pc = &client.PongConf{}
-	}
-	if cp := strings.TrimSpace(args.GRPCCertPath); cp != "" {
-		pc.GRPCCertPath = cp
-	}
+
+	// Build TLS creds using consolidated cert path.
+	pc := &client.PongConf{GRPCCertPath: grpcCertPath}
 	creds, err := client.LoadTLSCreds(pc)
 	if err != nil {
 		return nil, fmt.Errorf("load TLS creds: %w", err)
 	}
-	conn, err := grpc.NewClient(args.ServerAddr, grpc.WithTransportCredentials(creds))
+	conn, err := grpc.NewClient(serverAddr, grpc.WithTransportCredentials(creds))
 	if err != nil {
 		return nil, fmt.Errorf("dial server: %w", err)
 	}
@@ -1049,30 +1060,66 @@ func handleRequestNonce(args requestNonceArgs) (interface{}, error) {
 	}, nil
 }
 
-func handleVerifyLogin(args verifyLoginArgs) (interface{}, error) {
-	if strings.TrimSpace(args.ServerAddr) == "" {
+// Handle GetClientConfig using running client's app config if available.
+func handleGetClientConfigForHandle(handle uint32) (interface{}, error) {
+	cmtx.Lock()
+	var cctx *clientCtx
+	if cs != nil {
+		cctx = cs[handle]
+	}
+	cmtx.Unlock()
+	if cctx != nil && cctx.c != nil {
+		pc := cctx.c.AppConfig()
+		if pc != nil {
+			return map[string]any{
+				"server_addr":      pc.ServerAddr,
+				"grpc_cert_path":   pc.GRPCCertPath,
+				"network":          pc.Network,
+				"debug":            pc.Debug,
+				"show_perfoverlay": pc.ShowPerfOverlay,
+				"data_dir":         pc.DataDir,
+			}, nil
+		}
+	}
+	// Fallback to default behavior.
+	return handleGetClientConfig()
+}
+
+// handleVerifyLoginForHandle uses the running client's server config when available
+// so VerifyLogin is performed against the same server used for gameplay and escrow.
+func handleVerifyLogin(handle uint32, args verifyLoginArgs) (interface{}, error) {
+	// Prefer the active client's server address and cert path if a client exists.
+	cmtx.Lock()
+	var cctx *clientCtx
+	if cs != nil {
+		cctx = cs[handle]
+	}
+	cmtx.Unlock()
+
+	serverAddr := strings.TrimSpace(args.ServerAddr)
+	grpcCertPath := strings.TrimSpace(args.GRPCCertPath)
+	if cctx != nil && cctx.c != nil {
+		if sa := strings.TrimSpace(cctx.c.ServerAddr()); sa != "" {
+			serverAddr = sa
+		}
+		if cp := strings.TrimSpace(cctx.c.GRPCCertPath()); cp != "" {
+			grpcCertPath = cp
+		}
+	}
+	if serverAddr == "" {
 		return nil, fmt.Errorf("missing server or cert path")
 	}
 	if strings.TrimSpace(args.Address) == "" || strings.TrimSpace(args.Nonce) == "" || strings.TrimSpace(args.Signature) == "" {
 		return nil, fmt.Errorf("missing address, nonce or signature")
 	}
 
-	// Build TLS creds using shared helper.
-	var pc *client.PongConf
-	if appCfg, err := client.LoadAppConfig("", appName); err == nil && appCfg.PongConf != nil {
-		pc = appCfg.PongConf
-	}
-	if pc == nil {
-		pc = &client.PongConf{}
-	}
-	if cp := strings.TrimSpace(args.GRPCCertPath); cp != "" {
-		pc.GRPCCertPath = cp
-	}
+	// Build TLS creds using consolidated cert path.
+	pc := &client.PongConf{GRPCCertPath: grpcCertPath}
 	creds, err := client.LoadTLSCreds(pc)
 	if err != nil {
 		return nil, fmt.Errorf("load TLS creds: %w", err)
 	}
-	conn, err := grpc.NewClient(args.ServerAddr, grpc.WithTransportCredentials(creds))
+	conn, err := grpc.NewClient(serverAddr, grpc.WithTransportCredentials(creds))
 	if err != nil {
 		return nil, fmt.Errorf("dial server: %w", err)
 	}
@@ -1107,6 +1154,7 @@ type saveClientConfigArgs struct {
 	Network         string `json:"network"`
 	Debug           string `json:"debug"`
 	ShowPerfOverlay bool   `json:"show_perfoverlay"`
+	DataDir         string `json:"data_dir"`
 }
 
 func handleGetClientConfig() (interface{}, error) {
@@ -1143,6 +1191,11 @@ func handleSaveClientConfig(args saveClientConfigArgs) (interface{}, error) {
 		return nil, fmt.Errorf("load config: %w", err)
 	}
 	pc := appCfg.PongConf
+
+	// If a sandboxed data dir was provided by the UI, honor it.
+	if strings.TrimSpace(args.DataDir) != "" {
+		pc.DataDir = strings.TrimSpace(args.DataDir)
+	}
 
 	// Apply provided fields (empty strings are ignored for strings).
 	if strings.TrimSpace(args.ServerAddr) != "" {

@@ -44,8 +44,9 @@ class NewConfigModel extends ChangeNotifier {
   }
 
   Future<String> appDatadir() async {
-    final cc = await Golib.getClientConfig();
-    return cc.dataDir;
+    // Always resolve the sandboxed Application Support path on this platform.
+    // Do not rely on golib defaults which may point to non-sandboxed locations.
+    return await defaultAppDataDir();
   }
 
   Future<String> getConfigFilePath() async {

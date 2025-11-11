@@ -163,7 +163,17 @@ func NewPongClient(clientID string, cfg *PongClientCfg) (*PongClient, error) {
 }
 
 func (pc *PongClient) ID() string {
+	pc.RLock()
+	defer pc.RUnlock()
 	return pc.id
+}
+
+// SetID updates the client ID. This should be called after wallet authentication
+// to ensure the client uses the authenticated identity.
+func (pc *PongClient) SetID(newID string) {
+	pc.Lock()
+	defer pc.Unlock()
+	pc.id = newID
 }
 
 func (pc *PongClient) IsReady() bool {
@@ -198,6 +208,33 @@ func (pc *PongClient) ServerVersion() string {
 	pc.RLock()
 	defer pc.RUnlock()
 	return pc.serverVersion
+}
+
+// ServerAddr returns the configured gRPC server address.
+func (pc *PongClient) ServerAddr() string {
+	pc.RLock()
+	defer pc.RUnlock()
+	if pc.appCfg == nil {
+		return ""
+	}
+	return pc.appCfg.ServerAddr
+}
+
+// GRPCCertPath returns the configured TLS certificate path for the gRPC server.
+func (pc *PongClient) GRPCCertPath() string {
+	pc.RLock()
+	defer pc.RUnlock()
+	if pc.appCfg == nil {
+		return ""
+	}
+	return pc.appCfg.GRPCCertPath
+}
+
+// AppConfig returns a copy of the current PongConf pointer for read-only use.
+func (pc *PongClient) AppConfig() *PongConf {
+	pc.RLock()
+	defer pc.RUnlock()
+	return pc.appCfg
 }
 
 // ResolveClientID starts a short-lived BR RPC client to fetch the local

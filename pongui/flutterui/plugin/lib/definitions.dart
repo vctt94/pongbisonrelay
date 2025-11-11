@@ -860,6 +860,7 @@ abstract class PluginPlatform {
       'network': cfg.network,
       'debug': cfg.debugLevel,
       'show_perfoverlay': cfg.showPerfOverlay,
+      'data_dir': cfg.dataDir,
     };
     await asyncCall(CTSaveClientConfig, payload);
   }

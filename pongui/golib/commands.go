@@ -144,13 +144,13 @@ func call(cmd *cmd) *CmdResult {
 	case CTRequestNonce:
 		var args requestNonceArgs
 		if decode(&args) {
-			v, err = handleRequestNonce(args)
+			v, err = handleRequestNonce(uint32(cmd.ClientHandle), args)
 		}
 
 	case CTVerifyLogin:
 		var args verifyLoginArgs
 		if decode(&args) {
-			v, err = handleVerifyLogin(args)
+			v, err = handleVerifyLogin(uint32(cmd.ClientHandle), args)
 		}
 
 	case CTCreateLockFile:
@@ -195,8 +195,8 @@ func call(cmd *cmd) *CmdResult {
 		err = globalProfiler.zipLogs(args)
 
 	case CTGetClientConfig:
-		// No payload required; load current config using default app datadir.
-		v, err = handleGetClientConfig()
+		// Prefer the running client's app config if available for this handle.
+		v, err = handleGetClientConfigForHandle(uint32(cmd.ClientHandle))
 
 	case CTSaveClientConfig:
 		var args saveClientConfigArgs

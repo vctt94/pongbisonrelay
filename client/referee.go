@@ -224,15 +224,20 @@ func (pc *PongClient) RefGetFinalizeBundle(matchID string) (*pong.GetFinalizeBun
 func (pc *PongClient) OpenEscrowWithSession(ctx context.Context, payoutPubkey []byte, betAtoms uint64, csvBlocks uint32) (*pong.OpenEscrowResponse, error) {
 	pc.RLock()
 	pubHex := pc.settlePubHex
+	clientID := pc.id
 	pc.RUnlock()
 	if pubHex == "" {
 		return nil, fmt.Errorf("no settlement session key; generate one with GenerateNewSettlementSessionKey()")
+	}
+	if clientID == "" {
+		return nil, fmt.Errorf("client ID is empty - wallet authentication required")
 	}
 	pubBytes, err := hex.DecodeString(pubHex)
 	if err != nil {
 		return nil, fmt.Errorf("bad session pubkey: %w", err)
 	}
-	return pc.RefOpenEscrow(pc.id, pubBytes, payoutPubkey, betAtoms, csvBlocks)
+	pc.log.Infof("OpenEscrowWithSession: using client ID: %s", clientID)
+	return pc.RefOpenEscrow(clientID, pubBytes, payoutPubkey, betAtoms, csvBlocks)
 }
 
 // RefStartSettlementHandshake starts a schnorr adaptor pre-sign handshake:
