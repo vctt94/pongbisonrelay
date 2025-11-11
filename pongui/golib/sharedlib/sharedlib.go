@@ -61,6 +61,14 @@ func AsyncCall(typ uint32, id, client uint32, payload unsafe.Pointer, payloadLen
 //export NextCallResult
 func NextCallResult() (C.uintptr_t, C.ulonglong, C.ulonglong, C.ulonglong) {
 	r := golib.NextCmdResult()
+
+	// Don't create a handle for NTNOP results to avoid handle leaks.
+	// The Dart code skips CopyCallResult for NTNOP, so handles would never be deleted.
+	// CopyCallResult already handles handle=0 correctly.
+	if r.Type == golib.NTNOP {
+		return 0, C.ulonglong(len(r.Payload)), C.ulonglong(r.Type), 0
+	}
+
 	h := cgo.NewHandle(r)
 	isErr := C.ulonglong(0)
 	if r.Err != nil {
@@ -77,6 +85,10 @@ func NextCallResult() (C.uintptr_t, C.ulonglong, C.ulonglong, C.ulonglong) {
 
 //export CopyCallResult
 func CopyCallResult(handle C.uintptr_t, p *C.char) C.ulonglong {
+	// Handle=0 indicates NTNOP (no handle created), should not be called for NTNOP
+	if handle == 0 {
+		return 0
+	}
 	h := cgo.Handle(handle)
 	r := h.Value().(*golib.CmdResult)
 	rp := r.Payload

@@ -1,109 +1,272 @@
 package client
 
 import (
+	"bufio"
 	"fmt"
+	"os"
+	"path/filepath"
+	"strings"
 
-	"github.com/companyzero/bisonrelay/clientrpc/types"
-	"github.com/decred/slog"
-	brconfig "github.com/vctt94/bisonbotkit/config"
+	"github.com/decred/dcrd/chaincfg/v3"
+	"github.com/vctt94/bisonbotkit/logging"
 	"github.com/vctt94/bisonbotkit/utils"
 )
 
+// defaultServerCertPEM is written to <datadir>/ca.cert on first run when creating
+// a default config, so the UI has a usable TLS cert path out of the box.
+const defaultServerCertPEM = `-----BEGIN CERTIFICATE-----
+MIIBizCCATKgAwIBAgIQbtFxrgQfuhUSaHsw+tbNoDAKBggqhkjOPQQDAjAmMREw
+DwYDVQQKEwhnZW5jZXJ0czERMA8GA1UEAxMIZ2VuY2VydHMwHhcNMjUxMTA4MTU1
+MjQzWhcNMzUxMTA3MTU1MjQzWjAmMREwDwYDVQQKEwhnZW5jZXJ0czERMA8GA1UE
+AxMIZ2VuY2VydHMwWTATBgcqhkjOPQIBBggqhkjOPQMBBwNCAAQoLsfKo3eU1B1c
++GuDgatRBnI889XhmVet8aIGlew+A4hsUyduD8LfP1k7aZ3bHNIq+4H5LLg3sVj8
+hNseJ/cFo0IwQDAOBgNVHQ8BAf8EBAMCAoQwDwYDVR0TAQH/BAUwAwEB/zAdBgNV
+HQ4EFgQURzfqDTuTTKzRYgMTW1IZiUhFjRIwCgYIKoZIzj0EAwIDRwAwRAIgfTUP
+ufQQaHv0dXYDwWfYgL2ry5vLM7xPy9l2iDxWRDcCIADhyHCj1r+M3p6/5yaJNZxd
+TLq8HnLRGlOPhEKOCgit
+-----END CERTIFICATE-----`
+
+// PongClientCfg is the pong config used on the pong client
 type PongClientCfg struct {
-	AppCfg        *AppConfig  // Consolidated app config (single source of truth)
-	Log           slog.Logger // Application's logger
-	ChatClient    types.ChatServiceClient
-	PaymentClient types.PaymentsServiceClient
+	PongConf   *PongConf           // Consolidated app config (single source of truth)
+	LogBackend *logging.LogBackend // Application's logger
 
 	// Notifications tracks handlers for client events. If nil, the client
 	// will initialize a new notification manager.
 	Notifications *NotificationManager
 }
 
-// ConfigOverrides carries optional CLI/runtime overrides for config values.
-type ConfigOverrides struct {
-	RPCURL          string
-	BRClientCert    string
-	BRClientRPCCert string
-	BRClientRPCKey  string
-	RPCUser         string
-	RPCPass         string
-
-	// Pong-specific (stored under ExtraConfig in the .conf)
-	ServerAddr     string
-	GRPCServerCert string
-	Address        string
-}
-
-// AppConfig is the consolidated configuration used by the pong client app.
-type AppConfig struct {
+// PongConfig is the config loaded from our .conf
+type PongConf struct {
 	// Absolute directory where the config/logs live.
 	DataDir string
-	// BR holds the loaded bisonbotkit client configuration.
-	BR *brconfig.ClientConfig
+
 	// Extracted Pong gRPC settings (also persisted in BR.ExtraConfig).
 	ServerAddr   string
 	GRPCCertPath string
-	Address      string
+
+	// Network specifies the Decred network: "mainnet" or "testnet" (defaults to "testnet")
+	Network string
+
+	LogFile         string
+	Debug           string
+	MaxLogFiles     int
+	MaxBufferLines  int
+	ShowPerfOverlay bool
+}
+
+// parseClientConfigFile parses the config file at the given path into a ClientConfig struct.
+func parseClientConfigFile(configPath string) (*PongConf, error) {
+	file, err := os.Open(configPath)
+	if err != nil {
+		return nil, err
+	}
+	defer file.Close()
+
+	fmt.Println("parseClientConfigFile: ", configPath)
+	cfg := &PongConf{}
+	scanner := bufio.NewScanner(file)
+	for scanner.Scan() {
+		line := scanner.Text()
+		line = strings.TrimSpace(line)
+		if line == "" || strings.HasPrefix(line, "#") {
+			continue
+		}
+		parts := strings.SplitN(line, "=", 2)
+		if len(parts) != 2 {
+			continue
+		}
+
+		key := strings.TrimSpace(parts[0])
+		value := strings.TrimSpace(parts[1])
+
+		switch key {
+		case "datadir":
+			cfg.DataDir = value
+		case "serveraddress":
+			cfg.ServerAddr = value
+		case "grpccertpath":
+			cfg.GRPCCertPath = value
+		case "network":
+			cfg.Network = value
+		case "logfile":
+			cfg.LogFile = value
+			if cfg.LogFile == "" {
+				cfg.LogFile = filepath.Join(cfg.DataDir, "logs", "pongclient.log")
+			}
+		case "debug":
+			cfg.Debug = value
+			if cfg.Debug == "" {
+				cfg.Debug = "info"
+			}
+		case "maxlogfiles":
+			fmt.Sscanf(value, "%d", &cfg.MaxLogFiles)
+			if cfg.MaxLogFiles == 0 {
+				cfg.MaxLogFiles = 5
+			}
+		case "maxbufferlines":
+			fmt.Sscanf(value, "%d", &cfg.MaxBufferLines)
+			if cfg.MaxBufferLines == 0 {
+				cfg.MaxBufferLines = 1000
+			}
+		case "showperfoverlay":
+			var v bool
+			if value == "true" {
+				v = true
+			} else {
+				v = false
+			}
+			cfg.ShowPerfOverlay = v
+		default:
+			// Ignore unknown keys to preserve forward-compatibility with older configs.
+			continue
+		}
+	}
+
+	if err := scanner.Err(); err != nil {
+		return nil, err
+	}
+
+	var missing []string
+	// Check all required fields after parsing (in case keys were missing entirely)
+	if strings.TrimSpace(cfg.DataDir) == "" {
+		missing = append(missing, "datadir")
+	}
+	if strings.TrimSpace(cfg.ServerAddr) == "" {
+		missing = append(missing, "serveraddress")
+	}
+	if strings.TrimSpace(cfg.GRPCCertPath) == "" {
+		missing = append(missing, "grpccertpath")
+	}
+	if strings.TrimSpace(cfg.Network) == "" {
+		missing = append(missing, "network")
+	}
+
+	if len(missing) > 0 {
+		return nil, fmt.Errorf("missing required fields in client config: %s", strings.Join(missing, ", "))
+	}
+
+	return cfg, nil
+}
+
+// LoadClientConfig attempts to load the client config (.conf) from the default locations.
+func loadClientConf(configPath string, fileName string) (*PongConf, error) {
+	// Check if fileName has .conf extension
+	if !strings.HasSuffix(fileName, ".conf") {
+		return nil, fmt.Errorf("filename must have .conf extension, got: %s", fileName)
+	}
+
+	// Get app name by removing .conf extension
+	appName := strings.TrimSuffix(fileName, ".conf")
+
+	defaultConfigPath := utils.AppDataDir(appName, false)
+	// If configPath is empty, use defaultConfigPath
+	if configPath == "" {
+		configPath = defaultConfigPath
+	}
+
+	// Ensure the config directory exists
+	if err := os.MkdirAll(configPath, 0700); err != nil {
+		return nil, err
+	}
+
+	// Try to load existing config
+	fullPath := filepath.Join(configPath, fileName)
+	if _, err := os.Stat(fullPath); err == nil {
+		return parseClientConfigFile(fullPath)
+	}
+
+	// Create default config
+	cfg := &PongConf{
+		DataDir:        configPath,
+		GRPCCertPath:   filepath.Join(configPath, "ca.cert"),
+		ServerAddr:     "178.156.178.191:50051",
+		Network:        "mainnet",
+		LogFile:        filepath.Join(configPath, "logs", appName+".log"),
+		Debug:          "info",
+		MaxLogFiles:    5,
+		MaxBufferLines: 1000,
+	}
+
+	// Write default config
+	if err := writeClientConfigFile(cfg, fullPath); err != nil {
+		return nil, err
+	}
+
+	return cfg, nil
+}
+
+// Write the configuration to a file.
+func writeClientConfigFile(cfg *PongConf, configPath string) error {
+	configData := fmt.Sprintf(
+		`datadir=%s
+serveraddress=%s
+grpccertpath=%s
+network=%s
+logfile=%s
+debug=%s
+maxlogfiles=%d
+maxbufferlines=%d
+`,
+		cfg.DataDir,
+		cfg.ServerAddr,
+		cfg.GRPCCertPath,
+		cfg.Network,
+		cfg.LogFile,
+		cfg.Debug,
+		cfg.MaxLogFiles,
+		cfg.MaxBufferLines,
+	)
+
+	return os.WriteFile(configPath, []byte(configData), 0600)
 }
 
 // LoadAppConfig loads pongclient configuration from disk, applies overrides,
 // and returns a consolidated AppConfig. If datadir is empty, it uses the
 // default application data dir for "pongclient".
-func LoadAppConfig(datadir string, ov ConfigOverrides) (*AppConfig, error) {
+func LoadAppConfig(datadir string, appName string) (*PongClientCfg, error) {
 	if datadir == "" {
-		datadir = utils.AppDataDir("pongclient", false)
+		datadir = utils.AppDataDir(appName, false)
 	}
 
-	cfg, err := brconfig.LoadClientConfig(datadir, "pongclient.conf")
+	cfg, err := loadClientConf(datadir, appName+".conf")
 	if err != nil {
 		return nil, fmt.Errorf("load config: %w", err)
 	}
 
-	// Apply BR RPC/TLS overrides
-	if ov.RPCURL != "" {
-		cfg.RPCURL = ov.RPCURL
+	logBackend, err := logging.NewLogBackend(logging.LogConfig{
+		LogFile:        filepath.Join(cfg.DataDir, "logs", "pongclient.log"),
+		DebugLevel:     cfg.Debug,
+		MaxLogFiles:    5,
+		MaxBufferLines: 1000,
+	})
+	if err != nil {
+		return nil, fmt.Errorf("NewLogBackend failed: %w", err)
 	}
-	if ov.BRClientCert != "" {
-		cfg.BRClientCert = ov.BRClientCert
-	}
-	if ov.BRClientRPCCert != "" {
-		cfg.BRClientRPCCert = ov.BRClientRPCCert
-	}
-	if ov.BRClientRPCKey != "" {
-		cfg.BRClientRPCKey = ov.BRClientRPCKey
-	}
-	if ov.RPCUser != "" {
-		cfg.RPCUser = ov.RPCUser
-	}
-	if ov.RPCPass != "" {
-		cfg.RPCPass = ov.RPCPass
-	}
-
-	// Pong gRPC settings live in ExtraConfig; let overrides win but persist in cfg
-	srvAddr := cfg.GetString("serveraddr")
-	if ov.ServerAddr != "" {
-		srvAddr = ov.ServerAddr
-		cfg.SetString("serveraddr", srvAddr)
-	}
-	grpcCert := cfg.GetString("grpcservercert")
-	if ov.GRPCServerCert != "" {
-		grpcCert = ov.GRPCServerCert
-		cfg.SetString("grpcservercert", grpcCert)
-	}
-
-	// Payout address
-	addr := cfg.GetString("address")
-	if ov.Address != "" {
-		addr = ov.Address
-		cfg.SetString("address", addr)
-	}
-
-	return &AppConfig{
-		DataDir:      datadir,
-		BR:           cfg,
-		ServerAddr:   srvAddr,
-		GRPCCertPath: grpcCert,
-		Address:      addr,
+	return &PongClientCfg{
+		PongConf:      cfg,
+		LogBackend:    logBackend,
+		Notifications: NewNotificationManager(),
 	}, nil
+}
+
+// GetChainParams returns the chaincfg.Params for the configured network.
+// Returns an error if the network is invalid.
+func (cfg *PongConf) GetChainParams() (*chaincfg.Params, error) {
+	network := strings.ToLower(strings.TrimSpace(cfg.Network))
+	if network == "" {
+		network = "mainnet"
+	}
+	switch network {
+	case "mainnet":
+		return chaincfg.MainNetParams(), nil
+	case "testnet":
+		return chaincfg.TestNet3Params(), nil
+	case "simnet":
+		return chaincfg.SimNetParams(), nil
+	case "regnet":
+		return chaincfg.RegNetParams(), nil
+	default:
+		return nil, fmt.Errorf("invalid network: %s (must be 'mainnet' or 'testnet')", cfg.Network)
+	}
 }

@@ -55,6 +55,10 @@ const (
 	CTUpdateHistoricEscrow = 0x18
 	CTDeleteHistoricEscrow = 0x19
 
+	// Config management (UI<->golib)
+	CTGetClientConfig  = 0x1a
+	CTSaveClientConfig = 0x1b
+
 	CTCreateLockFile        = 0x60
 	CTCloseLockFile         = 0x61
 	CTGetRunState           = 0x83
@@ -108,6 +112,9 @@ func GetAndResetNTGameFrameDrops() uint64 {
 	return ntGameFrameDrops.Swap(0)
 }
 
+// Shared NTNOP result to avoid allocations in the polling loop
+var ntnopResult = &CmdResult{Type: NTNOP, Payload: []byte{}}
+
 func call(cmd *cmd) *CmdResult {
 	var v interface{}
 	var err error
@@ -137,13 +144,13 @@ func call(cmd *cmd) *CmdResult {
 	case CTRequestNonce:
 		var args requestNonceArgs
 		if decode(&args) {
-			v, err = handleRequestNonce(args)
+			v, err = handleRequestNonce(uint32(cmd.ClientHandle), args)
 		}
 
 	case CTVerifyLogin:
 		var args verifyLoginArgs
 		if decode(&args) {
-			v, err = handleVerifyLogin(args)
+			v, err = handleVerifyLogin(uint32(cmd.ClientHandle), args)
 		}
 
 	case CTCreateLockFile:
@@ -186,6 +193,16 @@ func call(cmd *cmd) *CmdResult {
 		var args string
 		decode(&args)
 		err = globalProfiler.zipLogs(args)
+
+	case CTGetClientConfig:
+		// Prefer the running client's app config if available for this handle.
+		v, err = handleGetClientConfigForHandle(uint32(cmd.ClientHandle))
+
+	case CTSaveClientConfig:
+		var args saveClientConfigArgs
+		if decode(&args) {
+			v, err = handleSaveClientConfig(args)
+		}
 	default:
 		// Calls that need a client. Figure out the client.
 		cmtx.Lock()
@@ -268,8 +285,9 @@ func NextCmdResult() *CmdResult {
 	select {
 	case r := <-cmdResultChan:
 		return r
-	default:
-		return &CmdResult{Type: NTNOP, Payload: []byte{}}
+	case <-time.After(16 * time.Millisecond):
+		// Return shared NTNOP result to avoid allocations in the polling loop
+		return ntnopResult
 	}
 }
 

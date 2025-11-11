@@ -1,7 +1,4 @@
-import 'dart:io';
 import 'package:flutter/material.dart';
-import 'package:flutter/services.dart';
-import 'package:path/path.dart' as p;
 
 import 'package:pongui/components/shared_layout.dart';
 import 'package:pongui/models/newconfig.dart';
@@ -34,37 +31,38 @@ class _NewConfigScreenState extends State<NewConfigScreen> {
   // late final _user       = TextEditingController(text: widget.model.rpcUser);
   // late final _pass       = TextEditingController(text: widget.model.rpcPass);
 
-  bool _wantsLogNtfns = false;
+  bool _showPerfOverlay = false;
   String _cfgPath = '', _dataDir = '';
 
-  // Placeholder certificate content
-  static const String placeholderCertContent = '''-----BEGIN CERTIFICATE-----
-MIIBkzCCATmgAwIBAgIRAOCyLu1U/ZKyD33nXFPgJOQwCgYIKoZIzj0EAwIwFjEU
-MBIGA1UEChMLUG9uZyBTZXJ2ZXIwHhcNMjUwMTMxMTg0NzQwWhcNMjYwMTMxMTg0
-NzQwWjAWMRQwEgYDVQQKEwtQb25nIFNlcnZlcjBZMBMGByqGSM49AgEGCCqGSM49
-AwEHA0IABLpaje+KDrdAe77RwOaxYAkxRmlDg1cbLspf1riFhskIUyfILM1r8zPd
-Ql10MGxeKipbE3LCPOn5BV0KVGxfb2mjaDBmMA4GA1UdDwEB/wQEAwICpDATBgNV
-HSUEDDAKBggrBgEFBQcDATAPBgNVHRMBAf8EBTADAQH/MB0GA1UdDgQWBBQLw3WW
-CxxXpNfuuDgGuZ3c8IX0rDAPBgNVHREECDAGhwRog7QdMAoGCCqGSM49BAMCA0gA
-MEUCIEWR7Iw7ua6WAQuIf8Yf0lNzP6s2NczAR0W4uP8zuVK0AiEA6ruxkMcv4CHw
-Aq6RDElOTqAlDbNAuV8b/joQjIDLwqA=
------END CERTIFICATE-----''';
   @override
   void initState() {
     super.initState();
-    _wantsLogNtfns = widget.model.wantsLogNtfns;
+    _showPerfOverlay = widget.model.showPerfOverlay;
     _initHeaderInfo();
     
     // Listen for model changes to update text fields when async initialization completes
     widget.model.addListener(_onModelChanged);
+    // Populate fields from golib defaults
+    // Note: listener will update controllers when model fields change.
+    widget.model.loadFromGoDefaults();
   }
 
   void _onModelChanged() {
     if (mounted) {
       // Update text controllers when model values change (after async init)
-      if (_grpcCert.text.isEmpty && widget.model.grpcCertPath.isNotEmpty) {
+      if (widget.model.serverAddr.isNotEmpty &&
+          _serverAddr.text != widget.model.serverAddr) {
+        _serverAddr.text = widget.model.serverAddr;
+      }
+      if (widget.model.grpcCertPath.isNotEmpty &&
+          _grpcCert.text != widget.model.grpcCertPath) {
         _grpcCert.text = widget.model.grpcCertPath;
       }
+      if (widget.model.debugLevel.isNotEmpty &&
+          _debugLvl.text != widget.model.debugLevel) {
+        _debugLvl.text = widget.model.debugLevel;
+      }
+      _showPerfOverlay = widget.model.showPerfOverlay;
     }
   }
 
@@ -83,36 +81,15 @@ Aq6RDElOTqAlDbNAuV8b/joQjIDLwqA=
     if (mounted) setState(() {});
   }
 
-  // ensure server.cert and logs/ exist in the fixed data dir
-  Future<void> _prepareDataDir() async {
-    final grpcCertFile = File(widget.model.grpcCertPath);
-    if (!await grpcCertFile.exists()) {
-      await grpcCertFile.parent.create(recursive: true);
-      await grpcCertFile.writeAsString(placeholderCertContent);
-    }
-    final dataDir = await widget.model.appDatadir();
-    final logs = Directory(p.join(dataDir, 'logs'));
-    if (!await logs.exists()) await logs.create(recursive: true);
-  }
-
   Future<void> _save() async {
     if (!_formKey.currentState!.validate()) return;
     try {
-      // update model from fields
-      widget.model
-        ..serverAddr        = _serverAddr.text
-        ..grpcCertPath      = _grpcCert.text
-        // ..rpcCertPath       = _rpcCert.text
-        // ..rpcClientCertPath = _rpcCliCert.text
-        // ..rpcClientKeyPath  = _rpcCliKey.text
-        // ..rpcWebsocketURL   = _wsURL.text
-        ..debugLevel        = _debugLvl.text
-        // ..rpcUser           = _user.text
-        // ..rpcPass           = _pass.text
-        ..wantsLogNtfns     = _wantsLogNtfns;
-
-      await _prepareDataDir();
-      await widget.model.saveConfig();
+      await widget.model.applyAndSave(
+        serverAddr: _serverAddr.text,
+        grpcCertPath: _grpcCert.text,
+        debugLevel: _debugLvl.text,
+        showPerfOverlay: _showPerfOverlay,
+      );
       await widget.onConfigSaved();
 
       if (mounted) {
@@ -155,9 +132,9 @@ Aq6RDElOTqAlDbNAuV8b/joQjIDLwqA=
                 Row(
                   mainAxisAlignment: MainAxisAlignment.spaceBetween,
                   children: [
-                    const Text('Log Notifications', style: TextStyle(color: Colors.white)),
-                    Switch(value: _wantsLogNtfns,
-                           onChanged: (v) => setState(() => _wantsLogNtfns = v)),
+                    const Text('Show Performance Overlay', style: TextStyle(color: Colors.white)),
+                    Switch(value: _showPerfOverlay,
+                           onChanged: (v) => setState(() => _showPerfOverlay = v)),
                   ],
                 ),
                 const SizedBox(height: 20),

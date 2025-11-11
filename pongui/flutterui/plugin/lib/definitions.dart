@@ -79,8 +79,6 @@ class InitClient {
   final String msgsRoot;
   @JsonKey(name: 'debug_level')
   final String debugLevel;
-  @JsonKey(name: 'wants_log_ntfns')
-  final bool wantsLogNtfns;
 
   // rpc fields
   @JsonKey(name: 'rpc_websocket_url')
@@ -104,7 +102,6 @@ class InitClient {
     this.logFile,
     this.msgsRoot,
     this.debugLevel,
-    this.wantsLogNtfns,
     this.rpcWebsockeURL,
     this.rpcCertPath,
     this.rpcClientCertpath,
@@ -463,7 +460,7 @@ mixin NtfStreams {
   // Small jitter buffer: decode as fast as possible, present at steady cadence.
 
   // Track last emit time (for stall warnings only; no gating)
-  final int _lastEmitMicros = 0;
+  int _lastEmitMicros = 0;
 
   // Perf logging (no behavior change)
   Timer? _perfTimer;
@@ -485,10 +482,13 @@ mixin NtfStreams {
     // Start periodic perf log the first time we receive anything.
     _perfTimer ??= Timer.periodic(const Duration(seconds: 1), (_) {
       final nowUs = DateTime.now().microsecondsSinceEpoch;
-      final sinceLastUs = nowUs - _lastEmitMicros;
-      final sinceLastMs = sinceLastUs > 0 ? (sinceLastUs ~/ 1000) : 0;
-      debugPrint(
-          '[ui] frames in=$_framesIn out=$_framesDecoded decode=${_lastDecodeMs}ms max=${_maxDecodeMs}ms');
+      // Calculate time since last emit, or 0 if no frames emitted yet
+      final sinceLastMs =
+          _lastEmitMicros > 0 ? ((nowUs - _lastEmitMicros) ~/ 1000) : 0;
+      
+      // debugPrint(
+      //     '[ui] frames in=$_framesIn out=$_framesDecoded decode=${_lastDecodeMs}ms max=${_maxDecodeMs}ms');
+      
       final inAvg = _inDtCount > 0 ? (_inDtSum ~/ _inDtCount) : 0;
       final outAvg = _outDtCount > 0 ? (_outDtSum ~/ _outDtCount) : 0;
       // Push stats to UI subscribers.
@@ -532,19 +532,22 @@ mixin NtfStreams {
         break;
 
       case NTUINotification:
-        try {
-          if (payload is String && payload.isNotEmpty) {
-            final decoded = jsonDecode(payload);
-            final n = UINotification.fromJson(
-              Map<String, dynamic>.from(decoded),
-            );
-            if (!_uiNotificationsCtrl.isClosed) {
-              _uiNotificationsCtrl.add(n);
+        // Move JSON decode and stream add to microtask to avoid blocking the hot path
+        if (payload is String && payload.isNotEmpty) {
+          scheduleMicrotask(() {
+            try {
+              final decoded = jsonDecode(payload);
+              final n = UINotification.fromJson(
+                Map<String, dynamic>.from(decoded),
+              );
+              if (!_uiNotificationsCtrl.isClosed) {
+                _uiNotificationsCtrl.add(n);
+              }
+            } catch (e, st) {
+              debugPrint(
+                  'Failed to decode NTUINotification: $e\n$st\nPayload: $payload');
             }
-          }
-        } catch (e, st) {
-          debugPrint(
-              'Failed to decode NTUINotification: $e\n$st\nPayload: $payload');
+          });
         }
         break;
 
@@ -586,6 +589,7 @@ mixin NtfStreams {
       return;
     }
     _decoding = true;
+
     final raw = _frameQueue.removeAt(0);
 
     try {
@@ -598,8 +602,9 @@ mixin NtfStreams {
       _lastDecodeMs = _decodeSw.elapsedMilliseconds;
       if (_lastDecodeMs > _maxDecodeMs) _maxDecodeMs = _lastDecodeMs;
 
-      // Emit immediately: UI rendering cadence is driven elsewhere (no present queue).
       if (!_gameUpdatesCtrl.isClosed) _gameUpdatesCtrl.add(gu);
+      final emitMicros = DateTime.now().microsecondsSinceEpoch;
+      _lastEmitMicros = emitMicros;
       _framesDecoded++;
     } catch (e, st) {
       debugPrint('Failed to decode game frame: $e\n$st');
@@ -842,6 +847,24 @@ abstract class PluginPlatform {
     await asyncCall(CTDeleteHistoricEscrow, {'escrow_id': escrowId});
   }
 
+  // --- Config management via golib ---
+  Future<ClientConfig> getClientConfig() async {
+    final res = await asyncCall(CTGetClientConfig, "");
+    return ClientConfig.fromJson(Map<String, dynamic>.from(res as Map));
+  }
+
+  Future<void> saveClientConfig(ClientConfig cfg) async {
+    final payload = {
+      'server_addr': cfg.serverAddr,
+      'grpc_cert_path': cfg.grpcCertPath,
+      'network': cfg.network,
+      'debug': cfg.debugLevel,
+      'show_perfoverlay': cfg.showPerfOverlay,
+      'data_dir': cfg.dataDir,
+    };
+    await asyncCall(CTSaveClientConfig, payload);
+  }
+
   // Player action methods (migrated from Dart gRPC)
   Future<void> sendInput(String input) async {
     await asyncCall(CTSendInput, {'input': input});
@@ -886,6 +909,10 @@ const int CTListHistoricEscrows = 0x16;
 const int CTCacheEscrowInfo = 0x17;
 const int CTUpdateHistoricEscrow = 0x18;
 const int CTDeleteHistoricEscrow = 0x19;
+
+// Config management
+const int CTGetClientConfig = 0x1a;
+const int CTSaveClientConfig = 0x1b;
 
 const int CTCreateLockFile = 0x60;
 const int CTCloseLockFile = 0x61;
@@ -934,4 +961,34 @@ class PerfStats {
     required this.outDtAvg,
     required this.outDtMax,
   });
+}
+
+// Lightweight config DTO managed by golib
+class ClientConfig {
+  final String serverAddr;
+  final String grpcCertPath;
+  final String network;
+  final String debugLevel;
+  final bool showPerfOverlay;
+  final String dataDir;
+
+  ClientConfig({
+    required this.serverAddr,
+    required this.grpcCertPath,
+    required this.network,
+    required this.debugLevel,
+    required this.showPerfOverlay,
+    required this.dataDir,
+  });
+
+  factory ClientConfig.fromJson(Map<String, dynamic> json) {
+    return ClientConfig(
+      serverAddr: (json['server_addr'] ?? '').toString(),
+      grpcCertPath: (json['grpc_cert_path'] ?? '').toString(),
+      network: (json['network'] ?? '').toString(),
+      debugLevel: (json['debug'] ?? '').toString(),
+      showPerfOverlay: json['show_perfoverlay'] == true,
+      dataDir: (json['data_dir'] ?? '').toString(),
+    );
+  }
 }

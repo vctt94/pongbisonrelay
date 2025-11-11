@@ -79,6 +79,9 @@ class PongModel extends ChangeNotifier {
   // session key safely after game completion.
   String lastMatchId = '';
 
+  // Pre-login minimal client init state (used for refunds before auth)
+  bool _preloginInitialized = false;
+
   void setEscrowId(String id) {
     escrowId = id;
     notifyListeners();
@@ -173,30 +176,32 @@ class PongModel extends ChangeNotifier {
   PongModel(this.cfg, this.notificationModel);
 
   // Initialize golib PongClient after wallet authentication (requires clientId)
-  Future<void> _initPongClient(Config cfg) async {
+  // Public helper to ensure prelogin initialization from UI code.
+  Future<void> ensurePreloginInitialized() async {
+    await _initPongClient(cfg, prelogin: true);
+  }
+
+  // Initialize golib PongClient. When prelogin=true and clientId is empty,
+  // it creates a minimal local-only client and returns early.
+  Future<void> _initPongClient(Config cfg, {bool prelogin = false}) async {
     try {
-      if (clientId.isEmpty) {
-        throw Exception(
-            "clientId is required - wallet authentication must be completed first");
-      }
-      if (isConnected) {
-        return; // Already initialized
-      }
+      // Early exits
+      if (isConnected && !prelogin) return;
+      if (prelogin && (_preloginInitialized || isConnected)) return;
 
       final appDataDir = await defaultAppDataDir();
       final logFilePath = path.join(appDataDir, "logs", "pongui.log");
 
-      // Let golib load the authoritative BR config from disk; pass UI config as overrides only.
-      // Pass wallet-authenticated clientId as required parameter.
+      // Build args; if clientId is empty and prelogin=true, pass empty id to trigger minimal client.
+      final initClientId = clientId.isNotEmpty ? clientId : "";
       InitClient initArgs = InitClient(
-          clientId, // Wallet-authenticated clientID (required)
+          initClientId,
           cfg.serverAddr,
           cfg.grpcCertPath,
           appDataDir,
           logFilePath,
           "",
           cfg.debugLevel,
-          cfg.wantsLogNtfns,
           cfg.rpcWebsocketURL,
           cfg.rpcCertPath,
           cfg.rpcClientCertPath,
@@ -207,11 +212,14 @@ class PongModel extends ChangeNotifier {
       developer.log("InitClient args: $initArgs");
 
       var localInfo = await Golib.initClient(initArgs);
-      // Use the ID returned by golib (authoritative). If a pre-login client
-      // was already initialized, this may differ; prefer backend-provided ID.
-      if ((localInfo.id).isNotEmpty) {
-        clientId = localInfo.id;
+      // If this was a prelogin init (no clientId), record success and return early.
+      if (clientId.isEmpty) {
+        _preloginInitialized = true;
+        return;
       }
+
+      // Full init: use IDs returned by golib as authoritative.
+      if ((localInfo.id).isNotEmpty) clientId = localInfo.id;
       nick = localInfo.nick;
       serverIsF2P = localInfo.serverIsF2P;
       serverVersion = localInfo.serverVersion;
@@ -280,6 +288,11 @@ class PongModel extends ChangeNotifier {
       errorMessage = "${exception.toString()}";
       isConnected = false;
       notifyListeners();
+      // For prelogin callers (refunds screen), propagate the error so the UI
+      // can present the real cause instead of falling through to "unknown handle".
+      if (prelogin) {
+        rethrow;
+      }
     }
   }
 
@@ -824,11 +837,18 @@ class PongModel extends ChangeNotifier {
     notifyListeners();
 
     try {
+      // Ensure the minimal client is initialized (prelogin mode is enough).
+      await ensurePreloginInitialized();
       developer.log(
         'loadHistoricEscrows: start',
         name: 'refunds',
       );
-      final allEscrows = await Golib.listHistoricEscrows();
+      List<Map<String, dynamic>> allEscrows = [];
+      try {
+        allEscrows = await Golib.listHistoricEscrows();
+      } catch (e) {
+        rethrow;
+      }
 
       allEscrows.sort((a, b) {
         final aTime =

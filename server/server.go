@@ -15,6 +15,7 @@ import (
 
 	"github.com/companyzero/bisonrelay/zkidentity"
 	"github.com/decred/dcrd/chaincfg/chainhash"
+	"github.com/decred/dcrd/chaincfg/v3"
 	"github.com/decred/dcrd/dcrutil/v4"
 	"github.com/decred/dcrd/rpcclient/v8"
 	"github.com/decred/dcrd/wire"
@@ -54,6 +55,10 @@ type ServerConfig struct {
 	// derive per-branch adaptor secrets bound to match/input/sighash.
 	// For POC, if empty, a built-in default will be used.
 	AdaptorSecret string
+
+	// Network specifies the Decred network to use: "mainnet" or "testnet"
+	// Defaults to "testnet" if empty
+	Network string
 }
 
 // PreSignCtx stores all artifacts needed to finalize using the exact same
@@ -147,6 +152,9 @@ type Server struct {
 	// Secret seed for adaptor gamma derivation.
 	adaptorSecret string
 
+	// Chain parameters for address generation
+	params *chaincfg.Params
+
 	// In-memory auth/session state and HTTP auth server
 	auth authState
 }
@@ -189,6 +197,14 @@ func NewServer(id *zkidentity.ShortID, cfg ServerConfig) (*Server, error) {
 		},
 		adaptorSecret: cfg.AdaptorSecret,
 	}
+
+	// Initialize chain parameters based on network config
+	params, err := initChainParams(cfg.Network)
+	if err != nil {
+		return nil, err
+	}
+	s.params = params
+	s.log.Infof("Using %s chain parameters", s.params.Name)
 
 	// Log F2P status as early as possible.
 	if cfg.IsF2P {

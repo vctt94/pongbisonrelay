@@ -169,6 +169,7 @@ func realMain() error {
 		DcrdRPCUser:     cfg.DcrdUser,
 		DcrdRPCPass:     cfg.DcrdPass,
 		AdaptorSecret:   cfg.AdaptorSecret,
+		Network:         cfg.Network,
 	})
 	if err != nil {
 		return fmt.Errorf("failed to create server: %w", err)

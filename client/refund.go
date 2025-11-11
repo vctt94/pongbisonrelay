@@ -86,33 +86,20 @@ func signSchnorrV0(privHex, mHex string) ([]byte, error) {
 //   - destAddr:     Decred address to receive refund
 //   - feeAtoms:     fee to subtract in atoms (e.g., 20000)
 //   - csvBlocks:    relative timelock blocks to satisfy (sequence >= csvBlocks)
+//   - params:       chain parameters (must not be nil)
 //
 // It returns the serialized transaction hex. The caller is responsible for
 // broadcasting it once CSV has matured on-chain.
-func BuildCSVRefundTx(privHex, utxoTxid string, utxoVout uint32, utxoValue uint64, redeemHex, destAddr string, feeAtoms uint64, csvBlocks uint32) (string, error) {
-	// Decode destination address across known networks and get payment script.
-	paramsList := []*chaincfg.Params{
-		chaincfg.TestNet3Params(),
-		chaincfg.MainNetParams(),
-		chaincfg.SimNetParams(),
-		chaincfg.RegNetParams(),
+func BuildCSVRefundTx(privHex, utxoTxid string, utxoVout uint32, utxoValue uint64, redeemHex, destAddr string, feeAtoms uint64, csvBlocks uint32, params *chaincfg.Params) (string, error) {
+	if params == nil {
+		return "", fmt.Errorf("params must not be nil")
 	}
-	var pkScript []byte
-	var lastErr error
-	for _, p := range paramsList {
-		addr, err := stdaddr.DecodeAddress(strings.TrimSpace(destAddr), p)
-		if err != nil {
-			lastErr = err
-			continue
-		}
-		_, pk := addr.PaymentScript()
-		pkScript = pk
-		lastErr = nil
-		break
+	// Decode destination address using provided params.
+	addr, err := stdaddr.DecodeAddress(strings.TrimSpace(destAddr), params)
+	if err != nil {
+		return "", fmt.Errorf("bad dest address: %v", err)
 	}
-	if pkScript == nil {
-		return "", fmt.Errorf("bad dest address: %v", lastErr)
-	}
+	_, pkScript := addr.PaymentScript()
 
 	if feeAtoms == 0 {
 		feeAtoms = 20000

@@ -21,12 +21,12 @@ import (
 	"github.com/companyzero/bisonrelay/zkidentity"
 	"github.com/decred/slog"
 	"github.com/vctt94/bisonbotkit/logging"
+	"github.com/vctt94/bisonbotkit/utils"
 	"github.com/vctt94/pongbisonrelay"
 	"github.com/vctt94/pongbisonrelay/client"
 	"github.com/vctt94/pongbisonrelay/pongrpc/grpc/pong"
 	"golang.org/x/sync/errgroup"
 	"google.golang.org/grpc"
-	"google.golang.org/grpc/credentials"
 )
 
 const (
@@ -117,71 +117,29 @@ func handleInitClient(handle uint32, args initClient) (*localInfo, error) {
 	}
 
 	// Ensure the data directory exists first
+	if strings.TrimSpace(args.DataDir) == "" {
+		args.DataDir = utils.AppDataDir(appName, false)
+	}
 	if err := os.MkdirAll(args.DataDir, 0755); err != nil {
 		return nil, fmt.Errorf("failed to create data directory %s: %v", args.DataDir, err)
 	}
 
 	// Ensure the logs subdirectory exists
-	logsDir := filepath.Dir(args.LogFile)
+	logFile := strings.TrimSpace(args.LogFile)
+	if logFile == "" {
+		logFile = filepath.Join(args.DataDir, "logs", appName+".log")
+	}
+	logsDir := filepath.Dir(logFile)
+	if !strings.HasPrefix(logsDir, args.DataDir) {
+		logFile = filepath.Join(args.DataDir, "logs", appName+".log")
+		logsDir = filepath.Dir(logFile)
+	}
 	if err := os.MkdirAll(logsDir, 0755); err != nil {
 		return nil, fmt.Errorf("failed to create logs directory %s: %v", logsDir, err)
 	}
 
-	// Load configuration using botclient config
-	// cfg, err := config.LoadClientConfig(args.DataDir, "pongui.conf")
-	// if err != nil {
-	// 	return nil, fmt.Errorf("failed to load config: %v", err)
-	// }
-
-	// // Apply overrides from args when available
-	// if args.RPCWebsocketURL != "" {
-	// 	cfg.RPCURL = args.RPCWebsocketURL
-	// }
-	// if args.RPCCertPath != "" {
-	// 	cfg.BRClientCert = args.RPCCertPath
-	// }
-	// if args.RPCCLientCertPath != "" {
-	// 	cfg.BRClientRPCCert = args.RPCCLientCertPath
-	// }
-	// if args.RPCCLientKeyPath != "" {
-	// 	cfg.BRClientRPCKey = args.RPCCLientKeyPath
-	// }
-	// if args.RPCUser != "" {
-	// 	cfg.RPCUser = args.RPCUser
-	// }
-	// if args.RPCPass != "" {
-	// 	cfg.RPCPass = args.RPCPass
-	// }
-	// if args.DebugLevel != "" {
-	// 	cfg.Debug = args.DebugLevel
-	// }
-
-	// // Validate required BR RPC fields.
-	// var missing []string
-	// if strings.TrimSpace(cfg.RPCURL) == "" {
-	// 	missing = append(missing, "brrpcurl")
-	// }
-	// if strings.TrimSpace(cfg.BRClientCert) == "" {
-	// 	missing = append(missing, "brclientcert")
-	// }
-	// if strings.TrimSpace(cfg.BRClientRPCCert) == "" {
-	// 	missing = append(missing, "brclientrpccert")
-	// }
-	// if strings.TrimSpace(cfg.BRClientRPCKey) == "" {
-	// 	missing = append(missing, "brclientrpckey")
-	// }
-	// if strings.TrimSpace(cfg.RPCUser) == "" {
-	// 	missing = append(missing, "rpcuser")
-	// }
-	// if strings.TrimSpace(cfg.RPCPass) == "" {
-	// 	missing = append(missing, "rpcpass")
-	// }
-	// if len(missing) > 0 {
-	// 	return nil, fmt.Errorf("missing required fields in client config: %s", strings.Join(missing, ", "))
-	// }
-
 	logBackend, err := logging.NewLogBackend(logging.LogConfig{
-		LogFile:        filepath.Join(args.DataDir, "logs", "pongui.log"),
+		LogFile:        logFile,
 		DebugLevel:     args.DebugLevel,
 		MaxLogFiles:    10,
 		MaxBufferLines: 1000,
@@ -190,19 +148,6 @@ func handleInitClient(handle uint32, args initClient) (*localInfo, error) {
 		return nil, err
 	}
 	log := logBackend.Logger("pongui")
-
-	ctx, cancel := context.WithCancel(context.Background())
-	g, _ := errgroup.WithContext(ctx)
-
-	// Start a BR RPC client
-	// c, err := botclient.NewClient(cfg)
-	// if err != nil {
-	// 	cancel()
-	// 	return nil, fmt.Errorf("failed to create bot client: %v", err)
-	// }
-
-	// Start the bot client
-	// g.Go(func() error { return c.RPCClient.Run(gctx) })
 
 	// If no wallet-authenticated clientID is provided, create a minimal client
 	// context that can serve local/non-auth features (e.g., historic escrows,
@@ -219,12 +164,15 @@ func handleInitClient(handle uint32, args initClient) (*localInfo, error) {
 	}
 
 	// Build consolidated AppConfig for the pong client (without BR auth)
-	appCfg := &client.AppConfig{
-		DataDir:      args.DataDir,
-		BR:           nil,
-		ServerAddr:   args.ServerAddr,
-		GRPCCertPath: args.GRPCCertPath,
+	// Load network from config file (defaults to testnet if not set)
+	appCfg, err := client.LoadAppConfig(args.DataDir, appName)
+	if err != nil {
+		return nil, fmt.Errorf("failed to load config: %v", err)
 	}
+
+	ctx, cancel := context.WithCancel(context.Background())
+	g, _ := errgroup.WithContext(ctx)
+
 	// Set up NotificationManager to emit UI notifications and forward to Flutter.
 	nmgr := client.NewNotificationManager()
 	// Enable common UI notifications and shorten emit interval for responsiveness.
@@ -236,29 +184,14 @@ func handleInitClient(handle uint32, args initClient) (*localInfo, error) {
 	})
 
 	var pc *client.PongClient
-	if haveAuth {
-		// Full client with connectivity.
-		var err error
-		pc, err = client.NewPongClient(args.ClientID, &client.PongClientCfg{
-			AppCfg:        appCfg,
-			Log:           logBackend.Logger("client"),
-			Notifications: nmgr,
-		})
-		if err != nil {
-			cancel()
-			return nil, err
-		}
-		li.ServerVersion = pc.ServerVersion()
-		li.ServerIsF2P = pc.ServerIsF2P()
-	} else {
-		// Minimal client: no network connections. Only local features.
-		var err error
-		pc, err = client.NewPongClientLocalOnly(appCfg, logBackend.Logger("client"), nmgr)
-		if err != nil {
-			cancel()
-			return nil, err
-		}
+	// Full client with connectivity.
+	pc, err = client.NewPongClient(args.ClientID, appCfg)
+	if err != nil {
+		cancel()
+		return nil, err
 	}
+	li.ServerVersion = pc.ServerVersion()
+	li.ServerIsF2P = pc.ServerIsF2P()
 
 	cctx := &clientCtx{
 		ID:     li,
@@ -463,8 +396,6 @@ func handleInitClient(handle uint32, args initClient) (*localInfo, error) {
 					notify(NTGameFrame, gub.Data, nil)
 					fwd++
 					if time.Since(lastLog) >= time.Second {
-						drops := GetAndResetNTGameFrameDrops()
-						log.Infof("NTGameFrame out=%d drop=%d", fwd, drops)
 						fwd = 0
 						lastLog = time.Now()
 					}
@@ -626,8 +557,11 @@ func handleClientCmd(cc *clientCtx, cmd *cmd) (interface{}, error) {
 		if strings.HasPrefix(payout, "tpub") || strings.HasPrefix(payout, "dpub") {
 			return nil, fmt.Errorf("xpub not allowed - please login with wallet to use authenticated P2PK address")
 		}
-		// Accept only 33/65B hex pubkey or Decred P2PK address from wallet auth
-		payoutPK33, err := pongbisonrelay.PayoutPubkeyFromConfHex(req.Payout)
+		params, err := cc.c.GetChainParams()
+		if err != nil {
+			return nil, fmt.Errorf("failed to get chain params: %v", err)
+		}
+		payoutPK33, err := pongbisonrelay.PayoutPubkeyFromConfHex(req.Payout, params)
 		if err != nil {
 			return nil, fmt.Errorf("payout key parse failed (expected P2PK address from wallet login): %v", err)
 		}
@@ -950,6 +884,89 @@ func handleClientCmd(cc *clientCtx, cmd *cmd) (interface{}, error) {
 			return nil, err
 		}
 		return map[string]string{"status": "ok"}, nil
+
+	case CTRefundEscrow:
+		var req refundEscrowReq
+		if err := json.Unmarshal(cmd.Payload, &req); err != nil {
+			return nil, fmt.Errorf("bad refund escrow payload: %v", err)
+		}
+
+		// Get escrow details
+		details, err := cc.c.GetEscrowDetails(req.EscrowID)
+		if err != nil {
+			return &refundEscrowRes{
+				CanRefund: false,
+				Reason:    fmt.Sprintf("failed to get escrow details: %v", err),
+			}, nil
+		}
+
+		// Get settlement private key for this escrow
+		privHex, err := cc.c.GetSettlementPrivKeyForEscrow(req.EscrowID)
+		if err != nil {
+			return &refundEscrowRes{
+				CanRefund: false,
+				Reason:    fmt.Sprintf("failed to get settlement private key: %v", err),
+			}, nil
+		}
+
+		// Get chain parameters
+		params, err := cc.c.GetChainParams()
+		if err != nil {
+			return &refundEscrowRes{
+				CanRefund: false,
+				Reason:    fmt.Sprintf("failed to get chain params: %v", err),
+			}, nil
+		}
+		if params == nil {
+			return &refundEscrowRes{
+				CanRefund: false,
+				Reason:    "chain params is nil",
+			}, nil
+		}
+		// Log the network being used for debugging
+		cc.log.Infof("RefundEscrow: using params.Name=%s for address=%s", params.Name, req.DestAddr)
+
+		// Use CSV blocks from request if provided, otherwise use stored value
+		csvBlocks := req.CSVBlocks
+		if csvBlocks == 0 {
+			csvBlocks = details.CSVBlocks
+		}
+
+		// Use fee from request if provided, otherwise default to 20000
+		feeAtoms := req.FeeAtoms
+		if feeAtoms == 0 {
+			feeAtoms = 20000
+		}
+
+		// Build the refund transaction
+		refundTxHex, err := client.BuildCSVRefundTx(
+			privHex,
+			details.FundingTxHash,
+			details.FundingVout,
+			details.FundedAmount,
+			details.RedeemScriptHex,
+			req.DestAddr,
+			feeAtoms,
+			csvBlocks,
+			params,
+		)
+		if err != nil {
+			return &refundEscrowRes{
+				CanRefund: false,
+				Reason:    fmt.Sprintf("failed to build refund transaction: %v", err),
+			}, nil
+		}
+
+		// Return success response
+		return &refundEscrowRes{
+			RefundTxHex: refundTxHex,
+			UTXOTxid:    details.FundingTxHash,
+			UTXOVout:    details.FundingVout,
+			UTXOValue:   details.FundedAmount,
+			RedeemHex:   details.RedeemScriptHex,
+			CSVBlocks:   csvBlocks,
+			CanRefund:   true,
+		}, nil
 	}
 	return nil, nil
 }
@@ -992,19 +1009,37 @@ func handleCloseLockFile(rootDir string) error {
 
 // --- Wallet-auth handlers (no running client required) ---
 
-func handleRequestNonce(args requestNonceArgs) (interface{}, error) {
-	if strings.TrimSpace(args.ServerAddr) == "" {
+// handleRequestNonceForHandle prefers the running client's server config for the given handle.
+func handleRequestNonce(handle uint32, args requestNonceArgs) (interface{}, error) {
+	// Prefer the active client's server address and cert path if a client exists.
+	cmtx.Lock()
+	var cctx *clientCtx
+	if cs != nil {
+		cctx = cs[handle]
+	}
+	cmtx.Unlock()
+
+	serverAddr := strings.TrimSpace(args.ServerAddr)
+	grpcCertPath := strings.TrimSpace(args.GRPCCertPath)
+	if cctx != nil && cctx.c != nil {
+		if sa := strings.TrimSpace(cctx.c.ServerAddr()); sa != "" {
+			serverAddr = sa
+		}
+		if cp := strings.TrimSpace(cctx.c.GRPCCertPath()); cp != "" {
+			grpcCertPath = cp
+		}
+	}
+	if serverAddr == "" {
 		return nil, fmt.Errorf("missing server_addr")
 	}
-	if strings.TrimSpace(args.GRPCCertPath) == "" {
-		return nil, fmt.Errorf("missing grpc_cert_path")
-	}
 
-	creds, err := credentials.NewClientTLSFromFile(args.GRPCCertPath, "")
+	// Build TLS creds using consolidated cert path.
+	pc := &client.PongConf{GRPCCertPath: grpcCertPath}
+	creds, err := client.LoadTLSCreds(pc)
 	if err != nil {
-		return nil, fmt.Errorf("load TLS cert: %w", err)
+		return nil, fmt.Errorf("load TLS creds: %w", err)
 	}
-	conn, err := grpc.NewClient(args.ServerAddr, grpc.WithTransportCredentials(creds))
+	conn, err := grpc.NewClient(serverAddr, grpc.WithTransportCredentials(creds))
 	if err != nil {
 		return nil, fmt.Errorf("dial server: %w", err)
 	}
@@ -1025,19 +1060,66 @@ func handleRequestNonce(args requestNonceArgs) (interface{}, error) {
 	}, nil
 }
 
-func handleVerifyLogin(args verifyLoginArgs) (interface{}, error) {
-	if strings.TrimSpace(args.ServerAddr) == "" || strings.TrimSpace(args.GRPCCertPath) == "" {
+// Handle GetClientConfig using running client's app config if available.
+func handleGetClientConfigForHandle(handle uint32) (interface{}, error) {
+	cmtx.Lock()
+	var cctx *clientCtx
+	if cs != nil {
+		cctx = cs[handle]
+	}
+	cmtx.Unlock()
+	if cctx != nil && cctx.c != nil {
+		pc := cctx.c.AppConfig()
+		if pc != nil {
+			return map[string]any{
+				"server_addr":      pc.ServerAddr,
+				"grpc_cert_path":   pc.GRPCCertPath,
+				"network":          pc.Network,
+				"debug":            pc.Debug,
+				"show_perfoverlay": pc.ShowPerfOverlay,
+				"data_dir":         pc.DataDir,
+			}, nil
+		}
+	}
+	// Fallback to default behavior.
+	return handleGetClientConfig()
+}
+
+// handleVerifyLoginForHandle uses the running client's server config when available
+// so VerifyLogin is performed against the same server used for gameplay and escrow.
+func handleVerifyLogin(handle uint32, args verifyLoginArgs) (interface{}, error) {
+	// Prefer the active client's server address and cert path if a client exists.
+	cmtx.Lock()
+	var cctx *clientCtx
+	if cs != nil {
+		cctx = cs[handle]
+	}
+	cmtx.Unlock()
+
+	serverAddr := strings.TrimSpace(args.ServerAddr)
+	grpcCertPath := strings.TrimSpace(args.GRPCCertPath)
+	if cctx != nil && cctx.c != nil {
+		if sa := strings.TrimSpace(cctx.c.ServerAddr()); sa != "" {
+			serverAddr = sa
+		}
+		if cp := strings.TrimSpace(cctx.c.GRPCCertPath()); cp != "" {
+			grpcCertPath = cp
+		}
+	}
+	if serverAddr == "" {
 		return nil, fmt.Errorf("missing server or cert path")
 	}
 	if strings.TrimSpace(args.Address) == "" || strings.TrimSpace(args.Nonce) == "" || strings.TrimSpace(args.Signature) == "" {
 		return nil, fmt.Errorf("missing address, nonce or signature")
 	}
 
-	creds, err := credentials.NewClientTLSFromFile(args.GRPCCertPath, "")
+	// Build TLS creds using consolidated cert path.
+	pc := &client.PongConf{GRPCCertPath: grpcCertPath}
+	creds, err := client.LoadTLSCreds(pc)
 	if err != nil {
-		return nil, fmt.Errorf("load TLS cert: %w", err)
+		return nil, fmt.Errorf("load TLS creds: %w", err)
 	}
-	conn, err := grpc.NewClient(args.ServerAddr, grpc.WithTransportCredentials(creds))
+	conn, err := grpc.NewClient(serverAddr, grpc.WithTransportCredentials(creds))
 	if err != nil {
 		return nil, fmt.Errorf("dial server: %w", err)
 	}
@@ -1062,4 +1144,103 @@ func handleVerifyLogin(args verifyLoginArgs) (interface{}, error) {
 		"comp_pubkey": res.GetCompPubkey(),
 		"p2pk_addr":   res.GetP2PkAddr(),
 	}, nil
+}
+
+// --- Config management (no running client required) ---
+
+type saveClientConfigArgs struct {
+	ServerAddr      string `json:"server_addr"`
+	GRPCCertPath    string `json:"grpc_cert_path"`
+	Network         string `json:"network"`
+	Debug           string `json:"debug"`
+	ShowPerfOverlay bool   `json:"show_perfoverlay"`
+	DataDir         string `json:"data_dir"`
+}
+
+func handleGetClientConfig() (interface{}, error) {
+	// Load current config from default app data dir.
+	appCfg, err := client.LoadAppConfig("", appName)
+	if err != nil {
+		// On first run, config might not exist yet. Return default values
+		// so the UI can show the config page without errors.
+		defaultDataDir := utils.AppDataDir(appName, false)
+		return map[string]any{
+			"server_addr":      "",
+			"grpc_cert_path":   "",
+			"network":          "mainnet",
+			"debug":            "info",
+			"show_perfoverlay": false,
+			"data_dir":         defaultDataDir,
+		}, nil
+	}
+	pc := appCfg.PongConf
+	return map[string]any{
+		"server_addr":      pc.ServerAddr,
+		"grpc_cert_path":   pc.GRPCCertPath,
+		"network":          pc.Network,
+		"debug":            pc.Debug,
+		"show_perfoverlay": pc.ShowPerfOverlay,
+		"data_dir":         pc.DataDir,
+	}, nil
+}
+
+func handleSaveClientConfig(args saveClientConfigArgs) (interface{}, error) {
+	// Load existing to get datadir and defaults.
+	appCfg, err := client.LoadAppConfig("", appName)
+	if err != nil {
+		return nil, fmt.Errorf("load config: %w", err)
+	}
+	pc := appCfg.PongConf
+
+	// If a sandboxed data dir was provided by the UI, honor it.
+	if strings.TrimSpace(args.DataDir) != "" {
+		pc.DataDir = strings.TrimSpace(args.DataDir)
+	}
+
+	// Apply provided fields (empty strings are ignored for strings).
+	if strings.TrimSpace(args.ServerAddr) != "" {
+		pc.ServerAddr = strings.TrimSpace(args.ServerAddr)
+	}
+	if strings.TrimSpace(args.GRPCCertPath) != "" {
+		pc.GRPCCertPath = strings.TrimSpace(args.GRPCCertPath)
+	}
+	if strings.TrimSpace(args.Network) != "" {
+		pc.Network = strings.TrimSpace(args.Network)
+	}
+	if strings.TrimSpace(args.Debug) != "" {
+		pc.Debug = strings.TrimSpace(args.Debug)
+	}
+	pc.ShowPerfOverlay = args.ShowPerfOverlay
+
+	// Ensure logs dir exists if needed.
+	logsDir := filepath.Dir(filepath.Join(pc.DataDir, "logs", "placeholder.log"))
+	_ = os.MkdirAll(logsDir, 0700)
+
+	confPath := filepath.Join(pc.DataDir, appName+".conf")
+	// Persist in a simple key=value format that matches parser expectations.
+	configData := fmt.Sprintf(
+		`datadir=%s
+serveraddress=%s
+grpccertpath=%s
+network=%s
+logfile=%s
+debug=%s
+maxlogfiles=%d
+maxbufferlines=%d
+showperfoverlay=%t
+`,
+		pc.DataDir,
+		pc.ServerAddr,
+		pc.GRPCCertPath,
+		pc.Network,
+		filepath.Join(pc.DataDir, "logs", "pongclient.log"),
+		pc.Debug,
+		5,
+		1000,
+		pc.ShowPerfOverlay,
+	)
+	if err := os.WriteFile(confPath, []byte(configData), 0600); err != nil {
+		return nil, fmt.Errorf("write config: %w", err)
+	}
+	return map[string]string{"status": "ok"}, nil
 }

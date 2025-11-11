@@ -27,6 +27,9 @@ type PongBotConfig struct {
 
 	// Schnorr adaptor secret (32-byte hex string)
 	AdaptorSecret string
+
+	// Network specifies the Decred network: "mainnet" or "testnet" (defaults to "testnet")
+	Network string
 }
 
 // Load config function
@@ -57,6 +60,7 @@ func LoadPongBotConfig(dataDir, configFile string) (*PongBotConfig, error) {
 		DcrdUser:      baseConfig.ExtraConfig["dcrduser"],
 		DcrdPass:      baseConfig.ExtraConfig["dcrdpass"],
 		AdaptorSecret: baseConfig.ExtraConfig["adaptorsecret"],
+		Network:       baseConfig.ExtraConfig["network"],
 	}
 
 	// Validate adaptor secret: must be present and 32 bytes of hex (64 chars)

@@ -3,6 +3,7 @@ import 'package:args/args.dart';
 import 'package:ini/ini.dart' as ini;
 import 'package:path_provider/path_provider.dart';
 import 'package:path/path.dart' as path;
+import 'package:golib_plugin/golib_plugin.dart';
 
 const APPNAME = "pongui";
 const BRUIGNAME = "bruig";
@@ -19,6 +20,7 @@ class Config {
   late final String rpcUser;
   late final String rpcPass;
   late final bool wantsLogNtfns;
+  late final bool showPerfOverlay;
   late final String dataDir;
 
   Config();
@@ -34,8 +36,21 @@ class Config {
     this.rpcUser = "",
     this.rpcPass = "",
     this.wantsLogNtfns = false,
+    this.showPerfOverlay = false,
     this.dataDir = "",
   });
+
+  // Load config from golib (single source of truth)
+  static Future<Config> loadFromGo() async {
+    final cc = await Golib.getClientConfig();
+    return Config.filled(
+      serverAddr: cc.serverAddr,
+      grpcCertPath: cc.grpcCertPath,
+      debugLevel: cc.debugLevel,
+      showPerfOverlay: cc.showPerfOverlay,
+      dataDir: cc.dataDir,
+    );
+  }
 
   // Save a new config from scratch
   Future<void> saveNewConfig(String filepath) async {
@@ -43,17 +58,11 @@ class Config {
     set(String section, String opt, String val) =>
         val != "" ? f.set(section, opt, val) : null;
 
-    set("default", "server", serverAddr);
+    set("default", "serveraddress", serverAddr);
     set("default", "grpccertpath", grpcCertPath);
-    set("clientrpc", "rpccertpath", rpcCertPath);
+    set("default", "showperfoverlay", showPerfOverlay ? "1" : "0");
+    
     set("log", "debug", debugLevel);
-    set("clientrpc", "rpcwebsocketurl", rpcWebsocketURL);
-    set("clientrpc", "rpcclientcertpath", rpcClientCertPath);
-    set("clientrpc", "rpcclientkeypath", rpcClientKeyPath);
-    set("clientrpc", "rpccertpath", rpcCertPath);
-    set("clientrpc", "rpcuser", rpcUser);
-    set("clientrpc", "rpcpass", rpcPass);
-    set("clientrpc", "wantsLogNtfns", wantsLogNtfns ? "1" : "0");
 
     // Write the config file
     await File(filepath).parent.create(recursive: true);
@@ -65,16 +74,10 @@ class Config {
     var f = ini.Config.fromStrings(File(filepath).readAsLinesSync());
 
     return Config.filled(
-      serverAddr: f.get("default", "server") ?? "localhost:443",
+      serverAddr: f.get("default", "serveraddress") ?? "localhost:443",
       grpcCertPath: f.get("default", "grpccertpath") ?? "",
-      rpcCertPath: f.get("clientrpc", "rpccertpath") ?? "",
-      rpcClientCertPath: f.get("clientrpc", "rpcclientcertpath") ?? "",
-      rpcClientKeyPath: f.get("clientrpc", "rpcclientkeypath") ?? "",
       debugLevel: f.get("log", "debug") ?? "info",
-      rpcUser: f.get("clientrpc", "rpcuser") ?? "",
-      rpcPass: f.get("clientrpc", "rpcpass") ?? "",
-      rpcWebsocketURL: f.get("clientrpc", "rpcwebsocketurl") ?? "",
-      wantsLogNtfns: f.get("clientrpc", "wantsLogNtfns") == "1",
+      showPerfOverlay: f.get("default", "showperfoverlay") == "true",
       dataDir: await defaultAppDataDir(),
     );
   }
@@ -91,12 +94,14 @@ Future<String> defaultAppDataDir() async {
       Platform.environment.containsKey("LOCALAPPDATA")) {
     return path.join(Platform.environment["LOCALAPPDATA"]!, APPNAME);
   } else if (Platform.isMacOS) {
-    final baseDir = (await getApplicationSupportDirectory()).parent.path;
+    // Use the platform-provided Application Support directory to remain within
+    // writable sandboxed locations. Avoid walking to parent to strip bundle id.
+    final baseDir = (await getApplicationSupportDirectory()).path;
     return path.join(baseDir, APPNAME);
   }
 
   // For other platforms, get the parent directory to avoid bundle identifier paths
-  final dir = (await getApplicationSupportDirectory()).parent;
+  final dir = await getApplicationSupportDirectory();
   return path.join(dir.path, APPNAME);
 }
 
@@ -111,7 +116,8 @@ Future<String> defaultAppDataBRUIGDir() async {
       Platform.environment.containsKey("LOCALAPPDATA")) {
     return path.join(Platform.environment["LOCALAPPDATA"]!, BRUIGNAME);
   } else if (Platform.isMacOS) {
-    final baseDir = (await getApplicationSupportDirectory()).parent.path;
+    // Stay within the app's writable Application Support directory.
+    final baseDir = (await getApplicationSupportDirectory()).path;
     return path.join(baseDir, BRUIGNAME);
   }
 
@@ -157,9 +163,8 @@ Future<Config> loadConfig(String filepath) async {
   }
 
   final serverAddr = pick([
-    f.get("default", "server"),
-    f.get("default", "serveraddr"),
-  ], "localhost:50051");
+    f.get("default", "serveraddress"),
+  ], "178.156.178.191:50051");
   final grpcCertPath = pick([
     f.get("default", "grpccertpath"),
     f.get("default", "grpcservercert"),
@@ -184,14 +189,12 @@ Future<Config> loadConfig(String filepath) async {
   var c = Config.filled(
       serverAddr: serverAddr,
       grpcCertPath: grpcCertPath,
-      debugLevel: f.get("log", "debuglevel") ?? "info",
+      debugLevel: f.get("log", "debug") ?? "info",
       rpcWebsocketURL: rpcWebsocket,
       rpcCertPath: rpccert,
       rpcClientCertPath: rpcclientcert,
       rpcClientKeyPath: rpcclientkey,
-      rpcUser: f.get("clientrpc", "rpcuser") ?? "",
-      rpcPass: f.get("clientrpc", "rpcpass") ?? "",
-      wantsLogNtfns: getBool("clientrpc", "wantsLogNtfns"),
+      showPerfOverlay: getBool("default", "showperfoverlay"),
       dataDir: await defaultAppDataDir());
 
   return c;

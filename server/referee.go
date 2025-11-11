@@ -13,7 +13,6 @@ import (
 
 	"github.com/companyzero/bisonrelay/zkidentity"
 	"github.com/decred/dcrd/chaincfg/chainhash"
-	"github.com/decred/dcrd/chaincfg/v3"
 	"github.com/decred/dcrd/crypto/blake256"
 	"github.com/decred/dcrd/dcrec/secp256k1/v4"
 	"github.com/decred/dcrd/txscript/v4"
@@ -177,9 +176,7 @@ func (s *Server) OpenEscrow(ctx context.Context, req *pong.OpenEscrowRequest) (*
 		return nil, status.Errorf(codes.Internal, "build redeem: %v", err)
 	}
 
-	params := chaincfg.TestNet3Params() // TODO: use server-configured params
-
-	pkScriptHex, addr, err := pkScriptAndAddrFromRedeem(redeem, params)
+	pkScriptHex, addr, err := pkScriptAndAddrFromRedeem(redeem, s.params)
 	if err != nil {
 		return nil, status.Errorf(codes.Internal, "derive address: %v", err)
 	}
@@ -459,9 +456,8 @@ func (s *Server) buildTwoInputDrafts(a *escrowSession, au *pong.EscrowUTXO, b *e
 		}
 		s.log.Debugf("buildTwoInputDrafts: using payoutPubkey for escrowID=%s ownerUID=%s payoutPubkeyLen=%d", payTo.escrowID, payTo.ownerUID.String(), len(payKey))
 		// Build P2PKH script from the login pubkey
-		params := chaincfg.TestNet3Params() // TODO: use server-configured params
 		h160 := stdaddr.Hash160(payKey)
-		addr, err := stdaddr.NewAddressPubKeyHashEcdsaSecp256k1V0(h160, params)
+		addr, err := stdaddr.NewAddressPubKeyHashEcdsaSecp256k1V0(h160, s.params)
 		if err != nil {
 			return "", nil, err
 		}

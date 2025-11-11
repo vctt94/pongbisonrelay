@@ -29,8 +29,8 @@ Future<void> runNewConfigApp(List<String> args) async {
         model: newConfig,
         onConfigSaved: () async {
           try {
-            // Load the updated configuration
-            Config cfg = await configFromArgs(args);
+            // Load the updated configuration from golib
+            Config cfg = await Config.loadFromGo();
             // Navigate back to the main app
             runMainApp(cfg);
           } catch (e) {
@@ -53,17 +53,15 @@ void main(List<String> args) async {
     developer.log("Platform: ${Golib.majorPlatform}/${Golib.minorPlatform}");
     Golib.platformVersion
         .then((value) => developer.log("Platform Version: $value"));
-    Config cfg = await configFromArgs(args);
+    // Load config from golib (single source of truth)
+    Config cfg = await Config.loadFromGo();
     runMainApp(cfg);
   } catch (exception) {
     print(exception);
     developer.log("Error: $exception");
-    if (exception == usageException) {
-      exit(0);
-    } else if (exception == newConfigNeededException) {
-      runNewConfigApp(args);
-      return;
-    }
+    // Fall back to config screen on error
+    runNewConfigApp(args);
+    return;
   }
 }
 
@@ -105,10 +103,12 @@ class MyApp extends StatelessWidget {
               child: NotificationBar(),
             ),
             // Small perf overlay to visualize frame spikes.
-            const Align(
-              alignment: Alignment.topLeft,
-              child: PerfOverlay(),
-            ),
+            if (cfg.showPerfOverlay)
+              Positioned(
+                top: MediaQuery.of(context).padding.top + kToolbarHeight,
+                right: 0,
+                child: const PerfOverlay(),
+              ),
           ],
         );
       },
@@ -140,7 +140,7 @@ class MyApp extends StatelessWidget {
                 model: NewConfigModel.fromConfig(cfg),
                 onConfigSaved: () async {
                   try {
-                    Config updatedCfg = await configFromArgs([]);
+                    Config updatedCfg = await Config.loadFromGo();
                     runMainApp(updatedCfg);
                   } catch (e) {
                     rethrow;
