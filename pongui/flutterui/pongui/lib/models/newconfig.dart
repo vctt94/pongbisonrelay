@@ -34,7 +34,8 @@ class NewConfigModel extends ChangeNotifier {
 
   // Load current defaults from golib and update fields.
   Future<void> loadFromGoDefaults() async {
-    final cc = await Golib.getClientConfig();
+    final dir = await appDatadir();
+    final cc = await Golib.getClientConfig(dataDir: dir);
     serverAddr = cc.serverAddr;
     grpcCertPath = cc.grpcCertPath;
     network = cc.network;

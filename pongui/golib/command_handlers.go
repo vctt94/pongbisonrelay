@@ -21,7 +21,6 @@ import (
 	"github.com/companyzero/bisonrelay/zkidentity"
 	"github.com/decred/slog"
 	"github.com/vctt94/bisonbotkit/logging"
-	"github.com/vctt94/bisonbotkit/utils"
 	"github.com/vctt94/pongbisonrelay"
 	"github.com/vctt94/pongbisonrelay/client"
 	"github.com/vctt94/pongbisonrelay/pongrpc/grpc/pong"
@@ -118,7 +117,7 @@ func handleInitClient(handle uint32, args initClient) (*localInfo, error) {
 
 	// Ensure the data directory exists first
 	if strings.TrimSpace(args.DataDir) == "" {
-		args.DataDir = utils.AppDataDir(appName, false)
+		return nil, fmt.Errorf("missing data_dir")
 	}
 	if err := os.MkdirAll(args.DataDir, 0755); err != nil {
 		return nil, fmt.Errorf("failed to create data directory %s: %v", args.DataDir, err)
@@ -189,6 +188,13 @@ func handleInitClient(handle uint32, args initClient) (*localInfo, error) {
 	if err != nil {
 		cancel()
 		return nil, err
+	}
+	// Ensure the client ID is set correctly (safeguard in case of any issues)
+	if haveAuth && strings.TrimSpace(args.ClientID) != "" {
+		if pc.ID() != strings.TrimSpace(args.ClientID) {
+			pc.SetID(strings.TrimSpace(args.ClientID))
+			log.Infof("Updated client ID to authenticated ID: %s", args.ClientID)
+		}
 	}
 	li.ServerVersion = pc.ServerVersion()
 	li.ServerIsF2P = pc.ServerIsF2P()
@@ -1061,7 +1067,7 @@ func handleRequestNonce(handle uint32, args requestNonceArgs) (interface{}, erro
 }
 
 // Handle GetClientConfig using running client's app config if available.
-func handleGetClientConfigForHandle(handle uint32) (interface{}, error) {
+func handleGetClientConfigForHandle(handle uint32, dataDir string) (interface{}, error) {
 	cmtx.Lock()
 	var cctx *clientCtx
 	if cs != nil {
@@ -1082,7 +1088,7 @@ func handleGetClientConfigForHandle(handle uint32) (interface{}, error) {
 		}
 	}
 	// Fallback to default behavior.
-	return handleGetClientConfig()
+	return handleGetClientConfig(dataDir)
 }
 
 // handleVerifyLoginForHandle uses the running client's server config when available
@@ -1157,13 +1163,24 @@ type saveClientConfigArgs struct {
 	DataDir         string `json:"data_dir"`
 }
 
-func handleGetClientConfig() (interface{}, error) {
-	// Load current config from default app data dir.
-	appCfg, err := client.LoadAppConfig("", appName)
+func handleGetClientConfig(dataDir string) (interface{}, error) {
+	// Load current config strictly from provided data dir (no fallback).
+	dir := strings.TrimSpace(dataDir)
+	if dir == "" {
+		return map[string]any{
+			"server_addr":      "",
+			"grpc_cert_path":   "",
+			"network":          "mainnet",
+			"debug":            "info",
+			"show_perfoverlay": false,
+			"data_dir":         "",
+		}, nil
+	}
+	appCfg, err := client.LoadAppConfig(dir, appName)
 	if err != nil {
 		// On first run, config might not exist yet. Return default values
 		// so the UI can show the config page without errors.
-		defaultDataDir := utils.AppDataDir(appName, false)
+		defaultDataDir := dir
 		return map[string]any{
 			"server_addr":      "",
 			"grpc_cert_path":   "",
@@ -1186,7 +1203,11 @@ func handleGetClientConfig() (interface{}, error) {
 
 func handleSaveClientConfig(args saveClientConfigArgs) (interface{}, error) {
 	// Load existing to get datadir and defaults.
-	appCfg, err := client.LoadAppConfig("", appName)
+	loadDir := strings.TrimSpace(args.DataDir)
+	if loadDir == "" {
+		return nil, fmt.Errorf("missing data_dir")
+	}
+	appCfg, err := client.LoadAppConfig(loadDir, appName)
 	if err != nil {
 		return nil, fmt.Errorf("load config: %w", err)
 	}

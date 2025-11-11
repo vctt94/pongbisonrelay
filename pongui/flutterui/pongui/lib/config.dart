@@ -42,7 +42,8 @@ class Config {
 
   // Load config from golib (single source of truth)
   static Future<Config> loadFromGo() async {
-    final cc = await Golib.getClientConfig();
+    final dir = await defaultAppDataDir();
+    final cc = await Golib.getClientConfig(dataDir: dir);
     return Config.filled(
       serverAddr: cc.serverAddr,
       grpcCertPath: cc.grpcCertPath,
