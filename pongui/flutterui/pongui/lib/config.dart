@@ -5,7 +5,7 @@ import 'package:path_provider/path_provider.dart';
 import 'package:path/path.dart' as path;
 import 'package:golib_plugin/golib_plugin.dart';
 
-const APPNAME = "pongui";
+const APPNAME = "bisonpong";
 const BRUIGNAME = "bruig";
 String mainConfigFilename = "";
 

@@ -219,7 +219,7 @@ class PongModel extends ChangeNotifier {
       if (prelogin && (_preloginInitialized || isConnected)) return;
 
       final appDataDir = await defaultAppDataDir();
-      final logFilePath = path.join(appDataDir, "logs", "pongui.log");
+      final logFilePath = path.join(appDataDir, "logs", "$APPNAME.log");
 
       // Build args; if clientId is empty and prelogin=true, pass empty id to trigger minimal client.
       final initClientId = clientId.isNotEmpty ? clientId : "";

@@ -52,7 +52,7 @@ class NewConfigModel extends ChangeNotifier {
 
   Future<String> getConfigFilePath() async {
     final dataDir = await appDatadir();
-    return p.join(dataDir, 'pongui.conf');
+    return p.join(dataDir, '$APPNAME.conf');
   }
 
   // ─── Save to disk ───────────────────────────────────────────────────────

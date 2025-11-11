@@ -9,9 +9,9 @@ set -euo pipefail
 #   ../pongui/flutterui/pongui/build/linux/x64/release/bundle
 #
 # Output:
-#   ../releases/pongui-linux-amd64-<version>.tar.gz
+#   ../releases/bisonpong-linux-amd64-<version>.tar.gz
 
-APP="pongui"
+APP="bisonpong"
 VER="${1:-v0.0.1}"
 PLAT="linux-amd64"
 
@@ -40,7 +40,7 @@ cd "$BUNDLE_DIR"
 tar -czf "$OUT_TAR" \
   --owner=0 --group=0 --mode='u+rwX,go+rX' \
   --transform "s,^\./,$NAME/," \
-  ./pongui ./lib ./data
+  ./bisonpong ./lib ./data
 
 echo "Created: $OUT_TAR"
 # Show a peek of contents (should start with $NAME/)

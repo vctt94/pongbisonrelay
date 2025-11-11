@@ -29,7 +29,7 @@ import (
 )
 
 const (
-	appName = "pongui"
+	appName = "bisonpong"
 )
 
 type clientCtx struct {
@@ -146,7 +146,7 @@ func handleInitClient(handle uint32, args initClient) (*localInfo, error) {
 	if err != nil {
 		return nil, err
 	}
-	log := logBackend.Logger("pongui")
+	log := logBackend.Logger("bisonpong")
 
 	// If no wallet-authenticated clientID is provided, create a minimal client
 	// context that can serve local/non-auth features (e.g., historic escrows,
@@ -162,6 +162,7 @@ func handleInitClient(handle uint32, args initClient) (*localInfo, error) {
 		li = &localInfo{Nick: "prelogin"}
 	}
 
+	fmt.Println(appName)
 	// Build consolidated AppConfig for the pong client (without BR auth)
 	// Load network from config file (defaults to testnet if not set)
 	appCfg, err := client.LoadAppConfig(args.DataDir, appName)

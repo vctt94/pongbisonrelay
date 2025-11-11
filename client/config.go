@@ -9,7 +9,6 @@ import (
 
 	"github.com/decred/dcrd/chaincfg/v3"
 	"github.com/vctt94/bisonbotkit/logging"
-	"github.com/vctt94/bisonbotkit/utils"
 )
 
 // defaultServerCertPEM is written to <datadir>/ca.cert on first run when creating
@@ -159,10 +158,9 @@ func loadClientConf(configPath string, fileName string) (*PongConf, error) {
 	// Get app name by removing .conf extension
 	appName := strings.TrimSuffix(fileName, ".conf")
 
-	defaultConfigPath := utils.AppDataDir(appName, false)
-	// If configPath is empty, use defaultConfigPath
-	if configPath == "" {
-		configPath = defaultConfigPath
+	// Require explicit configPath; callers must provide the sandboxed dir.
+	if strings.TrimSpace(configPath) == "" {
+		return nil, fmt.Errorf("configPath is required")
 	}
 
 	// Ensure the config directory exists
@@ -225,8 +223,8 @@ maxbufferlines=%d
 // and returns a consolidated AppConfig. If datadir is empty, it uses the
 // default application data dir for "pongclient".
 func LoadAppConfig(datadir string, appName string) (*PongClientCfg, error) {
-	if datadir == "" {
-		datadir = utils.AppDataDir(appName, false)
+	if strings.TrimSpace(datadir) == "" {
+		return nil, fmt.Errorf("datadir is required")
 	}
 
 	cfg, err := loadClientConf(datadir, appName+".conf")
