@@ -196,7 +196,12 @@ func call(cmd *cmd) *CmdResult {
 
 	case CTGetClientConfig:
 		// Prefer the running client's app config if available for this handle.
-		v, err = handleGetClientConfigForHandle(uint32(cmd.ClientHandle))
+		// Accept an optional payload with data_dir provided by Flutter.
+		var args struct {
+			DataDir string `json:"data_dir"`
+		}
+		_ = decode(&args)
+		v, err = handleGetClientConfigForHandle(uint32(cmd.ClientHandle), args.DataDir)
 
 	case CTSaveClientConfig:
 		var args saveClientConfigArgs

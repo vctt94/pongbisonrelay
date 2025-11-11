@@ -848,8 +848,8 @@ abstract class PluginPlatform {
   }
 
   // --- Config management via golib ---
-  Future<ClientConfig> getClientConfig() async {
-    final res = await asyncCall(CTGetClientConfig, "");
+  Future<ClientConfig> getClientConfig({String? dataDir}) async {
+    final res = await asyncCall(CTGetClientConfig, {'data_dir': dataDir});
     return ClientConfig.fromJson(Map<String, dynamic>.from(res as Map));
   }
 
