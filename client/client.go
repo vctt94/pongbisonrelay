@@ -932,3 +932,47 @@ func LoadHistoricEscrowsFromDir(dataDir string) ([]*EscrowInfo, error) {
 
 	return escrows, nil
 }
+
+// ValidateHistoricRefundSession verifies that there exists a historic session entry
+// for the given escrow that contains a usable private key and the minimum escrow
+// metadata needed to later build a refund (once funding txid/vout are known).
+// Returns (true, "") if valid; otherwise (false, reason).
+func (pc *PongClient) ValidateHistoricRefundSession(escrowID string) (bool, string) {
+	escrowID = strings.TrimSpace(escrowID)
+	if escrowID == "" {
+		return false, "escrow_id required"
+	}
+	session, err := pc.sessionDataForEscrow(escrowID)
+	if err != nil {
+		return false, err.Error()
+	}
+	// Validate private key presence and encoding.
+	priv := strings.TrimSpace(session.Priv)
+	if priv == "" {
+		return false, "historic session missing private key"
+	}
+	if _, err := hex.DecodeString(priv); err != nil {
+		return false, "invalid private key encoding in historic session"
+	}
+	// Validate escrow info presence and critical fields.
+	if session.EscrowInfo == nil {
+		return false, "historic session missing escrow_info"
+	}
+	info := session.EscrowInfo
+	if strings.TrimSpace(info.RedeemScriptHex) == "" {
+		return false, "redeem_script_hex not recorded"
+	}
+	if strings.TrimSpace(info.PKScriptHex) == "" {
+		return false, "pk_script_hex not recorded"
+	}
+	// CSV is necessary to construct refund path later.
+	if info.CSVBlocks == 0 {
+		return false, "csv_blocks not recorded"
+	}
+	// FundedAmount at this stage should reflect the intended bet amount.
+	if info.FundedAmount == 0 {
+		return false, "funded_amount not recorded"
+	}
+	// Funding txid/vout can be missing pre-deposit; that's acceptable here.
+	return true, ""
+}

@@ -46,6 +46,8 @@ class PongModel extends ChangeNotifier {
   int escrowFundingValueAtoms = 0;
   bool escrowInfoPersisted = false;
   String escrowInfoError = '';
+  bool escrowRefundSessionValid = false;
+  String escrowRefundSessionError = '';
   String fundingStatus = '';
   int escrowConfs = 0;
   // Escrow funding flags derived from notifications
@@ -133,8 +135,8 @@ class PongModel extends ChangeNotifier {
     required int csvBlocks,
     required String pkScriptHex,
     required String redeemScriptHex,
-  }) {
-    return persistEscrowInfo({
+  }) async {
+    final ok = await persistEscrowInfo({
       'escrow_id': escrowId,
       'funded_amount': betAtoms,
       'pk_script_hex': pkScriptHex,
@@ -142,6 +144,33 @@ class PongModel extends ChangeNotifier {
       'csv_blocks': csvBlocks,
       'archived_at': DateTime.now().millisecondsSinceEpoch,
     }, failureContext: 'Saving initial escrow metadata');
+    if (!ok) {
+      return false;
+    }
+    try {
+      final res = await Golib.validateRefundSession(escrowId);
+      final valid = res['ok'] == true;
+      escrowRefundSessionValid = valid;
+      escrowRefundSessionError = valid
+          ? ''
+          : (res['reason']?.toString() ?? 'unknown validation error');
+      if (!valid) {
+        // Strengthen user warning if validation failed.
+        fundingStatus =
+            'CRITICAL: escrow session backup invalid. Deposit address hidden.';
+        notifyListeners();
+        return false;
+      }
+      notifyListeners();
+      return true;
+    } catch (e) {
+      escrowRefundSessionValid = false;
+      escrowRefundSessionError = 'Validation error: $e';
+      fundingStatus =
+          'CRITICAL: escrow session backup validation failed. Deposit address hidden.';
+      notifyListeners();
+      return false;
+    }
   }
 
   // Getters for the game state
@@ -559,7 +588,7 @@ class PongModel extends ChangeNotifier {
   void resetGameState() {
     _currentGameState = GameState.idle;
     currentWR = null;
-    betAmt = 0;
+    betAmt = DEFAULT_BET_ATOMS;
     currentGameId = '';
     countdownMessage = '';
     gameEndingMessage = '';
@@ -623,6 +652,8 @@ class PongModel extends ChangeNotifier {
     escrowFundingValueAtoms = 0;
     escrowInfoPersisted = false;
     escrowInfoError = '';
+    escrowRefundSessionValid = false;
+    escrowRefundSessionError = '';
     escrowFunded = false;
     escrowConfirmed = false;
     escrowConfs = 0;
