@@ -48,7 +48,7 @@ class _LogsScreenState extends State<LogsScreen> {
 
     try {
       final appDataDir = await defaultAppDataDir();
-      _logFilePath = path.join(appDataDir, "logs", "pongui.log");
+      _logFilePath = path.join(appDataDir, "logs", "$APPNAME.log");
       
       final logFile = File(_logFilePath!);
       if (await logFile.exists()) {

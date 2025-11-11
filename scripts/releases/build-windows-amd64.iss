@@ -11,8 +11,8 @@ SolidCompression=yes
 Source: "C:\Users\vctt\projects\pong-bisonrelay\pongui\flutterui\pongui\build\windows\x64\runner\Release\*"; DestDir: "{app}"; Flags: recursesubdirs createallsubdirs
 
 [Icons]
-Name: "{group}\BR Pong"; Filename: "{app}\pongui-0.0.1-rc2.exe"
+Name: "{group}\BR Pong"; Filename: "{app}\bisonpong-0.0.1-rc2.exe"
 Name: "{group}\Uninstall BR Pong"; Filename: "{uninstallexe}"
 
 [Run]
-Filename: "{app}\pongui.exe"; Description: "Launch BR Pong"; Flags: nowait postinstall skipifsilent
+Filename: "{app}\bisonpong.exe"; Description: "Launch BR Pong"; Flags: nowait postinstall skipifsilent
