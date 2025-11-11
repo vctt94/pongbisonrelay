@@ -854,6 +854,16 @@ func handleClientCmd(cc *clientCtx, cmd *cmd) (interface{}, error) {
 			"escrows": result,
 		}, nil
 
+	case CTValidateRefundSession:
+		var req struct {
+			EscrowID string `json:"escrow_id"`
+		}
+		if err := json.Unmarshal(cmd.Payload, &req); err != nil {
+			return nil, fmt.Errorf("bad validate refund payload: %v", err)
+		}
+		ok, reason := cc.c.ValidateHistoricRefundSession(req.EscrowID)
+		return map[string]any{"ok": ok, "reason": reason}, nil
+
 	// Player action commands
 	case CTSendInput:
 		var req struct {

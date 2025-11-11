@@ -13,6 +13,8 @@ part 'definitions.g.dart';
 
 // CSV blocks for escrow timelock - change this for testing (2 for testing, 64 for production)
 const int CSV_BLOCKS = 2;
+// Default bet size in atoms (0.01 DCR)
+const int DEFAULT_BET_ATOMS = 1000000;
 
 // Isolate entry point: decode protobuf -> build a plain Map payload
 // (numbers only) that can cross isolates efficiently.
@@ -485,10 +487,8 @@ mixin NtfStreams {
       // Calculate time since last emit, or 0 if no frames emitted yet
       final sinceLastMs =
           _lastEmitMicros > 0 ? ((nowUs - _lastEmitMicros) ~/ 1000) : 0;
-      
       // debugPrint(
       //     '[ui] frames in=$_framesIn out=$_framesDecoded decode=${_lastDecodeMs}ms max=${_maxDecodeMs}ms');
-      
       final inAvg = _inDtCount > 0 ? (_inDtSum ~/ _inDtCount) : 0;
       final outAvg = _outDtCount > 0 ? (_outDtSum ~/ _outDtCount) : 0;
       // Push stats to UI subscribers.
@@ -807,6 +807,13 @@ abstract class PluginPlatform {
     return Map<String, dynamic>.from(res as Map);
   }
 
+  Future<Map<String, dynamic>> validateRefundSession(String escrowId) async {
+    final res = await asyncCall(CTValidateRefundSession, {
+      'escrow_id': escrowId,
+    });
+    return Map<String, dynamic>.from(res as Map);
+  }
+
   Future<List<Map<String, dynamic>>> listHistoricEscrows() async {
     // The Go side uses the already-initialized client handle and its data dir.
     // No payload needed here.
@@ -913,6 +920,7 @@ const int CTDeleteHistoricEscrow = 0x19;
 // Config management
 const int CTGetClientConfig = 0x1a;
 const int CTSaveClientConfig = 0x1b;
+const int CTValidateRefundSession = 0x1c;
 
 const int CTCreateLockFile = 0x60;
 const int CTCloseLockFile = 0x61;

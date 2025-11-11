@@ -21,7 +21,7 @@ import (
 )
 
 const (
-	DefaultBetAtoms = 100000000
+	DefaultBetAtoms = 1000000
 )
 
 func BuildPerDepositorRedeemScript(comp33 []byte, csvBlocks uint32) ([]byte, error) {

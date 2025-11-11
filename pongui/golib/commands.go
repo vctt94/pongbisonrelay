@@ -58,6 +58,8 @@ const (
 	// Config management (UI<->golib)
 	CTGetClientConfig  = 0x1a
 	CTSaveClientConfig = 0x1b
+	// Refund session validation
+	CTValidateRefundSession = 0x1c
 
 	CTCreateLockFile        = 0x60
 	CTCloseLockFile         = 0x61
