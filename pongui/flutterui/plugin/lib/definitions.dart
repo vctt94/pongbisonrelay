@@ -796,12 +796,14 @@ abstract class PluginPlatform {
       {required String escrowId,
       required String destAddr,
       int feeAtoms = 20000,
-      int csvBlocks = CSV_BLOCKS}) async {
+      int csvBlocks = CSV_BLOCKS,
+      int? utxoValue}) async {
     final payload = {
       'escrow_id': escrowId,
       'dest_addr': destAddr,
       'fee_atoms': feeAtoms,
       'csv_blocks': csvBlocks,
+      if (utxoValue != null && utxoValue > 0) 'utxo_value': utxoValue,
     };
     final res = await asyncCall(CTRefundEscrow, payload);
     return Map<String, dynamic>.from(res as Map);

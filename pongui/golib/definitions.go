@@ -49,6 +49,7 @@ type refundEscrowReq struct {
 	DestAddr  string `json:"dest_addr"`
 	FeeAtoms  uint64 `json:"fee_atoms"`
 	CSVBlocks uint32 `json:"csv_blocks"`
+	UtxoValue uint64 `json:"utxo_value,omitempty"` // Optional: override stored funded_amount
 }
 
 type refundEscrowRes struct {

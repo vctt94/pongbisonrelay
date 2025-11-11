@@ -357,6 +357,7 @@ class _RefundEscrowDialogState extends State<RefundEscrowDialog> {
   late Map<String, dynamic> _escrow;
   late TextEditingController _destAddressCtrl;
   late TextEditingController _csvBlocksCtrl;
+  late TextEditingController _utxoValueCtrl;
 
   bool _isBuilding = false;
   bool _isUpdatingFunding = false;
@@ -378,12 +379,17 @@ class _RefundEscrowDialogState extends State<RefundEscrowDialog> {
     _csvBlocksCtrl = TextEditingController(
       text: csvBlocks > 0 ? csvBlocks.toString() : '',
     );
+    final storedAmount = _toInt(_escrow['funded_amount']);
+    _utxoValueCtrl = TextEditingController(
+      text: storedAmount > 0 ? storedAmount.toString() : '',
+    );
   }
 
   @override
   void dispose() {
     _destAddressCtrl.dispose();
     _csvBlocksCtrl.dispose();
+    _utxoValueCtrl.dispose();
     super.dispose();
   }
 
@@ -506,6 +512,11 @@ class _RefundEscrowDialogState extends State<RefundEscrowDialog> {
         ? int.tryParse(csvInput) ?? _toInt(_escrow['csv_blocks'])
         : _toInt(_escrow['csv_blocks']);
 
+    final utxoValueInput = _utxoValueCtrl.text.trim();
+    final utxoValue = utxoValueInput.isNotEmpty
+        ? int.tryParse(utxoValueInput)
+        : null;
+
     setState(() {
       _isBuilding = true;
       _statusMessage = 'Building refund transaction...';
@@ -520,6 +531,7 @@ class _RefundEscrowDialogState extends State<RefundEscrowDialog> {
         _escrowId,
         dest,
         csvBlocks: csvBlocks > 0 ? csvBlocks : null,
+        utxoValue: utxoValue,
       );
       if (!mounted) return;
       setState(() {
@@ -643,6 +655,15 @@ class _RefundEscrowDialogState extends State<RefundEscrowDialog> {
                   hintText: csvBlocks > 0 ? csvBlocks.toString() : 'e.g. 2',
                   helperText:
                       'Optional. Leave empty to use the stored CSV timelock.',
+                ),
+                keyboardType: TextInputType.number,
+              ),
+              const SizedBox(height: 12),
+              TextField(
+                controller: _utxoValueCtrl,
+                decoration: const InputDecoration(
+                  labelText: 'UTXO value (atoms)',
+                  helperText: 'optional in case of wrong input',
                 ),
                 keyboardType: TextInputType.number,
               ),
