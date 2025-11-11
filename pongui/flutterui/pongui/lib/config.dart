@@ -3,6 +3,7 @@ import 'package:args/args.dart';
 import 'package:ini/ini.dart' as ini;
 import 'package:path_provider/path_provider.dart';
 import 'package:path/path.dart' as path;
+import 'package:golib_plugin/golib_plugin.dart';
 
 const APPNAME = "pongui";
 const BRUIGNAME = "bruig";
@@ -38,6 +39,18 @@ class Config {
     this.showPerfOverlay = false,
     this.dataDir = "",
   });
+
+  // Load config from golib (single source of truth)
+  static Future<Config> loadFromGo() async {
+    final cc = await Golib.getClientConfig();
+    return Config.filled(
+      serverAddr: cc.serverAddr,
+      grpcCertPath: cc.grpcCertPath,
+      debugLevel: cc.debugLevel,
+      showPerfOverlay: cc.showPerfOverlay,
+      dataDir: cc.dataDir,
+    );
+  }
 
   // Save a new config from scratch
   Future<void> saveNewConfig(String filepath) async {

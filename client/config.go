@@ -12,6 +12,20 @@ import (
 	"github.com/vctt94/bisonbotkit/utils"
 )
 
+// defaultServerCertPEM is written to <datadir>/ca.cert on first run when creating
+// a default config, so the UI has a usable TLS cert path out of the box.
+const defaultServerCertPEM = `-----BEGIN CERTIFICATE-----
+MIIBizCCATKgAwIBAgIQbtFxrgQfuhUSaHsw+tbNoDAKBggqhkjOPQQDAjAmMREw
+DwYDVQQKEwhnZW5jZXJ0czERMA8GA1UEAxMIZ2VuY2VydHMwHhcNMjUxMTA4MTU1
+MjQzWhcNMzUxMTA3MTU1MjQzWjAmMREwDwYDVQQKEwhnZW5jZXJ0czERMA8GA1UE
+AxMIZ2VuY2VydHMwWTATBgcqhkjOPQIBBggqhkjOPQMBBwNCAAQoLsfKo3eU1B1c
++GuDgatRBnI889XhmVet8aIGlew+A4hsUyduD8LfP1k7aZ3bHNIq+4H5LLg3sVj8
+hNseJ/cFo0IwQDAOBgNVHQ8BAf8EBAMCAoQwDwYDVR0TAQH/BAUwAwEB/zAdBgNV
+HQ4EFgQURzfqDTuTTKzRYgMTW1IZiUhFjRIwCgYIKoZIzj0EAwIDRwAwRAIgfTUP
+ufQQaHv0dXYDwWfYgL2ry5vLM7xPy9l2iDxWRDcCIADhyHCj1r+M3p6/5yaJNZxd
+TLq8HnLRGlOPhEKOCgit
+-----END CERTIFICATE-----`
+
 // PongClientCfg is the pong config used on the pong client
 type PongClientCfg struct {
 	PongConf   *PongConf           // Consolidated app config (single source of truth)
@@ -104,7 +118,8 @@ func parseClientConfigFile(configPath string) (*PongConf, error) {
 			}
 			cfg.ShowPerfOverlay = v
 		default:
-			return nil, fmt.Errorf("unknown key: %s", key)
+			// Ignore unknown keys to preserve forward-compatibility with older configs.
+			continue
 		}
 	}
 
@@ -144,7 +159,7 @@ func loadClientConf(configPath string, fileName string) (*PongConf, error) {
 	// Get app name by removing .conf extension
 	appName := strings.TrimSuffix(fileName, ".conf")
 
-	defaultConfigPath := utils.AppDataDir(fileName, false)
+	defaultConfigPath := utils.AppDataDir(appName, false)
 	// If configPath is empty, use defaultConfigPath
 	if configPath == "" {
 		configPath = defaultConfigPath
@@ -164,7 +179,7 @@ func loadClientConf(configPath string, fileName string) (*PongConf, error) {
 	// Create default config
 	cfg := &PongConf{
 		DataDir:        configPath,
-		GRPCCertPath:   filepath.Join(configPath, "grpc.cert"),
+		GRPCCertPath:   filepath.Join(configPath, "ca.cert"),
 		ServerAddr:     "178.156.178.191:50051",
 		Network:        "mainnet",
 		LogFile:        filepath.Join(configPath, "logs", appName+".log"),
@@ -185,7 +200,7 @@ func loadClientConf(configPath string, fileName string) (*PongConf, error) {
 func writeClientConfigFile(cfg *PongConf, configPath string) error {
 	configData := fmt.Sprintf(
 		`datadir=%s
-serveraddr=%s
+serveraddress=%s
 grpccertpath=%s
 network=%s
 logfile=%s
@@ -214,7 +229,7 @@ func LoadAppConfig(datadir string, appName string) (*PongClientCfg, error) {
 		datadir = utils.AppDataDir(appName, false)
 	}
 
-	cfg, err := loadClientConf(datadir, appName)
+	cfg, err := loadClientConf(datadir, appName+".conf")
 	if err != nil {
 		return nil, fmt.Errorf("load config: %w", err)
 	}

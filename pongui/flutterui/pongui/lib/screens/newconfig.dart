@@ -1,7 +1,4 @@
-import 'dart:io';
 import 'package:flutter/material.dart';
-import 'package:flutter/services.dart';
-import 'package:path/path.dart' as p;
 
 import 'package:pongui/components/shared_layout.dart';
 import 'package:pongui/models/newconfig.dart';
@@ -34,22 +31,9 @@ class _NewConfigScreenState extends State<NewConfigScreen> {
   // late final _user       = TextEditingController(text: widget.model.rpcUser);
   // late final _pass       = TextEditingController(text: widget.model.rpcPass);
 
-  bool _wantsLogNtfns = false;
   bool _showPerfOverlay = false;
   String _cfgPath = '', _dataDir = '';
 
-  // Placeholder certificate content
-  static const String placeholderCertContent = '''-----BEGIN CERTIFICATE-----
-MIIBizCCATKgAwIBAgIQbtFxrgQfuhUSaHsw+tbNoDAKBggqhkjOPQQDAjAmMREw
-DwYDVQQKEwhnZW5jZXJ0czERMA8GA1UEAxMIZ2VuY2VydHMwHhcNMjUxMTA4MTU1
-MjQzWhcNMzUxMTA3MTU1MjQzWjAmMREwDwYDVQQKEwhnZW5jZXJ0czERMA8GA1UE
-AxMIZ2VuY2VydHMwWTATBgcqhkjOPQIBBggqhkjOPQMBBwNCAAQoLsfKo3eU1B1c
-+GuDgatRBnI889XhmVet8aIGlew+A4hsUyduD8LfP1k7aZ3bHNIq+4H5LLg3sVj8
-hNseJ/cFo0IwQDAOBgNVHQ8BAf8EBAMCAoQwDwYDVR0TAQH/BAUwAwEB/zAdBgNV
-HQ4EFgQURzfqDTuTTKzRYgMTW1IZiUhFjRIwCgYIKoZIzj0EAwIDRwAwRAIgfTUP
-ufQQaHv0dXYDwWfYgL2ry5vLM7xPy9l2iDxWRDcCIADhyHCj1r+M3p6/5yaJNZxd
-TLq8HnLRGlOPhEKOCgit
------END CERTIFICATE-----''';
   @override
   void initState() {
     super.initState();
@@ -58,14 +42,27 @@ TLq8HnLRGlOPhEKOCgit
     
     // Listen for model changes to update text fields when async initialization completes
     widget.model.addListener(_onModelChanged);
+    // Populate fields from golib defaults
+    // Note: listener will update controllers when model fields change.
+    widget.model.loadFromGoDefaults();
   }
 
   void _onModelChanged() {
     if (mounted) {
       // Update text controllers when model values change (after async init)
-      if (_grpcCert.text.isEmpty && widget.model.grpcCertPath.isNotEmpty) {
+      if (widget.model.serverAddr.isNotEmpty &&
+          _serverAddr.text != widget.model.serverAddr) {
+        _serverAddr.text = widget.model.serverAddr;
+      }
+      if (widget.model.grpcCertPath.isNotEmpty &&
+          _grpcCert.text != widget.model.grpcCertPath) {
         _grpcCert.text = widget.model.grpcCertPath;
       }
+      if (widget.model.debugLevel.isNotEmpty &&
+          _debugLvl.text != widget.model.debugLevel) {
+        _debugLvl.text = widget.model.debugLevel;
+      }
+      _showPerfOverlay = widget.model.showPerfOverlay;
     }
   }
 
@@ -84,30 +81,15 @@ TLq8HnLRGlOPhEKOCgit
     if (mounted) setState(() {});
   }
 
-  // ensure server.cert and logs/ exist in the fixed data dir
-  Future<void> _prepareDataDir() async {
-    final grpcCertFile = File(widget.model.grpcCertPath);
-    if (!await grpcCertFile.exists()) {
-      await grpcCertFile.parent.create(recursive: true);
-      await grpcCertFile.writeAsString(placeholderCertContent);
-    }
-    final dataDir = await widget.model.appDatadir();
-    final logs = Directory(p.join(dataDir, 'logs'));
-    if (!await logs.exists()) await logs.create(recursive: true);
-  }
-
   Future<void> _save() async {
     if (!_formKey.currentState!.validate()) return;
     try {
-      // update model from fields
-      widget.model
-        ..serverAddr        = _serverAddr.text
-        ..grpcCertPath      = _grpcCert.text
-        ..debugLevel        = _debugLvl.text
-        ..showPerfOverlay   = _showPerfOverlay;
-
-      await _prepareDataDir();
-      await widget.model.saveConfig();
+      await widget.model.applyAndSave(
+        serverAddr: _serverAddr.text,
+        grpcCertPath: _grpcCert.text,
+        debugLevel: _debugLvl.text,
+        showPerfOverlay: _showPerfOverlay,
+      );
       await widget.onConfigSaved();
 
       if (mounted) {
@@ -146,15 +128,6 @@ TLq8HnLRGlOPhEKOCgit
                 _field(_debugLvl, 'Debug Level'),
                 // _field(_user, 'RPC User', required: true),
                 // _field(_pass, 'RPC Password', required: true, obscure: true),
-                const SizedBox(height: 12),
-                Row(
-                  mainAxisAlignment: MainAxisAlignment.spaceBetween,
-                  children: [
-                    const Text('Log Notifications', style: TextStyle(color: Colors.white)),
-                    Switch(value: _wantsLogNtfns,
-                           onChanged: (v) => setState(() => _wantsLogNtfns = v)),
-                  ],
-                ),
                 const SizedBox(height: 12),
                 Row(
                   mainAxisAlignment: MainAxisAlignment.spaceBetween,

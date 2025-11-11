@@ -2,24 +2,21 @@ import 'dart:io';
 import 'package:flutter/foundation.dart';
 import 'package:path/path.dart' as p;
 import 'package:pongui/config.dart';
+import 'package:golib_plugin/golib_plugin.dart';
 
 class NewConfigModel extends ChangeNotifier {
   // ─── Editable fields ────────────────────────────────────────────────────
 
-  String serverAddr      = '178.156.178.191:50051';
+  String serverAddr      = '';
   String grpcCertPath    = '';
-  String network         = 'mainnet';
-  String debugLevel      = 'info';
+  String network         = '';
+  String debugLevel      = '';
   bool   showPerfOverlay = false;
 
   final List<String> appArgs;
-  String _appDataDir = '';
-  // String _brDataDir = '';
 
   // ─── Construction ───────────────────────────────────────────────────────
-  NewConfigModel(this.appArgs) {
-    _initialiseDefaults();
-  }
+  NewConfigModel(this.appArgs);
 
   factory NewConfigModel.fromConfig(Config c) => NewConfigModel([])
     // ..rpcUser            = c.rpcUser
@@ -34,24 +31,21 @@ class NewConfigModel extends ChangeNotifier {
     ..showPerfOverlay    = c.showPerfOverlay;
 
   // ─── Helpers ────────────────────────────────────────────────────────────
-  Future<void> _initialiseDefaults() async {
-    _appDataDir = await defaultAppDataDir();
-    // _brDataDir = await defaultAppDataBRUIGDir();
 
-    grpcCertPath = p.join(_appDataDir, 'ca.cert');
-    // rpcCertPath  = p.join(_brDataDir, 'rpc.cert');
-    // rpcClientCertPath = p.join(_brDataDir, 'rpc-client.cert');
-    // rpcClientKeyPath  = p.join(_brDataDir, 'rpc-client.key');
-
+  // Load current defaults from golib and update fields.
+  Future<void> loadFromGoDefaults() async {
+    final cc = await Golib.getClientConfig();
+    serverAddr = cc.serverAddr;
+    grpcCertPath = cc.grpcCertPath;
+    network = cc.network;
+    debugLevel = cc.debugLevel;
+    showPerfOverlay = cc.showPerfOverlay;
     notifyListeners();
   }
 
   Future<String> appDatadir() async {
-    // Ensure initialization has completed
-    if (_appDataDir.isEmpty) {
-      _appDataDir = await defaultAppDataDir();
-    }
-    return _appDataDir;
+    final cc = await Golib.getClientConfig();
+    return cc.dataDir;
   }
 
   Future<String> getConfigFilePath() async {
@@ -61,32 +55,41 @@ class NewConfigModel extends ChangeNotifier {
 
   // ─── Save to disk ───────────────────────────────────────────────────────
   Future<void> saveConfig() async {
-    final cfgPath = await getConfigFilePath();
-    final file    = File(cfgPath);
+    // Delegate saving to golib to ensure single source of truth and format consistency.
+    final dataDir = await appDatadir();
+    final cfg = ClientConfig(
+      serverAddr: serverAddr,
+      grpcCertPath: grpcCertPath,
+      network: network,
+      debugLevel: debugLevel,
+      showPerfOverlay: showPerfOverlay,
+      dataDir: dataDir,
+    );
+    await Golib.saveClientConfig(cfg);
+  }
 
-    final content = (StringBuffer()
-      ..writeln('datadir=$_appDataDir')
-      ..writeln('server=$serverAddr')
-      ..writeln('grpccertpath=$grpcCertPath')
-      ..writeln('network=$network')
-      ..writeln()
-      ..writeln('[clientrpc]')
-      // ..writeln('rpcuser=$rpcUser')
-      // ..writeln('rpcpass=$rpcPass')
-      // ..writeln('rpcwebsocketurl=$rpcWebsocketURL')
-      // ..writeln('rpccertpath=$rpcCertPath')
-      // ..writeln('rpcclientcertpath=$rpcClientCertPath')
-      // ..writeln('rpcclientkeypath=$rpcClientKeyPath')
-      ..writeln('showPerfOverlay=${showPerfOverlay ? "true" : "false"}')
-      ..writeln()
-      ..writeln('[log]')
-      ..writeln('debuglevel=$debugLevel')
-    ).toString();
+  // Atomically apply new values and persist them via golib. Also ensure logs dir exists.
+  Future<void> applyAndSave({
+    required String serverAddr,
+    required String grpcCertPath,
+    required String debugLevel,
+    required bool showPerfOverlay,
+  }) async {
+    this.serverAddr = serverAddr.trim();
+    this.grpcCertPath = grpcCertPath.trim();
+    this.debugLevel = debugLevel.trim();
+    this.showPerfOverlay = showPerfOverlay;
 
-    await file.parent.create(recursive: true);
-    await file.writeAsString(content);
+    final dir = await appDatadir();
+    final logs = Directory(p.join(dir, 'logs'));
+    if (!await logs.exists()) {
+      await logs.create(recursive: true);
+    }
+
+    await saveConfig();
   }
 
   // expose the resolved data directory to the UI for display
-  String get dataDir => _appDataDir;
+  // For compatibility; prefer calling appDatadir() to ensure fresh value from golib.
+  String get dataDir => '';
 }

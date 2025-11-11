@@ -26,7 +26,6 @@ import (
 	"github.com/vctt94/pongbisonrelay/pongrpc/grpc/pong"
 	"golang.org/x/sync/errgroup"
 	"google.golang.org/grpc"
-	"google.golang.org/grpc/credentials"
 )
 
 const (
@@ -154,7 +153,7 @@ func handleInitClient(handle uint32, args initClient) (*localInfo, error) {
 
 	// Build consolidated AppConfig for the pong client (without BR auth)
 	// Load network from config file (defaults to testnet if not set)
-	appCfg, err := client.LoadAppConfig(args.DataDir, appName+".conf")
+	appCfg, err := client.LoadAppConfig(args.DataDir, appName)
 	if err != nil {
 		return nil, fmt.Errorf("failed to load config: %v", err)
 	}
@@ -1002,13 +1001,20 @@ func handleRequestNonce(args requestNonceArgs) (interface{}, error) {
 	if strings.TrimSpace(args.ServerAddr) == "" {
 		return nil, fmt.Errorf("missing server_addr")
 	}
-	if strings.TrimSpace(args.GRPCCertPath) == "" {
-		return nil, fmt.Errorf("missing grpc_cert_path")
+	// Build TLS creds using shared helper (resolves path, falls back, and creates default if needed).
+	var pc *client.PongConf
+	if appCfg, err := client.LoadAppConfig("", appName); err == nil && appCfg.PongConf != nil {
+		pc = appCfg.PongConf
 	}
-
-	creds, err := credentials.NewClientTLSFromFile(args.GRPCCertPath, "")
+	if pc == nil {
+		pc = &client.PongConf{}
+	}
+	if cp := strings.TrimSpace(args.GRPCCertPath); cp != "" {
+		pc.GRPCCertPath = cp
+	}
+	creds, err := client.LoadTLSCreds(pc)
 	if err != nil {
-		return nil, fmt.Errorf("load TLS cert: %w", err)
+		return nil, fmt.Errorf("load TLS creds: %w", err)
 	}
 	conn, err := grpc.NewClient(args.ServerAddr, grpc.WithTransportCredentials(creds))
 	if err != nil {
@@ -1032,16 +1038,27 @@ func handleRequestNonce(args requestNonceArgs) (interface{}, error) {
 }
 
 func handleVerifyLogin(args verifyLoginArgs) (interface{}, error) {
-	if strings.TrimSpace(args.ServerAddr) == "" || strings.TrimSpace(args.GRPCCertPath) == "" {
+	if strings.TrimSpace(args.ServerAddr) == "" {
 		return nil, fmt.Errorf("missing server or cert path")
 	}
 	if strings.TrimSpace(args.Address) == "" || strings.TrimSpace(args.Nonce) == "" || strings.TrimSpace(args.Signature) == "" {
 		return nil, fmt.Errorf("missing address, nonce or signature")
 	}
 
-	creds, err := credentials.NewClientTLSFromFile(args.GRPCCertPath, "")
+	// Build TLS creds using shared helper.
+	var pc *client.PongConf
+	if appCfg, err := client.LoadAppConfig("", appName); err == nil && appCfg.PongConf != nil {
+		pc = appCfg.PongConf
+	}
+	if pc == nil {
+		pc = &client.PongConf{}
+	}
+	if cp := strings.TrimSpace(args.GRPCCertPath); cp != "" {
+		pc.GRPCCertPath = cp
+	}
+	creds, err := client.LoadTLSCreds(pc)
 	if err != nil {
-		return nil, fmt.Errorf("load TLS cert: %w", err)
+		return nil, fmt.Errorf("load TLS creds: %w", err)
 	}
 	conn, err := grpc.NewClient(args.ServerAddr, grpc.WithTransportCredentials(creds))
 	if err != nil {
@@ -1068,4 +1085,87 @@ func handleVerifyLogin(args verifyLoginArgs) (interface{}, error) {
 		"comp_pubkey": res.GetCompPubkey(),
 		"p2pk_addr":   res.GetP2PkAddr(),
 	}, nil
+}
+
+// --- Config management (no running client required) ---
+
+type saveClientConfigArgs struct {
+	ServerAddr      string `json:"server_addr"`
+	GRPCCertPath    string `json:"grpc_cert_path"`
+	Network         string `json:"network"`
+	Debug           string `json:"debug"`
+	ShowPerfOverlay bool   `json:"show_perfoverlay"`
+}
+
+func handleGetClientConfig() (interface{}, error) {
+	// Load current config from default app data dir.
+	appCfg, err := client.LoadAppConfig("", appName)
+	if err != nil {
+		return nil, fmt.Errorf("load config: %w", err)
+	}
+	pc := appCfg.PongConf
+	return map[string]any{
+		"server_addr":      pc.ServerAddr,
+		"grpc_cert_path":   pc.GRPCCertPath,
+		"network":          pc.Network,
+		"debug":            pc.Debug,
+		"show_perfoverlay": pc.ShowPerfOverlay,
+		"data_dir":         pc.DataDir,
+	}, nil
+}
+
+func handleSaveClientConfig(args saveClientConfigArgs) (interface{}, error) {
+	// Load existing to get datadir and defaults.
+	appCfg, err := client.LoadAppConfig("", appName)
+	if err != nil {
+		return nil, fmt.Errorf("load config: %w", err)
+	}
+	pc := appCfg.PongConf
+
+	// Apply provided fields (empty strings are ignored for strings).
+	if strings.TrimSpace(args.ServerAddr) != "" {
+		pc.ServerAddr = strings.TrimSpace(args.ServerAddr)
+	}
+	if strings.TrimSpace(args.GRPCCertPath) != "" {
+		pc.GRPCCertPath = strings.TrimSpace(args.GRPCCertPath)
+	}
+	if strings.TrimSpace(args.Network) != "" {
+		pc.Network = strings.TrimSpace(args.Network)
+	}
+	if strings.TrimSpace(args.Debug) != "" {
+		pc.Debug = strings.TrimSpace(args.Debug)
+	}
+	pc.ShowPerfOverlay = args.ShowPerfOverlay
+
+	// Ensure logs dir exists if needed.
+	logsDir := filepath.Dir(filepath.Join(pc.DataDir, "logs", "placeholder.log"))
+	_ = os.MkdirAll(logsDir, 0700)
+
+	confPath := filepath.Join(pc.DataDir, appName+".conf")
+	// Persist in a simple key=value format that matches parser expectations.
+	configData := fmt.Sprintf(
+		`datadir=%s
+serveraddress=%s
+grpccertpath=%s
+network=%s
+logfile=%s
+debug=%s
+maxlogfiles=%d
+maxbufferlines=%d
+showperfoverlay=%t
+`,
+		pc.DataDir,
+		pc.ServerAddr,
+		pc.GRPCCertPath,
+		pc.Network,
+		filepath.Join(pc.DataDir, "logs", "pongclient.log"),
+		pc.Debug,
+		5,
+		1000,
+		pc.ShowPerfOverlay,
+	)
+	if err := os.WriteFile(confPath, []byte(configData), 0600); err != nil {
+		return nil, fmt.Errorf("write config: %w", err)
+	}
+	return map[string]string{"status": "ok"}, nil
 }

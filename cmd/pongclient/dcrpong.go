@@ -209,7 +209,7 @@ func realMain() error {
 	}
 
 	// Load consolidated app config and apply overrides from flags
-	appCfg, err := client.LoadAppConfig(*datadir, appName+".conf")
+	appCfg, err := client.LoadAppConfig(*datadir, appName)
 	if err != nil {
 		fmt.Println("Error loading configuration:", err)
 		os.Exit(1)

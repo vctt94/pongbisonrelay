@@ -8,6 +8,9 @@ import 'package:golib_plugin/linux.dart';
 import 'package:golib_plugin/macos.dart';
 import 'package:golib_plugin/windows.dart';
 
+// Re-export commonly used API/types for consumers of package:golib_plugin/golib_plugin.dart
+export 'definitions.dart';
+
 PluginPlatform _newPluginPlatform() {
   if (Platform.isLinux) {
     return LinuxPlugin();

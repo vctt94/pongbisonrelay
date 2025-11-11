@@ -485,8 +485,10 @@ mixin NtfStreams {
       // Calculate time since last emit, or 0 if no frames emitted yet
       final sinceLastMs =
           _lastEmitMicros > 0 ? ((nowUs - _lastEmitMicros) ~/ 1000) : 0;
-      debugPrint(
-          '[ui] frames in=$_framesIn out=$_framesDecoded decode=${_lastDecodeMs}ms max=${_maxDecodeMs}ms');
+      
+      // debugPrint(
+      //     '[ui] frames in=$_framesIn out=$_framesDecoded decode=${_lastDecodeMs}ms max=${_maxDecodeMs}ms');
+      
       final inAvg = _inDtCount > 0 ? (_inDtSum ~/ _inDtCount) : 0;
       final outAvg = _outDtCount > 0 ? (_outDtSum ~/ _outDtCount) : 0;
       // Push stats to UI subscribers.
@@ -588,9 +590,7 @@ mixin NtfStreams {
     }
     _decoding = true;
 
-    final queueLenBefore = _frameQueue.length;
     final raw = _frameQueue.removeAt(0);
-    final decodeStartMicros = DateTime.now().microsecondsSinceEpoch;
 
     try {
       // Decode protobuf payload sent by Go server.
@@ -847,6 +847,23 @@ abstract class PluginPlatform {
     await asyncCall(CTDeleteHistoricEscrow, {'escrow_id': escrowId});
   }
 
+  // --- Config management via golib ---
+  Future<ClientConfig> getClientConfig() async {
+    final res = await asyncCall(CTGetClientConfig, "");
+    return ClientConfig.fromJson(Map<String, dynamic>.from(res as Map));
+  }
+
+  Future<void> saveClientConfig(ClientConfig cfg) async {
+    final payload = {
+      'server_addr': cfg.serverAddr,
+      'grpc_cert_path': cfg.grpcCertPath,
+      'network': cfg.network,
+      'debug': cfg.debugLevel,
+      'show_perfoverlay': cfg.showPerfOverlay,
+    };
+    await asyncCall(CTSaveClientConfig, payload);
+  }
+
   // Player action methods (migrated from Dart gRPC)
   Future<void> sendInput(String input) async {
     await asyncCall(CTSendInput, {'input': input});
@@ -891,6 +908,10 @@ const int CTListHistoricEscrows = 0x16;
 const int CTCacheEscrowInfo = 0x17;
 const int CTUpdateHistoricEscrow = 0x18;
 const int CTDeleteHistoricEscrow = 0x19;
+
+// Config management
+const int CTGetClientConfig = 0x1a;
+const int CTSaveClientConfig = 0x1b;
 
 const int CTCreateLockFile = 0x60;
 const int CTCloseLockFile = 0x61;
@@ -939,4 +960,34 @@ class PerfStats {
     required this.outDtAvg,
     required this.outDtMax,
   });
+}
+
+// Lightweight config DTO managed by golib
+class ClientConfig {
+  final String serverAddr;
+  final String grpcCertPath;
+  final String network;
+  final String debugLevel;
+  final bool showPerfOverlay;
+  final String dataDir;
+
+  ClientConfig({
+    required this.serverAddr,
+    required this.grpcCertPath,
+    required this.network,
+    required this.debugLevel,
+    required this.showPerfOverlay,
+    required this.dataDir,
+  });
+
+  factory ClientConfig.fromJson(Map<String, dynamic> json) {
+    return ClientConfig(
+      serverAddr: (json['server_addr'] ?? '').toString(),
+      grpcCertPath: (json['grpc_cert_path'] ?? '').toString(),
+      network: (json['network'] ?? '').toString(),
+      debugLevel: (json['debug'] ?? '').toString(),
+      showPerfOverlay: json['show_perfoverlay'] == true,
+      dataDir: (json['data_dir'] ?? '').toString(),
+    );
+  }
 }

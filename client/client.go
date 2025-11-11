@@ -69,6 +69,39 @@ type PongClient struct {
 	activeEscrowInfo *EscrowInfo
 }
 
+// LoadTLSCreds loads client TLS credentials using the configured cert path,
+// with a simple and robust fallback:
+// 1) Try cfg.GRPCCertPath
+// 2) Try <datadir>/ca.cert
+// 3) Create default cert at cfg.GRPCCertPath and retry
+func LoadTLSCreds(cfg *PongConf) (credentials.TransportCredentials, error) {
+	if cfg == nil {
+		return nil, fmt.Errorf("nil TLS config")
+	}
+	certPath := strings.TrimSpace(cfg.GRPCCertPath)
+	if certPath == "" {
+		certPath = filepath.Join(cfg.DataDir, "ca.cert")
+		cfg.GRPCCertPath = certPath
+	}
+	if creds, err := credentials.NewClientTLSFromFile(certPath, ""); err == nil {
+		return creds, nil
+	}
+	fallback := filepath.Join(cfg.DataDir, "ca.cert")
+	if fallback != certPath {
+		if creds, err := credentials.NewClientTLSFromFile(fallback, ""); err == nil {
+			cfg.GRPCCertPath = fallback
+			return creds, nil
+		}
+	}
+	_ = os.MkdirAll(filepath.Dir(certPath), 0700)
+	_ = os.WriteFile(certPath, []byte(defaultServerCertPEM), 0600)
+	creds, err := credentials.NewClientTLSFromFile(certPath, "")
+	if err != nil {
+		return nil, fmt.Errorf("load TLS cert: %w", err)
+	}
+	return creds, nil
+}
+
 func NewPongClient(clientID string, cfg *PongClientCfg) (*PongClient, error) {
 	if cfg.LogBackend == nil {
 		return nil, fmt.Errorf("client must have logger")
@@ -77,9 +110,9 @@ func NewPongClient(clientID string, cfg *PongClientCfg) (*PongClient, error) {
 		return nil, fmt.Errorf("client must have PongConf")
 	}
 
-	creds, err := credentials.NewClientTLSFromFile(cfg.PongConf.GRPCCertPath, "")
+	creds, err := LoadTLSCreds(cfg.PongConf)
 	if err != nil {
-		return nil, fmt.Errorf("load TLS cert: %w", err)
+		return nil, err
 	}
 
 	dialOpts := []grpc.DialOption{

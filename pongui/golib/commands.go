@@ -55,6 +55,10 @@ const (
 	CTUpdateHistoricEscrow = 0x18
 	CTDeleteHistoricEscrow = 0x19
 
+	// Config management (UI<->golib)
+	CTGetClientConfig  = 0x1a
+	CTSaveClientConfig = 0x1b
+
 	CTCreateLockFile        = 0x60
 	CTCloseLockFile         = 0x61
 	CTGetRunState           = 0x83
@@ -189,6 +193,16 @@ func call(cmd *cmd) *CmdResult {
 		var args string
 		decode(&args)
 		err = globalProfiler.zipLogs(args)
+
+	case CTGetClientConfig:
+		// No payload required; load current config using default app datadir.
+		v, err = handleGetClientConfig()
+
+	case CTSaveClientConfig:
+		var args saveClientConfigArgs
+		if decode(&args) {
+			v, err = handleSaveClientConfig(args)
+		}
 	default:
 		// Calls that need a client. Figure out the client.
 		cmtx.Lock()
