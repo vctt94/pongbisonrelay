@@ -286,6 +286,11 @@ func (s *Server) cleanupEscrowSessionsForPlayers(players []*ponggame.Player) {
 		// Find and clean up escrow sessions for this player
 		for escrowID, es := range s.escrows {
 			if es != nil && es.ownerUID == *p.ID {
+				// Clear player binding first (while holding lock) to stop notifications
+				// This must happen before canceling context so trackEscrow sees nil player
+				es.mu.Lock()
+				es.player = nil
+				es.mu.Unlock()
 				// Cancel the trackEscrow goroutine
 				if es.cancelTrack != nil {
 					es.cancelTrack()
@@ -608,11 +613,18 @@ func (s *Server) removeWaitingRoom(wr *ponggame.WaitingRoom, msg string) {
 	if msg == "" {
 		msg = "Waiting room removed"
 	}
+	// Snapshot players BEFORE removing the room, otherwise the room removal
+	// clears wr.Players and escrow cleanup won't find any sessions to stop.
+	wr.RLock()
+	playersSnapshot := append([]*ponggame.Player(nil), wr.Players...)
+	wr.RUnlock()
 	if wr.Cancel != nil {
 		wr.Cancel()
 	}
+	// Clean up all escrow sessions for players in this room before removing it.
+	s.cleanupEscrowSessionsForPlayers(playersSnapshot)
+	// Now safely remove the room from the game manager.
 	s.gameManager.RemoveWaitingRoom(wr.ID)
-	s.cleanupEscrowSessionsForPlayers(wr.Players)
 	s.notifyallusers(&pong.NtfnStreamResponse{
 		NotificationType: pong.NotificationType_ON_WR_REMOVED,
 		Message:          msg,
