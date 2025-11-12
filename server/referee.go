@@ -69,33 +69,41 @@ func (s *Server) trackEscrow(ctx context.Context, es *escrowSession, ch <-chan c
 					es.lastUTXOs = es.lastUTXOs[:0]
 				}
 			}
+			// Get player reference while holding lock to check if escrow is still active
+			player := es.player
 			es.mu.Unlock()
 
 			// Emit a single structured update when funded and state changed.
-			if es.ownerUID.String() != "" && u.UTXOCount > 0 && (u.UTXOCount != prev.UTXOCount || u.Confs != prev.Confs) {
-				s.log.Debugf("trackEscrow: funding update owner=%s pk=%s utxos=%d confs=%d", es.ownerUID, u.PkScriptHex, u.UTXOCount, u.Confs)
-				var metaJSON string
-				if err := s.ensureBoundFunding(es); err == nil {
-					es.mu.RLock()
-					bound := es.boundInput
-					es.mu.RUnlock()
-					if bound != nil {
-						meta := map[string]interface{}{
-							"escrow_id":         es.escrowID,
-							"funding_txid":      bound.Txid,
-							"funding_vout":      bound.Vout,
-							"funded_amount":     bound.Value,
-							"redeem_script_hex": es.redeemScriptHex,
-							"pk_script_hex":     es.pkScriptHex,
-							"csv_blocks":        es.csvBlocks,
-						}
-						if b, err := json.Marshal(meta); err == nil {
-							metaJSON = string(b)
-						}
+			// Only send notifications if player is still bound (escrow not cleaned up).
+			ownerID := es.ownerUID.String()
+			isFunded := u.UTXOCount > 0
+			stateChanged := u.UTXOCount != prev.UTXOCount || u.Confs != prev.Confs
+			if player == nil || ownerID == "" || !isFunded || !stateChanged {
+				continue
+			}
+
+			s.log.Debugf("trackEscrow: funding update owner=%s pk=%s utxos=%d confs=%d", es.ownerUID, u.PkScriptHex, u.UTXOCount, u.Confs)
+			var metaJSON string
+			if err := s.ensureBoundFunding(es); err == nil {
+				es.mu.RLock()
+				bound := es.boundInput
+				es.mu.RUnlock()
+				if bound != nil {
+					meta := map[string]interface{}{
+						"escrow_id":         es.escrowID,
+						"funding_txid":      bound.Txid,
+						"funding_vout":      bound.Vout,
+						"funded_amount":     bound.Value,
+						"redeem_script_hex": es.redeemScriptHex,
+						"pk_script_hex":     es.pkScriptHex,
+						"csv_blocks":        es.csvBlocks,
+					}
+					if b, err := json.Marshal(meta); err == nil {
+						metaJSON = string(b)
 					}
 				}
-				_ = s.notify(es.player, &pong.NtfnStreamResponse{NotificationType: pong.NotificationType_BET_AMOUNT_UPDATE, PlayerId: es.ownerUID.String(), BetAmt: int64(es.betAtoms), Confs: u.Confs, Message: metaJSON})
 			}
+			_ = s.notify(player, &pong.NtfnStreamResponse{NotificationType: pong.NotificationType_BET_AMOUNT_UPDATE, PlayerId: ownerID, BetAmt: int64(es.betAtoms), Confs: u.Confs, Message: metaJSON})
 		}
 	}
 }
