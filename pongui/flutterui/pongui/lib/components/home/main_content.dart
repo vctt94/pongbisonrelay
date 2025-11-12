@@ -322,8 +322,12 @@ class _MainContentState extends State<MainContent> {
       // Specific overlays
       if (state == GameState.gameInitialized)
         _buildReadyToPlayOverlay(state, model),
-      if (state == GameState.readyToPlay) _buildWaitingForPlayersOverlay(),
+      if (state == GameState.readyToPlay) _buildWaitingForPlayersOverlay(model),
       if (state == GameState.countdown) _buildCountdownOverlay(model),
+      // Small ready-timeout countdown chip when waiting for players (pre-countdown)
+      if ((state == GameState.gameInitialized) &&
+          model.readyCancelRemaining > 0)
+        _buildReadyTimeoutChip(model),
     ];
 
     return SizedBox.expand(
@@ -360,14 +364,14 @@ class _MainContentState extends State<MainContent> {
   }
 
   // Waiting for players overlay - after pressing "I'm Ready"
-  Widget _buildWaitingForPlayersOverlay() {
+  Widget _buildWaitingForPlayersOverlay(PongModel model) {
     return Positioned.fill(
       child: Container(
         color: const Color.fromRGBO(0, 0, 0, 0.5),
-        child: const Material(
+        child: Material(
           type: MaterialType.transparency,
           child: Center(
-            child: _WaitingForPlayersCard(),
+            child: _WaitingForPlayersCard(seconds: model.readyCancelRemaining),
           ),
         ),
       ),
@@ -399,6 +403,43 @@ class _MainContentState extends State<MainContent> {
     );
   }
 
+  // Small floating chip to display the ready-timeout countdown on the side
+  Widget _buildReadyTimeoutChip(PongModel model) {
+    return Positioned(
+      top: 16,
+      right: 16,
+      child: Container(
+        padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 8),
+        decoration: BoxDecoration(
+          color: const Color(0xFF1B1E2C).withAlpha(230),
+          borderRadius: BorderRadius.circular(20),
+          boxShadow: [
+            BoxShadow(
+              color: Colors.blueAccent.withAlpha(76),
+              spreadRadius: 2,
+              blurRadius: 6,
+            ),
+          ],
+        ),
+        child: Row(
+          mainAxisSize: MainAxisSize.min,
+          children: [
+            const Icon(Icons.timer_outlined, size: 16, color: Colors.white70),
+            const SizedBox(width: 6),
+            Text(
+              "Get ready or the game will auto-cancel in: ${model.readyCancelRemaining}s",
+              style: const TextStyle(
+                color: Colors.white70,
+                fontSize: 13,
+                fontWeight: FontWeight.w600,
+              ),
+            ),
+          ],
+        ),
+      ),
+    );
+  }
+
   String? _joinRoomDisabledReason(PongModel model) {
     if (model.serverIsF2P) {
       return null;
@@ -415,7 +456,8 @@ class _MainContentState extends State<MainContent> {
 
 // Small presentational widget for the waiting overlay
 class _WaitingForPlayersCard extends StatelessWidget {
-  const _WaitingForPlayersCard();
+  final int seconds;
+  const _WaitingForPlayersCard({this.seconds = 0});
 
   @override
   Widget build(BuildContext context) {
@@ -432,21 +474,32 @@ class _WaitingForPlayersCard extends StatelessWidget {
           ),
         ],
       ),
-      child: const Column(
+      child: Column(
         mainAxisSize: MainAxisSize.min,
         children: [
-          Icon(Icons.sports_esports, size: 50, color: Colors.blueAccent),
-          SizedBox(height: 20),
-          Text(
-            "Waiting for players to get ready...",
+          const Icon(Icons.sports_esports, size: 50, color: Colors.blueAccent),
+          const SizedBox(height: 20),
+          const Text(
+            "Waiting for the other player to get ready...",
             style: TextStyle(
               color: Colors.white,
               fontSize: 24,
               fontWeight: FontWeight.bold,
             ),
           ),
-          SizedBox(height: 20),
-          SizedBox(
+          if (seconds > 0) ...[
+            const SizedBox(height: 8),
+            Text(
+              "Game will auto-cancel in: ${seconds}s",
+              style: const TextStyle(
+                color: Colors.white70,
+                fontSize: 14,
+                fontWeight: FontWeight.w500,
+              ),
+            ),
+          ],
+          const SizedBox(height: 20),
+          const SizedBox(
             width: 40,
             height: 40,
             child: CircularProgressIndicator(

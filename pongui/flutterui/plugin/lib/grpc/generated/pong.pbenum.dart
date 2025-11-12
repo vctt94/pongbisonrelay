@@ -47,6 +47,11 @@ class NotificationType extends $pb.ProtobufEnum {
   static const NotificationType HEARTBEAT =
       NotificationType._(15, _omitEnumNames ? '' : 'HEARTBEAT');
 
+  /// Hint that the game will auto-cancel unless both players get ready within
+  /// the given number of seconds. Carries ready_timeout_seconds in the payload.
+  static const NotificationType READY_TIMEOUT_HINT =
+      NotificationType._(16, _omitEnumNames ? '' : 'READY_TIMEOUT_HINT');
+
   static const $core.List<NotificationType> values = <NotificationType>[
     UNKNOWN,
     MESSAGE,
@@ -63,10 +68,11 @@ class NotificationType extends $pb.ProtobufEnum {
     MATCH_ALLOCATED,
     SERVER_CONFIG,
     HEARTBEAT,
+    READY_TIMEOUT_HINT,
   ];
 
   static final $core.List<NotificationType?> _byValue =
-      $pb.ProtobufEnum.$_initByValueList(values, 15);
+      $pb.ProtobufEnum.$_initByValueList(values, 16);
   static NotificationType? valueOf($core.int value) =>
       value < 0 || value >= _byValue.length ? null : _byValue[value];
 

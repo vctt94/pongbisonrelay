@@ -288,7 +288,7 @@ func (m *appstate) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 					}
 					// Destination: reuse the configured payout address text
 					dest := *addressFlag
-					params, err := m.appCfg.GetChainParams()
+					params, err := m.pc.GetChainParams()
 					if err != nil {
 						m.notification = "Refund build error: invalid network config: " + err.Error()
 						m.msgCh <- client.UpdatedMsg{}

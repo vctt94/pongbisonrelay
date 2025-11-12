@@ -7,11 +7,10 @@ import (
 	"fmt"
 	"io"
 	"net/http"
+	"os"
 	"path/filepath"
 	"sync"
 	"time"
-
-	"os"
 
 	"github.com/companyzero/bisonrelay/zkidentity"
 	"github.com/decred/dcrd/chaincfg/chainhash"
@@ -41,6 +40,7 @@ type ServerConfig struct {
 
 	MinBetAmt             float64
 	IsF2P                 bool
+	ReadyTimeoutSeconds   int
 	DebugLevel            string
 	DebugGameManagerLevel string
 	LogBackend            *logging.LogBackend
@@ -119,6 +119,7 @@ type Server struct {
 
 	log                slog.Logger
 	isF2P              bool
+	network            string // Decred network: "mainnet" or "testnet"
 	minBetAmt          float64
 	waitingRoomCreated chan struct{}
 
@@ -198,12 +199,21 @@ func NewServer(id *zkidentity.ShortID, cfg ServerConfig) (*Server, error) {
 		adaptorSecret: cfg.AdaptorSecret,
 	}
 
+	if cfg.ReadyTimeoutSeconds <= 0 {
+		return nil, fmt.Errorf("readytimeoutseconds cfg param must be greater than 0")
+	}
+	s.gameManager.ReadyTimeoutSeconds = cfg.ReadyTimeoutSeconds
+
 	// Initialize chain parameters based on network config
 	params, err := initChainParams(cfg.Network)
 	if err != nil {
 		return nil, err
 	}
 	s.params = params
+	s.network = cfg.Network
+	if s.network == "" {
+		s.network = "mainnet" // default
+	}
 	s.log.Infof("Using %s chain parameters", s.params.Name)
 
 	// Log F2P status as early as possible.
@@ -413,8 +423,11 @@ func (s *Server) Shutdown(ctx context.Context) error {
 	return nil
 }
 
-func (s *Server) handleGameEnd(ctx context.Context, game *ponggame.GameInstance, wr *ponggame.WaitingRoom) {
-	players := wr.ReadyPlayers()
+func (s *Server) handleGameEnd(ctx context.Context, game *ponggame.GameInstance) {
+	// Use the game's waiting room reference
+	gameWR := game.WaitingRoom
+
+	players := gameWR.ReadyPlayers()
 	winner := game.Winner
 	var winnerID string
 	if winner != nil {
@@ -451,13 +464,13 @@ func (s *Server) handleGameEnd(ctx context.Context, game *ponggame.GameInstance,
 		player.Ready = false
 		player.Unlock()
 
-		pwr := wr.Marshal()
-		for _, p := range wr.Players {
+		pwr := gameWR.Marshal()
+		for _, p := range gameWR.Players {
 			_ = s.notify(p, &pong.NtfnStreamResponse{
 				NotificationType: pong.NotificationType_ON_PLAYER_READY,
 				Message:          fmt.Sprintf("Player %s is not ready", player.Nick),
 				PlayerId:         player.ID.String(),
-				RoomId:           wr.ID,
+				RoomId:           gameWR.ID,
 				Wr:               pwr,
 				Ready:            false,
 			})
@@ -474,16 +487,10 @@ func (s *Server) handleGameEnd(ctx context.Context, game *ponggame.GameInstance,
 		player.GameStream = nil
 	}
 
-	// Finalize winner branch and broadcast on server (skip in F2P)
-	if s.isF2P {
-		s.removeWaitingRoom(wr, "Waiting room completed (F2P)")
-		return
-	}
-
 	if winner != nil {
 		// Determine branch index anchored to room host: branch 0 pays host (a), 1 pays non-host (b).
-		wrID := wr.ID
-		host := wr.HostID
+		wrID := gameWR.ID
+		host := gameWR.HostID
 		if host == nil {
 			s.log.Errorf("handleGameEnd: waiting room host nil for wr %s", wrID)
 			return
@@ -516,10 +523,10 @@ func (s *Server) handleGameEnd(ctx context.Context, game *ponggame.GameInstance,
 		// Choose any context for the winner branch to anchor the draft hex.
 		var chosen *PreSignCtx
 		var branches []int32
-		for _, ctxp := range es.preSign {
-			branches = append(branches, ctxp.Branch)
-			if ctxp.Branch == winnerBranch {
-				chosen = ctxp
+		for _, ctx := range es.preSign {
+			branches = append(branches, ctx.Branch)
+			if ctx.Branch == winnerBranch {
+				chosen = ctx
 			}
 		}
 		if chosen == nil {
@@ -530,12 +537,12 @@ func (s *Server) handleGameEnd(ctx context.Context, game *ponggame.GameInstance,
 		// Build inputs/presigs for the chosen draft from stored contexts.
 		inputs := make([]*pong.NeedPreSigs_PerInput, 0, len(es.preSign))
 		presigs := make(map[string]*pong.PreSig)
-		for id, ctxp := range es.preSign {
-			if ctxp.Branch != winnerBranch || ctxp.DraftHex != chosen.DraftHex {
+		for id, ctx := range es.preSign {
+			if ctx.Branch != winnerBranch || ctx.DraftHex != chosen.DraftHex {
 				continue
 			}
-			inputs = append(inputs, &pong.NeedPreSigs_PerInput{InputId: id, RedeemScriptHex: ctxp.RedeemScriptHex})
-			presigs[id] = &pong.PreSig{InputId: id, RLineCompressed: append([]byte(nil), ctxp.RLineCompressed...), SLine32: append([]byte(nil), ctxp.SLine32...)}
+			inputs = append(inputs, &pong.NeedPreSigs_PerInput{InputId: id, RedeemScriptHex: ctx.RedeemScriptHex})
+			presigs[id] = &pong.PreSig{InputId: id, RLineCompressed: append([]byte(nil), ctx.RLineCompressed...), SLine32: append([]byte(nil), ctx.SLine32...)}
 		}
 		if len(inputs) == 0 || len(presigs) == 0 {
 			s.log.Warnf("finalize: missing presigs/inputs for winner branch %d", winnerBranch)
@@ -583,11 +590,7 @@ func (s *Server) handleGameEnd(ctx context.Context, game *ponggame.GameInstance,
 			}
 			return
 		}
-		// After game finishes, and tx was successfully broadcasted,
-		// remove the associated waiting room  and escrows.
-		s.removeWaitingRoom(wr, "Waiting room has been removed")
 		txid := h.String()
-
 		// Notify both players of settlement broadcast.
 		for _, p := range players {
 			_ = s.notify(p, &pong.NtfnStreamResponse{
@@ -779,8 +782,7 @@ func (s *Server) sendGameUpdates(ctx context.Context, player *ponggame.Player, g
 }
 
 func (s *Server) handleGameLifecycle(ctx context.Context, wr *ponggame.WaitingRoom) {
-	players := wr.ReadyPlayers()[:2]
-	game, err := s.gameManager.StartGame(ctx, players)
+	game, err := s.gameManager.StartGame(ctx, wr)
 	if err != nil {
 		s.log.Errorf("Failed to start game: %v", err)
 		return
@@ -794,10 +796,16 @@ func (s *Server) handleGameLifecycle(ctx context.Context, wr *ponggame.WaitingRo
 		// remove game from gameManager after it ended
 		s.gameManager.DeleteGame(game.Id)
 		s.log.Debugf("Game %s cleaned up", game.Id)
+		// remove waiting room when game is cleaning up
+		s.removeWaitingRoom(wr, "Waiting room removed after game cleanup")
 	}()
 
-	game.Run()
+	if err := game.Run(); err != nil {
+		s.log.Errorf("Failed to run game %s: %v", game.Id, err)
+		return
+	}
 
+	players := game.Players
 	var wg sync.WaitGroup
 	for _, player := range players {
 		wg.Add(1)
@@ -826,5 +834,5 @@ func (s *Server) handleGameLifecycle(ctx context.Context, wr *ponggame.WaitingRo
 	// Clean up the game after all streams have finished
 	game.Cleanup()
 
-	s.handleGameEnd(ctx, game, wr)
+	s.handleGameEnd(ctx, game)
 }

@@ -154,13 +154,13 @@ func (gm *GameManager) GetPlayerGame(clientID zkidentity.ShortID) *GameInstance 
 	return gi
 }
 
-func (s *GameManager) StartGame(ctx context.Context, players []*Player) (*GameInstance, error) {
+func (s *GameManager) StartGame(ctx context.Context, waitingRoom *WaitingRoom) (*GameInstance, error) {
 	gameID, err := utils.GenerateRandomString(16)
 	if err != nil {
 		return nil, err
 	}
 
-	newGameInstance := s.startNewGame(ctx, players, gameID)
+	newGameInstance := s.startNewGame(ctx, gameID, waitingRoom)
 	s.gamesMu.Lock()
 	s.Games[gameID] = newGameInstance
 	s.gamesMu.Unlock()
@@ -168,11 +168,13 @@ func (s *GameManager) StartGame(ctx context.Context, players []*Player) (*GameIn
 	return newGameInstance, nil
 }
 
-func (gm *GameManager) startNewGame(ctx context.Context, players []*Player, id string) *GameInstance {
+func (gm *GameManager) startNewGame(ctx context.Context, id string, waitingRoom *WaitingRoom) *GameInstance {
 	framesch := make(chan []byte, INPUT_BUF_SIZE)
 	inputch := make(chan []byte, INPUT_BUF_SIZE)
 	roundResult := make(chan int32)
 	ctx, cancel := context.WithCancel(ctx)
+
+	players := waitingRoom.Players
 
 	// sum of all bets
 	betAmt := int64(0)
@@ -186,16 +188,18 @@ func (gm *GameManager) startNewGame(ctx context.Context, players []*Player, id s
 	}
 
 	newGame := &GameInstance{
-		Id:          id,
-		Framesch:    framesch,
-		Inputch:     inputch,
-		roundResult: roundResult,
-		Running:     true,
-		ctx:         ctx,
-		cancel:      cancel,
-		Players:     players,
-		betAmt:      betAmt,
-		log:         gm.Log,
+		Id:                  id,
+		ReadyTimeoutSeconds: gm.ReadyTimeoutSeconds,
+		Framesch:            framesch,
+		Inputch:             inputch,
+		roundResult:         roundResult,
+		Running:             true,
+		ctx:                 ctx,
+		cancel:              cancel,
+		Players:             players,
+		betAmt:              betAmt,
+		log:                 gm.Log,
+		WaitingRoom:         waitingRoom,
 
 		// Initialize the ready to play fields
 		PlayersReady:     make(map[string]bool),
@@ -278,7 +282,11 @@ func (gm *GameManager) startNewGame(ctx context.Context, players []*Player, id s
 	return newGame
 }
 
-func (g *GameInstance) Run() {
+func (g *GameInstance) Run() error {
+	// Validate configuration before starting background loops.
+	if g.ReadyTimeoutSeconds <= 0 {
+		return fmt.Errorf("invalid ReadyTimeoutSeconds: %d", g.ReadyTimeoutSeconds)
+	}
 	g.Running = true
 
 	// Wait for players to be ready before starting the actual game
@@ -292,54 +300,138 @@ func (g *GameInstance) Run() {
 			case <-g.ctx.Done():
 				return
 			case <-ticker.C:
+				var startGameplay bool
+				var startCountdown bool
+				var notifyReadyTimeout bool
+				var notifyPlayers []*Player
+				var rtMsg string
+
 				g.Lock()
 
-				// Check if all players are ready
-				allPlayersReady := len(g.PlayersReady) == len(g.Players)
+				if g.GameReady {
+					startGameplay = true
+				} else if !g.CountdownStarted {
+					// Start timeout timer if not already started
+					if g.readyTimer == nil {
+						secs := g.ReadyTimeoutSeconds
+						g.readyTimer = time.AfterFunc(time.Duration(secs)*time.Second, g.onReadyTimeout)
+						notifyReadyTimeout = true
+						notifyPlayers = append([]*Player(nil), g.Players...)
+						rtMsg = fmt.Sprintf("Waiting for players to get ready. Game will cancel in %d seconds unless both are ready.", secs)
+					}
 
-				// If all players are ready and countdown hasn't started yet, start countdown
-				gameReady := g.GameReady
-				if allPlayersReady && !g.CountdownStarted && !gameReady {
-					g.CountdownStarted = true
+					// Start countdown if all players are ready
+					if len(g.PlayersReady) == len(g.Players) {
+						if g.readyTimer != nil {
+							g.readyTimer.Stop()
+							g.readyTimer = nil
+						}
+						g.CountdownStarted = true
+						startCountdown = true
+					}
+				}
+				g.Unlock()
+
+				if notifyReadyTimeout {
+					secsVal := g.ReadyTimeoutSeconds
+					for _, p := range notifyPlayers {
+						if p != nil && p.NotifierStream != nil {
+							err := p.NotifierStream.Send(&pong.NtfnStreamResponse{
+								NotificationType:    pong.NotificationType_READY_TIMEOUT_HINT,
+								Message:             rtMsg,
+								GameId:              g.Id,
+								ReadyTimeoutSeconds: uint32(secsVal),
+							})
+							if err != nil {
+								g.log.Errorf("[DEBUG] Failed to send ready-timeout notification to player %s: %v", p.ID, err)
+							}
+						}
+					}
+				}
+
+				if startGameplay {
+					g.startGameplay()
+
+					// Reset state after game ends for next game
+					g.Lock()
+					g.GameReady = false
+					g.CountdownStarted = false
+					g.CountdownValue = 3
+					g.PlayersReady = make(map[string]bool)
+					if g.readyTimer != nil {
+						g.readyTimer.Stop()
+						g.readyTimer = nil
+					}
 					g.Unlock()
-
-					// Start the countdown
+				} else if startCountdown {
 					go g.startCountdown()
-				} else {
-					g.Unlock()
 				}
 
-				// If game is ready, start the actual gameplay
-				if gameReady {
-					// Start actual gameplay - single goroutine to handle all rounds
-					go func() {
-						// Start the first round
-						if g.Running {
-							g.engine.NewRound(g.ctx, g.Framesch, g.Inputch, g.roundResult)
-						}
-
-						for winnerNumber := range g.roundResult {
-							if !g.Running {
-								break
-							}
-
-							// Handle the result of each round
-							g.handleRoundResult(winnerNumber)
-
-							// Check if the game should continue or end
-							if g.shouldEndGame() {
-								break
-							} else {
-								g.engine.NewRound(g.ctx, g.Framesch, g.Inputch, g.roundResult)
-							}
-						}
-					}()
-
-					return // Exit this goroutine once the game has started
-				}
 			}
 		}
 	}()
+
+	return nil
+}
+
+// startGameplay begins the actual game rounds
+func (g *GameInstance) startGameplay() {
+	// Start the first round
+	if g.Running {
+		g.engine.NewRound(g.ctx, g.Framesch, g.Inputch, g.roundResult)
+	}
+
+	for winnerNumber := range g.roundResult {
+		if !g.Running {
+			break
+		}
+
+		// Handle the result of each round
+		g.handleRoundResult(winnerNumber)
+
+		// Check if the game should continue or end
+		if g.shouldEndGame() {
+			break
+		} else {
+			g.engine.NewRound(g.ctx, g.Framesch, g.Inputch, g.roundResult)
+		}
+	}
+}
+
+// onReadyTimeout is called when the ready timeout expires
+func (g *GameInstance) onReadyTimeout() {
+	g.Lock()
+	defer g.Unlock()
+
+	// Only timeout if game hasn't started yet
+	if g.GameReady || g.CountdownStarted {
+		return
+	}
+
+	g.log.Infof("Game %s timed out - not all players ready to play", g.Id)
+
+	// Notify all players about timeout
+	for _, p := range g.WaitingRoom.Players {
+		if p.NotifierStream != nil {
+			p.NotifierStream.Send(&pong.NtfnStreamResponse{
+				NotificationType: pong.NotificationType_GAME_END,
+				Message:          "Game cancelled - not all players ready within timeout period",
+				GameId:           g.Id,
+			})
+		}
+	}
+
+	// Clean up the waiting room if it exists
+	if g.WaitingRoom != nil {
+		if g.WaitingRoom.Cancel != nil {
+			g.WaitingRoom.Cancel()
+		}
+	}
+
+	// Cancel the game
+	if g.cancel != nil {
+		g.cancel()
+	}
 }
 
 // startCountdown initiates and manages the countdown before the game starts
@@ -376,6 +468,8 @@ func (g *GameInstance) startCountdown() {
 				P2Y:           engineState.P2PosY,
 				BallX:         engineState.BallPosX,
 				BallY:         engineState.BallPosY,
+				P1Score:       0,
+				P2Score:       0,
 				P1YVelocity:   0,
 				P2YVelocity:   0,
 				BallXVelocity: 0,
@@ -466,26 +560,7 @@ func (g *GameInstance) shouldEndGame() bool {
 		}
 	}
 
-	// Add other conditions as needed, e.g., time limit or disconnection
-	if g.isTimeout() {
-		g.log.Info("Game ending: Timeout reached")
-		g.Running = false
-		// Signal that the game has ended by closing the frame channel
-		if g.Framesch != nil {
-			close(g.Framesch)
-		}
-		return true
-	}
-
 	// Return false if none of the end conditions are met
-	return false
-}
-
-// isTimeout checks if the game duration has exceeded a set limit
-func (g *GameInstance) isTimeout() bool {
-	// For example, a simple time limit check
-	// const maxGameDuration = 10 * time.Minute
-	// return time.Since(g.startTime) >= maxGameDuration
 	return false
 }
 
@@ -609,16 +684,22 @@ func (g *GameInstance) distributeFrames() {
 }
 
 // Fix the code that was causing "bytes declared and not used" and "select case must be send or receive" errors
-func sendInitialGameState(player *Player, gameUpdate *pong.GameUpdate) {
+func sendInitialGameState(player *Player, gameUpdate *pong.GameUpdate) error {
 	if player.GameStream == nil {
-		return
+		return fmt.Errorf("player %s has no game stream", player.ID)
 	}
 
+	// Marshal the game update to bytes
 	bytes, err := proto.Marshal(gameUpdate)
 	if err != nil {
-		return
+		return err
 	}
 
-	// Use the bytes variable by sending it
-	player.GameStream.Send(&pong.GameUpdateBytes{Data: bytes})
+	// Send the initial game state (non-blocking)
+	err = player.GameStream.Send(&pong.GameUpdateBytes{Data: bytes})
+	if err != nil {
+		// Log or handle error if needed
+		return err
+	}
+	return nil
 }

@@ -76,6 +76,9 @@ class PongModel extends ChangeNotifier {
   String currentGameId = '';
   String countdownMessage = '';
   String gameEndingMessage = '';
+  // Ready-timeout (pre-countdown) UI state
+  int readyCancelRemaining = 0;
+  Timer? _readyCancelTimer;
 
   // Track last settlement match id used for presign so we can archive the
   // session key safely after game completion.
@@ -257,7 +260,6 @@ class PongModel extends ChangeNotifier {
       waitingRooms = await Golib.getWaitingRooms();
 
       // Initialize game client (notifications come via golib now)
-      print("Initializing game client with clientId: $clientId");
       pongGame = PongGame(clientId);
 
       isConnected = true;
@@ -271,6 +273,9 @@ class PongModel extends ChangeNotifier {
       _uiNtfnSub ??= Golib.uiNotifications.listen((n) {
         try {
           switch (n.type) {
+            case 'ready_timeout':
+              _handleNtfnReadyTimeout(n);
+              break;
             case 'bet_update':
               _handleNtfnBetUpdate(n);
               break;
@@ -512,6 +517,8 @@ class PongModel extends ChangeNotifier {
     }
     countdownMessage = msg;
     _currentGameState = GameState.countdown;
+    // Hide pre-start cancel countdown once actual countdown begins
+    _stopReadyCancelCountdown();
     if (msg.contains('0')) {
       _currentGameState = GameState.playing;
     }
@@ -521,6 +528,8 @@ class PongModel extends ChangeNotifier {
   void _handleNtfnGameEnd(UINotification n) {
     _stopGameStreamAndRenderLoop();
     gameEndingMessage = n.text.isNotEmpty ? n.text : 'Game ended';
+    // Clear ready-timeout state when game ends
+    _stopReadyCancelCountdown();
     _currentGameState = GameState.gameEnded;
     notifyListeners();
   }
@@ -591,10 +600,60 @@ class PongModel extends ChangeNotifier {
     betAmt = DEFAULT_BET_ATOMS;
     currentGameId = '';
     countdownMessage = '';
+    readyCancelRemaining = 0;
+    _readyCancelTimer?.cancel();
+    _readyCancelTimer = null;
     gameEndingMessage = '';
     clearEscrowState();
     _stopGameStreamAndRenderLoop();
     notifyListeners();
+  }
+
+  void _handleNtfnReadyTimeout(UINotification n) {
+    // Use count as seconds if provided; else try extras['seconds'].
+    var secs = n.count;
+    final extras = _extrasFrom(n);
+    if (secs <= 0) {
+      final v = extras['seconds'];
+      if (v is int) secs = v;
+      if (v is num) secs = v.toInt();
+    }
+    if (secs <= 0) {
+      return;
+    }
+    // Start/restart a local UI countdown even if state has changed
+    // (notification might arrive late, but we still want to show the countdown if relevant)
+    _startReadyCancelCountdown(secs);
+    // Show a subtle notification message
+    notificationModel.showNotification(
+      'Waiting for both players to be ready…',
+    );
+  }
+
+  void _startReadyCancelCountdown(int seconds) {
+    _readyCancelTimer?.cancel();
+    readyCancelRemaining = seconds;
+    notifyListeners();
+    _readyCancelTimer = Timer.periodic(const Duration(seconds: 1), (t) {
+      if (readyCancelRemaining > 0) {
+        readyCancelRemaining -= 1;
+        notifyListeners();
+      }
+      if (readyCancelRemaining <= 0) {
+        t.cancel();
+        _readyCancelTimer = null;
+        notifyListeners();
+      }
+    });
+  }
+
+  void _stopReadyCancelCountdown() {
+    _readyCancelTimer?.cancel();
+    _readyCancelTimer = null;
+    if (readyCancelRemaining != 0) {
+      readyCancelRemaining = 0;
+      notifyListeners();
+    }
   }
 
   // Clear all escrow-related client state so user can open a fresh escrow

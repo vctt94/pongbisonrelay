@@ -184,6 +184,9 @@ enum NotificationType {
   MATCH_ALLOCATED = 13;
   SERVER_CONFIG = 14;
   HEARTBEAT = 15; // periodic keepalive so clients keep the stream open
+  // Hint that the game will auto-cancel unless both players get ready within
+  // the given number of seconds. Carries ready_timeout_seconds in the payload.
+  READY_TIMEOUT_HINT = 16;
 }
 
 message MatchAllocatedNtfn {
@@ -221,6 +224,8 @@ message NtfnStreamResponse {
   uint32 confs = 12;
   // Server-wide free-to-play flag so clients can auto-toggle escrow UI gating.
   bool server_is_f2p = 13;
+  // Seconds until game auto-cancels in ready phase (for READY_TIMEOUT_HINT).
+  uint32 ready_timeout_seconds = 14;
 }
 
 message InitConnectionRequest {
@@ -230,6 +235,7 @@ message InitConnectionRequest {
 message InitConnectionResponse {
   string server_version = 1;
   bool is_f2p = 2;
+  string network = 3; // Decred network: "mainnet" or "testnet"
 }
 
 // Waiting Room Messages

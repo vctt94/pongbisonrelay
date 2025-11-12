@@ -208,7 +208,8 @@ func (pc *PongClient) handleNtfn(ntfn *pong.NtfnStreamResponse) {
 		pc.updatesCh <- ntfn
 
 	case pong.NotificationType_COUNTDOWN_UPDATE,
-		pong.NotificationType_GAME_READY_TO_PLAY:
+		pong.NotificationType_GAME_READY_TO_PLAY,
+		pong.NotificationType_READY_TIMEOUT_HINT:
 		pc.updatesCh <- ntfn
 
 	default:

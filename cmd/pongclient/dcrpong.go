@@ -119,7 +119,7 @@ func (m *appstate) resolvePayoutKey() ([]byte, error) {
 	if addressFlag == nil || *addressFlag == "" {
 		return nil, fmt.Errorf("missing -address flag")
 	}
-	params, err := m.appCfg.GetChainParams()
+	params, err := m.pc.GetChainParams()
 	if err != nil {
 		return nil, fmt.Errorf("invalid network config: %w", err)
 	}

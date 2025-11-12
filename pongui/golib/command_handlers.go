@@ -246,9 +246,7 @@ func handleInitClient(handle uint32, args initClient) (*localInfo, error) {
 				if ntfn, ok := msg.(*pong.NtfnStreamResponse); ok {
 					switch ntfn.NotificationType {
 					case pong.NotificationType_SERVER_CONFIG:
-						extras := map[string]interface{}{
-							"is_f2p": ntfn.ServerIsF2P,
-						}
+						extras := map[string]interface{}{"is_f2p": ntfn.ServerIsF2P}
 						fromJSON, _ := json.Marshal(extras)
 						notify(NTUINotification, map[string]interface{}{
 							"type":  "server_config",
@@ -377,6 +375,21 @@ func handleInitClient(handle uint32, args initClient) (*localInfo, error) {
 							"from":  string(fromJSON),
 						}, nil)
 
+					case pong.NotificationType_READY_TIMEOUT_HINT:
+						// Structured ready-timeout hint with seconds provided by server.
+						extras := map[string]interface{}{
+							"game_id": ntfn.GameId,
+							"message": ntfn.Message,
+							"seconds": ntfn.ReadyTimeoutSeconds,
+						}
+						fromJSON, _ := json.Marshal(extras)
+						notify(NTUINotification, map[string]interface{}{
+							"type":  "ready_timeout",
+							"text":  ntfn.Message,
+							"count": int(ntfn.ReadyTimeoutSeconds),
+							"from":  string(fromJSON),
+						}, nil)
+
 					case pong.NotificationType_ON_PLAYER_READY:
 						extras := map[string]interface{}{"player_id": ntfn.PlayerId, "ready": ntfn.Ready}
 						fromJSON, _ := json.Marshal(extras)
@@ -395,6 +408,12 @@ func handleInitClient(handle uint32, args initClient) (*localInfo, error) {
 							"text":  ntfn.Message,
 							"count": 0,
 							"from":  string(fromJSON),
+						}, nil)
+
+					case pong.NotificationType_MESSAGE:
+						notify(NTUINotification, map[string]interface{}{
+							"type": "message",
+							"text": ntfn.Message,
 						}, nil)
 
 					}
@@ -1098,7 +1117,6 @@ func handleGetClientConfigForHandle(handle uint32, dataDir string) (interface{},
 			return map[string]any{
 				"server_addr":      pc.ServerAddr,
 				"grpc_cert_path":   pc.GRPCCertPath,
-				"network":          pc.Network,
 				"debug":            pc.Debug,
 				"show_perfoverlay": pc.ShowPerfOverlay,
 				"data_dir":         pc.DataDir,
@@ -1212,7 +1230,6 @@ func handleGetClientConfig(dataDir string) (interface{}, error) {
 	return map[string]any{
 		"server_addr":      pc.ServerAddr,
 		"grpc_cert_path":   pc.GRPCCertPath,
-		"network":          pc.Network,
 		"debug":            pc.Debug,
 		"show_perfoverlay": pc.ShowPerfOverlay,
 		"data_dir":         pc.DataDir,
@@ -1243,9 +1260,6 @@ func handleSaveClientConfig(args saveClientConfigArgs) (interface{}, error) {
 	if strings.TrimSpace(args.GRPCCertPath) != "" {
 		pc.GRPCCertPath = strings.TrimSpace(args.GRPCCertPath)
 	}
-	if strings.TrimSpace(args.Network) != "" {
-		pc.Network = strings.TrimSpace(args.Network)
-	}
 	if strings.TrimSpace(args.Debug) != "" {
 		pc.Debug = strings.TrimSpace(args.Debug)
 	}
@@ -1271,7 +1285,6 @@ showperfoverlay=%t
 		pc.DataDir,
 		pc.ServerAddr,
 		pc.GRPCCertPath,
-		pc.Network,
 		filepath.Join(pc.DataDir, "logs", "pongclient.log"),
 		pc.Debug,
 		5,

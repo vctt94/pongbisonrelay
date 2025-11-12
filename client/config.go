@@ -7,7 +7,6 @@ import (
 	"path/filepath"
 	"strings"
 
-	"github.com/decred/dcrd/chaincfg/v3"
 	"github.com/vctt94/bisonbotkit/logging"
 )
 
@@ -43,9 +42,6 @@ type PongConf struct {
 	// Extracted Pong gRPC settings (also persisted in BR.ExtraConfig).
 	ServerAddr   string
 	GRPCCertPath string
-
-	// Network specifies the Decred network: "mainnet" or "testnet" (defaults to "testnet")
-	Network string
 
 	LogFile         string
 	Debug           string
@@ -86,8 +82,6 @@ func parseClientConfigFile(configPath string) (*PongConf, error) {
 			cfg.ServerAddr = value
 		case "grpccertpath":
 			cfg.GRPCCertPath = value
-		case "network":
-			cfg.Network = value
 		case "logfile":
 			cfg.LogFile = value
 			if cfg.LogFile == "" {
@@ -137,9 +131,6 @@ func parseClientConfigFile(configPath string) (*PongConf, error) {
 	if strings.TrimSpace(cfg.GRPCCertPath) == "" {
 		missing = append(missing, "grpccertpath")
 	}
-	if strings.TrimSpace(cfg.Network) == "" {
-		missing = append(missing, "network")
-	}
 
 	if len(missing) > 0 {
 		return nil, fmt.Errorf("missing required fields in client config: %s", strings.Join(missing, ", "))
@@ -179,7 +170,6 @@ func loadClientConf(configPath string, fileName string) (*PongConf, error) {
 		DataDir:        configPath,
 		GRPCCertPath:   filepath.Join(configPath, "ca.cert"),
 		ServerAddr:     "178.156.178.191:50051",
-		Network:        "mainnet",
 		LogFile:        filepath.Join(configPath, "logs", appName+".log"),
 		Debug:          "info",
 		MaxLogFiles:    5,
@@ -200,7 +190,6 @@ func writeClientConfigFile(cfg *PongConf, configPath string) error {
 		`datadir=%s
 serveraddress=%s
 grpccertpath=%s
-network=%s
 logfile=%s
 debug=%s
 maxlogfiles=%d
@@ -209,7 +198,6 @@ maxbufferlines=%d
 		cfg.DataDir,
 		cfg.ServerAddr,
 		cfg.GRPCCertPath,
-		cfg.Network,
 		cfg.LogFile,
 		cfg.Debug,
 		cfg.MaxLogFiles,
@@ -246,25 +234,4 @@ func LoadAppConfig(datadir string, appName string) (*PongClientCfg, error) {
 		LogBackend:    logBackend,
 		Notifications: NewNotificationManager(),
 	}, nil
-}
-
-// GetChainParams returns the chaincfg.Params for the configured network.
-// Returns an error if the network is invalid.
-func (cfg *PongConf) GetChainParams() (*chaincfg.Params, error) {
-	network := strings.ToLower(strings.TrimSpace(cfg.Network))
-	if network == "" {
-		network = "mainnet"
-	}
-	switch network {
-	case "mainnet":
-		return chaincfg.MainNetParams(), nil
-	case "testnet":
-		return chaincfg.TestNet3Params(), nil
-	case "simnet":
-		return chaincfg.SimNetParams(), nil
-	case "regnet":
-		return chaincfg.RegNetParams(), nil
-	default:
-		return nil, fmt.Errorf("invalid network: %s (must be 'mainnet' or 'testnet')", cfg.Network)
-	}
 }

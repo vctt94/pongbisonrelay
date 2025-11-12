@@ -42,6 +42,7 @@ type PongClient struct {
 	appCfg        *PongConf
 	serverVersion string
 	serverIsF2P   bool
+	serverNetwork string // network received from server
 	// game client
 	gc pong.PongGameClient
 	// waiting room client
@@ -194,7 +195,9 @@ func (pc *PongClient) initConnection(ctx context.Context) error {
 	}
 	pc.serverVersion = resp.GetServerVersion()
 	pc.serverIsF2P = resp.GetIsF2P()
-	pc.log.Infof("Server version: %s (F2P=%v)", pc.serverVersion, pc.serverIsF2P)
+	pc.serverNetwork = resp.GetNetwork()
+	pc.log.Infof("Server version: %s (F2P=%v, Network=%s)", pc.serverVersion, pc.serverIsF2P, pc.serverNetwork)
+
 	return nil
 }
 
@@ -291,12 +294,34 @@ func (pc *PongClient) sessionKeyFilePath() string {
 }
 
 // GetChainParams returns the chaincfg.Params for the configured network.
-// Returns an error if the network is invalid or config is missing.
+// Uses network from server if available, otherwise falls back to config.
+// Returns an error if the network is invalid.
 func (pc *PongClient) GetChainParams() (*chaincfg.Params, error) {
-	if pc == nil || pc.appCfg == nil {
-		return nil, fmt.Errorf("client or config is nil")
+	if pc == nil {
+		return nil, fmt.Errorf("client is nil")
 	}
-	return pc.appCfg.GetChainParams()
+
+	pc.RLock()
+	network := pc.serverNetwork
+	pc.RUnlock()
+
+	network = strings.ToLower(strings.TrimSpace(network))
+	if network == "" {
+		network = "mainnet"
+	}
+
+	switch network {
+	case "mainnet":
+		return chaincfg.MainNetParams(), nil
+	case "testnet":
+		return chaincfg.TestNet3Params(), nil
+	case "simnet":
+		return chaincfg.SimNetParams(), nil
+	case "regnet":
+		return chaincfg.RegNetParams(), nil
+	default:
+		return nil, fmt.Errorf("invalid network: %s (must be 'mainnet', 'testnet', 'simnet', or 'regnet')", network)
+	}
 }
 
 func (pc *PongClient) historicSessionsDir() (string, error) {
