@@ -187,6 +187,7 @@ enum NotificationType {
   // Hint that the game will auto-cancel unless both players get ready within
   // the given number of seconds. Carries ready_timeout_seconds in the payload.
   READY_TIMEOUT_HINT = 16;
+  CONNECTION_STATE = 17; // connection state change (connected/disconnected)
 }
 
 message MatchAllocatedNtfn {
@@ -226,6 +227,8 @@ message NtfnStreamResponse {
   bool server_is_f2p = 13;
   // Seconds until game auto-cancels in ready phase (for READY_TIMEOUT_HINT).
   uint32 ready_timeout_seconds = 14;
+  // Connection state (true = connected, false = disconnected). Used with CONNECTION_STATE notification type.
+  bool connected = 15;
 }
 
 message InitConnectionRequest {

@@ -64,6 +64,12 @@ func (pc *PongClient) RefStartNtfnStream(ctx context.Context) error {
 	}
 	pc.notifier = stream
 
+	// Notify UI that connection is established
+	pc.updatesCh <- &pong.NtfnStreamResponse{
+		NotificationType: pong.NotificationType_CONNECTION_STATE,
+		Connected:        true,
+	}
+
 	go pc.runNtfnLoop(ctx, stream)
 	return nil
 }
@@ -78,9 +84,14 @@ func (pc *PongClient) runNtfnLoop(ctx context.Context, stream pong.PongGame_Star
 		}
 		if err != nil {
 			pc.log.Warnf("ntfn stream recv error: %v", err)
+			// Notify UI that connection is lost
+			pc.updatesCh <- &pong.NtfnStreamResponse{
+				NotificationType: pong.NotificationType_CONNECTION_STATE,
+				Connected:        false,
+			}
 			select {
 			case pc.errorsCh <- fmt.Errorf("ntfn stream recv: %w", err):
-			default:
+			case <-ctx.Done():
 			}
 		}
 
@@ -88,14 +99,24 @@ func (pc *PongClient) runNtfnLoop(ctx context.Context, stream pong.PongGame_Star
 		ns, nerr := pc.restartNtfnStream(ctx, backoff)
 		if nerr != nil {
 			pc.log.Warnf("ntfn stream restart failed: %v", nerr)
+			// Connection still lost
+			pc.updatesCh <- &pong.NtfnStreamResponse{
+				NotificationType: pong.NotificationType_CONNECTION_STATE,
+				Connected:        false,
+			}
 			select {
 			case pc.errorsCh <- fmt.Errorf("ntfn stream restart failed: %w", nerr):
-			default:
+			case <-ctx.Done():
 			}
 			return
 		}
 		stream = ns
 		backoff = time.Second
+		// Notify UI that connection is restored
+		pc.updatesCh <- &pong.NtfnStreamResponse{
+			NotificationType: pong.NotificationType_CONNECTION_STATE,
+			Connected:        true,
+		}
 	}
 }
 
@@ -139,6 +160,11 @@ func (pc *PongClient) restartNtfnStream(ctx context.Context, initialBackoff time
 				return stream, nil
 			}
 			pc.log.Warnf("ntfn stream restart attempt failed: %v", err)
+			// Connection still lost during retry
+			pc.updatesCh <- &pong.NtfnStreamResponse{
+				NotificationType: pong.NotificationType_CONNECTION_STATE,
+				Connected:        false,
+			}
 			if backoff < maxBackoff {
 				backoff *= 2
 				if backoff > maxBackoff {
@@ -209,6 +235,7 @@ func (pc *PongClient) handleNtfn(ntfn *pong.NtfnStreamResponse) {
 
 	case pong.NotificationType_COUNTDOWN_UPDATE,
 		pong.NotificationType_GAME_READY_TO_PLAY,
+		pong.NotificationType_CONNECTION_STATE,
 		pong.NotificationType_READY_TIMEOUT_HINT:
 		pc.updatesCh <- ntfn
 

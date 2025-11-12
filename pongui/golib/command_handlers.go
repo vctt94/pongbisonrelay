@@ -245,6 +245,18 @@ func handleInitClient(handle uint32, args initClient) (*localInfo, error) {
 			case msg := <-pc.UpdatesCh():
 				if ntfn, ok := msg.(*pong.NtfnStreamResponse); ok {
 					switch ntfn.NotificationType {
+					case pong.NotificationType_CONNECTION_STATE:
+						extras := map[string]interface{}{
+							"connected": ntfn.Connected,
+						}
+						fromJSON, _ := json.Marshal(extras)
+						notify(NTUINotification, map[string]interface{}{
+							"type":  "connection_state",
+							"text":  "",
+							"count": 0,
+							"from":  string(fromJSON),
+						}, nil)
+						continue
 					case pong.NotificationType_SERVER_CONFIG:
 						extras := map[string]interface{}{"is_f2p": ntfn.ServerIsF2P}
 						fromJSON, _ := json.Marshal(extras)
