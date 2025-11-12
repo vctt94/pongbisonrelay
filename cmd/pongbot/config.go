@@ -30,6 +30,9 @@ type PongBotConfig struct {
 
 	// Network specifies the Decred network: "mainnet" or "testnet" (defaults to "testnet")
 	Network string
+
+	// Ready-timeout (seconds) before auto-cancel if both players aren't ready.
+	ReadyTimeoutSeconds int
 }
 
 // Load config function
@@ -48,19 +51,24 @@ func LoadPongBotConfig(dataDir, configFile string) (*PongBotConfig, error) {
 	if err != nil {
 		isf2p = false
 	}
+	readyTimeoutSeconds, err := strconv.Atoi(baseConfig.ExtraConfig["readytimeoutseconds"])
+	if err != nil {
+		return nil, fmt.Errorf("failed to parse readytimeoutseconds: %w", err)
+	}
 	// Create the combined config
 	cfg := &PongBotConfig{
-		BotConfig:     baseConfig,
-		IsF2P:         isf2p,
-		MinBetAmt:     minBetAmt,
-		GRPCHost:      baseConfig.ExtraConfig["grpchost"],
-		GRPCPort:      baseConfig.ExtraConfig["grpcport"],
-		DcrdHost:      baseConfig.ExtraConfig["dcrdhost"],
-		DcrdCert:      baseConfig.ExtraConfig["dcrdcert"],
-		DcrdUser:      baseConfig.ExtraConfig["dcrduser"],
-		DcrdPass:      baseConfig.ExtraConfig["dcrdpass"],
-		AdaptorSecret: baseConfig.ExtraConfig["adaptorsecret"],
-		Network:       baseConfig.ExtraConfig["network"],
+		BotConfig:           baseConfig,
+		IsF2P:               isf2p,
+		MinBetAmt:           minBetAmt,
+		ReadyTimeoutSeconds: readyTimeoutSeconds,
+		GRPCHost:            baseConfig.ExtraConfig["grpchost"],
+		GRPCPort:            baseConfig.ExtraConfig["grpcport"],
+		DcrdHost:            baseConfig.ExtraConfig["dcrdhost"],
+		DcrdCert:            baseConfig.ExtraConfig["dcrdcert"],
+		DcrdUser:            baseConfig.ExtraConfig["dcrduser"],
+		DcrdPass:            baseConfig.ExtraConfig["dcrdpass"],
+		AdaptorSecret:       baseConfig.ExtraConfig["adaptorsecret"],
+		Network:             baseConfig.ExtraConfig["network"],
 	}
 
 	// Validate adaptor secret: must be present and 32 bytes of hex (64 chars)

@@ -160,16 +160,17 @@ func realMain() error {
 	zkShortID.FromBytes(rnd[:])
 
 	srv, err := server.NewServer(&zkShortID, server.ServerConfig{
-		ServerDir:       cfg.DataDir,
-		IsF2P:           cfg.IsF2P,
-		MinBetAmt:       cfg.MinBetAmt,
-		LogBackend:      logBackend,
-		DcrdHostPort:    cfg.DcrdHost,
-		DcrdRPCCertPath: cfg.DcrdCert,
-		DcrdRPCUser:     cfg.DcrdUser,
-		DcrdRPCPass:     cfg.DcrdPass,
-		AdaptorSecret:   cfg.AdaptorSecret,
-		Network:         cfg.Network,
+		ServerDir:           cfg.DataDir,
+		IsF2P:               cfg.IsF2P,
+		MinBetAmt:           cfg.MinBetAmt,
+		LogBackend:          logBackend,
+		DcrdHostPort:        cfg.DcrdHost,
+		DcrdRPCCertPath:     cfg.DcrdCert,
+		DcrdRPCUser:         cfg.DcrdUser,
+		DcrdRPCPass:         cfg.DcrdPass,
+		AdaptorSecret:       cfg.AdaptorSecret,
+		Network:             cfg.Network,
+		ReadyTimeoutSeconds: cfg.ReadyTimeoutSeconds,
 	})
 	if err != nil {
 		return fmt.Errorf("failed to create server: %w", err)

@@ -28,6 +28,7 @@ func (s *Server) InitConnection(ctx context.Context, req *pong.InitConnectionReq
 	return &pong.InitConnectionResponse{
 		ServerVersion: version,
 		IsF2P:         s.isF2P,
+		Network:       s.network,
 	}, nil
 }
 

@@ -3,6 +3,7 @@ package ponggame
 import (
 	"context"
 	"sync"
+	"time"
 
 	"github.com/companyzero/bisonrelay/client/clientintf"
 	"github.com/companyzero/bisonrelay/zkidentity"
@@ -81,7 +82,8 @@ type GameInstance struct {
 	sync.RWMutex
 	closeOnce sync.Once
 
-	Id          string
+	Id string
+
 	engine      *CanvasEngine
 	Framesch    chan []byte
 	Inputch     chan []byte
@@ -92,7 +94,7 @@ type GameInstance struct {
 	ctx         context.Context
 	cancel      context.CancelFunc
 	Winner      *zkidentity.ShortID
-
+	WaitingRoom *WaitingRoom
 	// betAmt sum of total bets
 	betAmt int64
 
@@ -101,6 +103,11 @@ type GameInstance struct {
 	CountdownStarted bool
 	CountdownValue   int
 	GameReady        bool
+
+	// Ready-timeout (seconds) before auto-cancel if both players aren't ready.
+	ReadyTimeoutSeconds int
+	// Timeout timer for game ready state
+	readyTimer *time.Timer
 
 	log slog.Logger
 }
@@ -145,6 +152,9 @@ type GameManager struct {
 	PlayerGameMap   map[zkidentity.ShortID]*GameInstance
 
 	Log slog.Logger
+
+	// Default ready-timeout seconds for new games.
+	ReadyTimeoutSeconds int
 }
 
 // WaitingRoomsSnapshot returns a shallow copy of the waiting rooms slice.

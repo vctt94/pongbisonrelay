@@ -33,6 +33,7 @@ const NotificationType$json = {
     {'1': 'MATCH_ALLOCATED', '2': 13},
     {'1': 'SERVER_CONFIG', '2': 14},
     {'1': 'HEARTBEAT', '2': 15},
+    {'1': 'READY_TIMEOUT_HINT', '2': 16},
   ],
 };
 
@@ -43,7 +44,7 @@ final $typed_data.Uint8List notificationTypeDescriptor = $convert.base64Decode(
     'T1VOVF9VUERBVEUQBRIUChBQTEFZRVJfSk9JTkVEX1dSEAYSEQoNT05fV1JfQ1JFQVRFRBAHEh'
     'MKD09OX1BMQVlFUl9SRUFEWRAIEhEKDU9OX1dSX1JFTU9WRUQQCRIUChBDT1VOVERPV05fVVBE'
     'QVRFEAsSFgoSR0FNRV9SRUFEWV9UT19QTEFZEAwSEwoPTUFUQ0hfQUxMT0NBVEVEEA0SEQoNU0'
-    'VSVkVSX0NPTkZJRxAOEg0KCUhFQVJUQkVBVBAP');
+    'VSVkVSX0NPTkZJRxAOEg0KCUhFQVJUQkVBVBAPEhYKElJFQURZX1RJTUVPVVRfSElOVBAQ');
 
 @$core.Deprecated('Use requestNonceRequestDescriptor instead')
 const RequestNonceRequest$json = {
@@ -514,6 +515,13 @@ const NtfnStreamResponse$json = {
     },
     {'1': 'confs', '3': 12, '4': 1, '5': 13, '10': 'confs'},
     {'1': 'server_is_f2p', '3': 13, '4': 1, '5': 8, '10': 'serverIsF2p'},
+    {
+      '1': 'ready_timeout_seconds',
+      '3': 14,
+      '4': 1,
+      '5': 13,
+      '10': 'readyTimeoutSeconds'
+    },
   ],
 };
 
@@ -527,7 +535,8 @@ final $typed_data.Uint8List ntfnStreamResponseDescriptor = $convert.base64Decode
     '9tSWQSIQoCd3IYCSABKAsyES5wb25nLldhaXRpbmdSb29tUgJ3chIUCgVyZWFkeRgKIAEoCFIF'
     'cmVhZHkSOQoLbWF0Y2hfYWxsb2MYCyABKAsyGC5wb25nLk1hdGNoQWxsb2NhdGVkTnRmblIKbW'
     'F0Y2hBbGxvYxIUCgVjb25mcxgMIAEoDVIFY29uZnMSIgoNc2VydmVyX2lzX2YycBgNIAEoCFIL'
-    'c2VydmVySXNGMnA=');
+    'c2VydmVySXNGMnASMgoVcmVhZHlfdGltZW91dF9zZWNvbmRzGA4gASgNUhNyZWFkeVRpbWVvdX'
+    'RTZWNvbmRz');
 
 @$core.Deprecated('Use initConnectionRequestDescriptor instead')
 const InitConnectionRequest$json = {
@@ -548,14 +557,15 @@ const InitConnectionResponse$json = {
   '2': [
     {'1': 'server_version', '3': 1, '4': 1, '5': 9, '10': 'serverVersion'},
     {'1': 'is_f2p', '3': 2, '4': 1, '5': 8, '10': 'isF2p'},
+    {'1': 'network', '3': 3, '4': 1, '5': 9, '10': 'network'},
   ],
 };
 
 /// Descriptor for `InitConnectionResponse`. Decode as a `google.protobuf.DescriptorProto`.
-final $typed_data.Uint8List initConnectionResponseDescriptor =
-    $convert.base64Decode(
-        'ChZJbml0Q29ubmVjdGlvblJlc3BvbnNlEiUKDnNlcnZlcl92ZXJzaW9uGAEgASgJUg1zZXJ2ZX'
-        'JWZXJzaW9uEhUKBmlzX2YycBgCIAEoCFIFaXNGMnA=');
+final $typed_data.Uint8List initConnectionResponseDescriptor = $convert.base64Decode(
+    'ChZJbml0Q29ubmVjdGlvblJlc3BvbnNlEiUKDnNlcnZlcl92ZXJzaW9uGAEgASgJUg1zZXJ2ZX'
+    'JWZXJzaW9uEhUKBmlzX2YycBgCIAEoCFIFaXNGMnASGAoHbmV0d29yaxgDIAEoCVIHbmV0d29y'
+    'aw==');
 
 @$core.Deprecated('Use waitingRoomsRequestDescriptor instead')
 const WaitingRoomsRequest$json = {

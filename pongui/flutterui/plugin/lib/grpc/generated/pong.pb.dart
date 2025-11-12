@@ -1919,6 +1919,7 @@ class NtfnStreamResponse extends $pb.GeneratedMessage {
     MatchAllocatedNtfn? matchAlloc,
     $core.int? confs,
     $core.bool? serverIsF2p,
+    $core.int? readyTimeoutSeconds,
   }) {
     final result = create();
     if (notificationType != null) result.notificationType = notificationType;
@@ -1934,6 +1935,8 @@ class NtfnStreamResponse extends $pb.GeneratedMessage {
     if (matchAlloc != null) result.matchAlloc = matchAlloc;
     if (confs != null) result.confs = confs;
     if (serverIsF2p != null) result.serverIsF2p = serverIsF2p;
+    if (readyTimeoutSeconds != null)
+      result.readyTimeoutSeconds = readyTimeoutSeconds;
     return result;
   }
 
@@ -1966,6 +1969,8 @@ class NtfnStreamResponse extends $pb.GeneratedMessage {
         subBuilder: MatchAllocatedNtfn.create)
     ..aI(12, _omitFieldNames ? '' : 'confs', fieldType: $pb.PbFieldType.OU3)
     ..aOB(13, _omitFieldNames ? '' : 'serverIsF2p')
+    ..aI(14, _omitFieldNames ? '' : 'readyTimeoutSeconds',
+        fieldType: $pb.PbFieldType.OU3)
     ..hasRequiredFields = false;
 
   @$core.Deprecated('See https://github.com/google/protobuf.dart/issues/998.')
@@ -2109,6 +2114,16 @@ class NtfnStreamResponse extends $pb.GeneratedMessage {
   $core.bool hasServerIsF2p() => $_has(12);
   @$pb.TagNumber(13)
   void clearServerIsF2p() => $_clearField(13);
+
+  /// Seconds until game auto-cancels in ready phase (for READY_TIMEOUT_HINT).
+  @$pb.TagNumber(14)
+  $core.int get readyTimeoutSeconds => $_getIZ(13);
+  @$pb.TagNumber(14)
+  set readyTimeoutSeconds($core.int value) => $_setUnsignedInt32(13, value);
+  @$pb.TagNumber(14)
+  $core.bool hasReadyTimeoutSeconds() => $_has(13);
+  @$pb.TagNumber(14)
+  void clearReadyTimeoutSeconds() => $_clearField(14);
 }
 
 class InitConnectionRequest extends $pb.GeneratedMessage {
@@ -2170,10 +2185,12 @@ class InitConnectionResponse extends $pb.GeneratedMessage {
   factory InitConnectionResponse({
     $core.String? serverVersion,
     $core.bool? isF2p,
+    $core.String? network,
   }) {
     final result = create();
     if (serverVersion != null) result.serverVersion = serverVersion;
     if (isF2p != null) result.isF2p = isF2p;
+    if (network != null) result.network = network;
     return result;
   }
 
@@ -2192,6 +2209,7 @@ class InitConnectionResponse extends $pb.GeneratedMessage {
       createEmptyInstance: create)
     ..aOS(1, _omitFieldNames ? '' : 'serverVersion')
     ..aOB(2, _omitFieldNames ? '' : 'isF2p')
+    ..aOS(3, _omitFieldNames ? '' : 'network')
     ..hasRequiredFields = false;
 
   @$core.Deprecated('See https://github.com/google/protobuf.dart/issues/998.')
@@ -2231,6 +2249,15 @@ class InitConnectionResponse extends $pb.GeneratedMessage {
   $core.bool hasIsF2p() => $_has(1);
   @$pb.TagNumber(2)
   void clearIsF2p() => $_clearField(2);
+
+  @$pb.TagNumber(3)
+  $core.String get network => $_getSZ(2);
+  @$pb.TagNumber(3)
+  set network($core.String value) => $_setString(2, value);
+  @$pb.TagNumber(3)
+  $core.bool hasNetwork() => $_has(2);
+  @$pb.TagNumber(3)
+  void clearNetwork() => $_clearField(3);
 }
 
 /// Waiting Room Messages
