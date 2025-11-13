@@ -337,6 +337,11 @@ func (s *Server) handleDisconnect(clientID zkidentity.ShortID) {
 	delete(s.users, clientID)
 	s.usersMu.Unlock()
 
+	// Release auth active marker for this uid so a new auth can proceed.
+	s.auth.mu.Lock()
+	delete(s.auth.uidToToken, clientID)
+	s.auth.mu.Unlock()
+
 	player := s.gameManager.PlayerSessions.GetPlayer(clientID)
 	if player != nil {
 		// Clean up escrow sessions for this player

@@ -167,9 +167,6 @@ func (s *Server) OpenEscrow(ctx context.Context, req *pong.OpenEscrowRequest) (*
 			}
 			s.log.Warnf("OpenEscrow: stored UIDs: %v", uids)
 		}
-		if p2pk := s.auth.uidToP2PK[ownerShort]; p2pk != "" {
-			s.log.Infof("OpenEscrow: found P2PK address %s for uid %s but no pubkey", p2pk, req.OwnerUid)
-		}
 	}
 	s.auth.mu.RUnlock()
 	if len(payoutPubkey) != 33 {
@@ -830,7 +827,7 @@ func (s *Server) GetFinalizeBundle(ctx context.Context, req *pong.GetFinalizeBun
 	if es == nil {
 		return nil, status.Errorf(codes.NotFound, "no escrow bound for winner in room %s", wrID)
 	}
-	if es.preSign == nil || len(es.preSign) == 0 {
+	if len(es.preSign) == 0 {
 		return nil, status.Error(codes.FailedPrecondition, "no presign contexts stored for winner")
 	}
 

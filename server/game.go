@@ -42,6 +42,11 @@ func (s *Server) StartNtfnStream(req *pong.StartNtfnStreamRequest, stream pong.P
 	defer s.activeNtfnStreams.Delete(clientID)
 	s.log.Debugf("StartNtfnStream called by client %s", clientID)
 
+	// Reject duplicate notifier streams for the same client id.
+	if _, exists := s.activeNtfnStreams.Load(clientID); exists {
+		return fmt.Errorf("duplicate notifier stream for client %s", clientID)
+	}
+
 	// Add to active streams
 	s.activeNtfnStreams.Store(clientID, cancel)
 
@@ -120,6 +125,11 @@ func (s *Server) StartGameStream(req *pong.StartGameStreamRequest, stream pong.P
 	var clientID zkidentity.ShortID
 	clientID.FromString(req.ClientId)
 	defer s.activeGameStreams.Delete(clientID)
+
+	// Reject duplicate game streams for the same client id.
+	if _, exists := s.activeGameStreams.Load(clientID); exists {
+		return fmt.Errorf("duplicate game stream for client %s", clientID)
+	}
 
 	// Store the cancel function
 	s.activeGameStreams.Store(clientID, cancel)
