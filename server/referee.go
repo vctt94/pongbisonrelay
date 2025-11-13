@@ -73,6 +73,36 @@ func (s *Server) trackEscrow(ctx context.Context, es *escrowSession, ch <-chan c
 			player := es.player
 			es.mu.Unlock()
 
+			expired, currentHeight, expiryHeight, csv, err := s.escrowExpired(ctx, es)
+			if err != nil {
+				s.log.Warnf("trackEscrow: failed expiry check for escrow %s: %v", es.escrowID, err)
+			} else if expired {
+				if player == nil {
+					player = s.gameManager.PlayerSessions.GetPlayer(es.ownerUID)
+				}
+				msg := fmt.Sprintf("escrow expired (csv=%d, opened_height=%d, expiry_height=%d, current_height=%d)", csv, es.openedHeight, expiryHeight, currentHeight)
+				if player != nil {
+					_ = s.notify(player, &pong.NtfnStreamResponse{
+						NotificationType: pong.NotificationType_MESSAGE,
+						Message:          msg,
+					})
+				}
+				if es.unsubW != nil {
+					es.unsubW()
+					es.unsubW = nil
+				}
+				es.clearPreSigns()
+				es.mu.Lock()
+				es.player = nil
+				es.mu.Unlock()
+				s.removeEscrowFromRooms(es.escrowID)
+				s.escrowsMu.Lock()
+				delete(s.escrows, es.escrowID)
+				s.escrowsMu.Unlock()
+				s.log.Infof("trackEscrow: stopped tracking escrow %s owner=%s due to csv expiry", es.escrowID, es.ownerUID)
+				return
+			}
+
 			// Emit a single structured update when funded and state changed.
 			// Only send notifications if player is still bound (escrow not cleaned up).
 			ownerID := es.ownerUID.String()
@@ -216,6 +246,11 @@ func (s *Server) OpenEscrow(ctx context.Context, req *pong.OpenEscrowRequest) (*
 		pkScriptHex:     pkScriptHex,
 		player:          player,
 	}
+	height, err := s.currentBestBlockHeight(ctx)
+	if err != nil {
+		return nil, status.Errorf(codes.Internal, "failed to fetch current block height: %v", err)
+	}
+	es.openedHeight = height
 	s.escrowsMu.Lock()
 	if s.escrows == nil {
 		s.escrows = make(map[string]*escrowSession)
