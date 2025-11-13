@@ -1248,7 +1248,7 @@ func handleGetClientConfig(dataDir string) (interface{}, error) {
 	}, nil
 }
 
-func handleSaveClientConfig(args saveClientConfigArgs) (interface{}, error) {
+func handleSaveClientConfig(handle uint32, args saveClientConfigArgs) (interface{}, error) {
 	// Load existing to get datadir and defaults.
 	loadDir := strings.TrimSpace(args.DataDir)
 	if loadDir == "" {
@@ -1277,34 +1277,23 @@ func handleSaveClientConfig(args saveClientConfigArgs) (interface{}, error) {
 	}
 	pc.ShowPerfOverlay = args.ShowPerfOverlay
 
-	// Ensure logs dir exists if needed.
-	logsDir := filepath.Dir(filepath.Join(pc.DataDir, "logs", "placeholder.log"))
-	_ = os.MkdirAll(logsDir, 0700)
-
 	confPath := filepath.Join(pc.DataDir, appName+".conf")
-	// Persist in a simple key=value format that matches parser expectations.
-	configData := fmt.Sprintf(
-		`datadir=%s
-serveraddress=%s
-grpccertpath=%s
-network=%s
-logfile=%s
-debug=%s
-maxlogfiles=%d
-maxbufferlines=%d
-showperfoverlay=%t
-`,
-		pc.DataDir,
-		pc.ServerAddr,
-		pc.GRPCCertPath,
-		filepath.Join(pc.DataDir, "logs", "pongclient.log"),
-		pc.Debug,
-		5,
-		1000,
-		pc.ShowPerfOverlay,
-	)
-	if err := os.WriteFile(confPath, []byte(configData), 0600); err != nil {
+	if err := client.WriteClientConfigFile(pc, confPath); err != nil {
 		return nil, fmt.Errorf("write config: %w", err)
 	}
+
+	// Refresh the cached configuration for the requesting client (if running) so
+	// subsequent reads observe the newly saved values.
+	cmtx.Lock()
+	cctx := cs[handle]
+	cmtx.Unlock()
+
+	if cctx != nil && cctx.c != nil {
+		current := cctx.c.AppConfig()
+		if current != nil && filepath.Clean(current.DataDir) == filepath.Clean(pc.DataDir) {
+			cctx.c.UpdateAppConfig(pc)
+		}
+	}
+
 	return map[string]string{"status": "ok"}, nil
 }

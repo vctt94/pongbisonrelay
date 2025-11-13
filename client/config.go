@@ -51,14 +51,13 @@ type PongConf struct {
 }
 
 // parseClientConfigFile parses the config file at the given path into a ClientConfig struct.
-func parseClientConfigFile(configPath string) (*PongConf, error) {
+func parseClientConfigFile(configPath string, appName string) (*PongConf, error) {
 	file, err := os.Open(configPath)
 	if err != nil {
 		return nil, err
 	}
 	defer file.Close()
 
-	fmt.Println("parseClientConfigFile: ", configPath)
 	cfg := &PongConf{}
 	scanner := bufio.NewScanner(file)
 	for scanner.Scan() {
@@ -85,7 +84,7 @@ func parseClientConfigFile(configPath string) (*PongConf, error) {
 		case "logfile":
 			cfg.LogFile = value
 			if cfg.LogFile == "" {
-				cfg.LogFile = filepath.Join(cfg.DataDir, "logs", "pongclient.log")
+				cfg.LogFile = filepath.Join(cfg.DataDir, "logs", appName+".log")
 			}
 		case "debug":
 			cfg.Debug = value
@@ -162,7 +161,7 @@ func loadClientConf(configPath string, fileName string) (*PongConf, error) {
 	// Try to load existing config
 	fullPath := filepath.Join(configPath, fileName)
 	if _, err := os.Stat(fullPath); err == nil {
-		return parseClientConfigFile(fullPath)
+		return parseClientConfigFile(fullPath, appName)
 	}
 
 	// Create default config
@@ -184,8 +183,8 @@ func loadClientConf(configPath string, fileName string) (*PongConf, error) {
 	return cfg, nil
 }
 
-// Write the configuration to a file.
-func writeClientConfigFile(cfg *PongConf, configPath string) error {
+// WriteClientConfigFile writes the configuration to a file.
+func WriteClientConfigFile(cfg *PongConf, configPath string) error {
 	configData := fmt.Sprintf(
 		`datadir=%s
 serveraddress=%s
@@ -194,6 +193,7 @@ logfile=%s
 debug=%s
 maxlogfiles=%d
 maxbufferlines=%d
+showperfoverlay=%t
 `,
 		cfg.DataDir,
 		cfg.ServerAddr,
@@ -202,9 +202,15 @@ maxbufferlines=%d
 		cfg.Debug,
 		cfg.MaxLogFiles,
 		cfg.MaxBufferLines,
+		cfg.ShowPerfOverlay,
 	)
 
 	return os.WriteFile(configPath, []byte(configData), 0600)
+}
+
+// writeClientConfigFile is a wrapper for backward compatibility.
+func writeClientConfigFile(cfg *PongConf, configPath string) error {
+	return WriteClientConfigFile(cfg, configPath)
 }
 
 // LoadAppConfig loads pongclient configuration from disk, applies overrides,
@@ -220,11 +226,21 @@ func LoadAppConfig(datadir string, appName string) (*PongClientCfg, error) {
 		return nil, fmt.Errorf("load config: %w", err)
 	}
 
+	// Use the log file from config, or default to appName.log if not set
+	logFile := cfg.LogFile
+	if logFile == "" {
+		logFile = filepath.Join(cfg.DataDir, "logs", appName+".log")
+	}
+	// Ensure the logs directory exists before creating the log backend
+	logsDir := filepath.Dir(logFile)
+	if err := os.MkdirAll(logsDir, 0755); err != nil {
+		return nil, fmt.Errorf("failed to create logs directory %s: %w", logsDir, err)
+	}
 	logBackend, err := logging.NewLogBackend(logging.LogConfig{
-		LogFile:        filepath.Join(cfg.DataDir, "logs", "pongclient.log"),
+		LogFile:        logFile,
 		DebugLevel:     cfg.Debug,
-		MaxLogFiles:    5,
-		MaxBufferLines: 1000,
+		MaxLogFiles:    cfg.MaxLogFiles,
+		MaxBufferLines: cfg.MaxBufferLines,
 	})
 	if err != nil {
 		return nil, fmt.Errorf("NewLogBackend failed: %w", err)

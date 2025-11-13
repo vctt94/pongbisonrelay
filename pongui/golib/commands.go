@@ -208,7 +208,7 @@ func call(cmd *cmd) *CmdResult {
 	case CTSaveClientConfig:
 		var args saveClientConfigArgs
 		if decode(&args) {
-			v, err = handleSaveClientConfig(args)
+			v, err = handleSaveClientConfig(uint32(cmd.ClientHandle), args)
 		}
 	default:
 		// Calls that need a client. Figure out the client.

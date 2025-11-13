@@ -71,7 +71,8 @@ Future<void> runMainApp(Config cfg) async {
       providers: [
         ChangeNotifierProvider(create: (context) => NotificationModel()),
         ChangeNotifierProxyProvider<NotificationModel, PongModel>(
-          create: (context) => PongModel(cfg, context.read<NotificationModel>()),
+          create: (context) =>
+              PongModel(cfg, context.read<NotificationModel>()),
           update: (context, notificationModel, previous) =>
               previous ?? PongModel(cfg, notificationModel),
         ),
@@ -115,7 +116,7 @@ class MyApp extends StatelessWidget {
       onGenerateRoute: (settings) {
         // Check authentication state for protected routes
         final pongModel = Provider.of<PongModel>(context, listen: false);
-        
+
         switch (settings.name) {
           case '/':
           case '/login':
