@@ -4,7 +4,6 @@ import (
 	"context"
 	"fmt"
 	"strings"
-	"time"
 
 	"github.com/companyzero/bisonrelay/zkidentity"
 
@@ -91,26 +90,10 @@ func (s *Server) StartNtfnStream(req *pong.StartNtfnStreamRequest, stream pong.P
 		})
 	}
 
-	// Escrow-first: remove legacy tips-based bet sync
-	// Wait for disconnection while sending periodic heartbeats to keep the
-	// stream active across load balancers and mobile networks.
-	heartbeatTicker := time.NewTicker(25 * time.Second)
-	defer heartbeatTicker.Stop()
-
-	for {
-		select {
-		case <-ctx.Done():
-			s.log.Debugf("Notifier stream ended for client %s, error: %v", clientID, ctx.Err())
-			return ctx.Err()
-		case <-heartbeatTicker.C:
-			if err := s.notify(player, &pong.NtfnStreamResponse{
-				NotificationType: pong.NotificationType_HEARTBEAT,
-			}); err != nil {
-				s.log.Debugf("Notifier heartbeat send failed for client %s: %v", clientID, err)
-				return err
-			}
-		}
-	}
+	// Block until the stream context ends; transport-level keepalives handle idleness.
+	<-ctx.Done()
+	s.log.Debugf("Notifier stream ended for client %s, error: %v", clientID, ctx.Err())
+	return ctx.Err()
 }
 
 func (s *Server) StartGameStream(req *pong.StartGameStreamRequest, stream pong.PongGame_StartGameStreamServer) error {
