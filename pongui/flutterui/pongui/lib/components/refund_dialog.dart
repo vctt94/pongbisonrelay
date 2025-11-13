@@ -896,10 +896,6 @@ class _RefundEscrowDialogState extends State<RefundEscrowDialog> {
         ),
       ),
       actions: [
-        TextButton(
-          onPressed: () => Navigator.of(context).pop(),
-          child: const Text('Close'),
-        ),
         if (widget.onDelete != null)
           TextButton.icon(
             onPressed: _handleDeleteEscrow,
@@ -909,6 +905,10 @@ class _RefundEscrowDialogState extends State<RefundEscrowDialog> {
               foregroundColor: Colors.redAccent,
             ),
           ),
+        TextButton(
+          onPressed: () => Navigator.of(context).pop(),
+          child: const Text('Close'),
+        ),
         if (_refundTxHex != null && _refundTxHex!.isNotEmpty)
           TextButton.icon(
             onPressed: _copyRefundTx,
