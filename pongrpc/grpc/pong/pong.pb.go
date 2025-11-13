@@ -43,6 +43,7 @@ const (
 	// Hint that the game will auto-cancel unless both players get ready within
 	// the given number of seconds. Carries ready_timeout_seconds in the payload.
 	NotificationType_READY_TIMEOUT_HINT NotificationType = 16
+	NotificationType_CONNECTION_STATE   NotificationType = 17 // connection state change (connected/disconnected)
 )
 
 // Enum value maps for NotificationType.
@@ -64,6 +65,7 @@ var (
 		14: "SERVER_CONFIG",
 		15: "HEARTBEAT",
 		16: "READY_TIMEOUT_HINT",
+		17: "CONNECTION_STATE",
 	}
 	NotificationType_value = map[string]int32{
 		"UNKNOWN":               0,
@@ -82,6 +84,7 @@ var (
 		"SERVER_CONFIG":         14,
 		"HEARTBEAT":             15,
 		"READY_TIMEOUT_HINT":    16,
+		"CONNECTION_STATE":      17,
 	}
 )
 
@@ -1554,8 +1557,10 @@ type NtfnStreamResponse struct {
 	ServerIsF2P bool `protobuf:"varint,13,opt,name=server_is_f2p,json=serverIsF2p,proto3" json:"server_is_f2p,omitempty"`
 	// Seconds until game auto-cancels in ready phase (for READY_TIMEOUT_HINT).
 	ReadyTimeoutSeconds uint32 `protobuf:"varint,14,opt,name=ready_timeout_seconds,json=readyTimeoutSeconds,proto3" json:"ready_timeout_seconds,omitempty"`
-	unknownFields       protoimpl.UnknownFields
-	sizeCache           protoimpl.SizeCache
+	// Connection state (true = connected, false = disconnected). Used with CONNECTION_STATE notification type.
+	Connected     bool `protobuf:"varint,15,opt,name=connected,proto3" json:"connected,omitempty"`
+	unknownFields protoimpl.UnknownFields
+	sizeCache     protoimpl.SizeCache
 }
 
 func (x *NtfnStreamResponse) Reset() {
@@ -1684,6 +1689,13 @@ func (x *NtfnStreamResponse) GetReadyTimeoutSeconds() uint32 {
 		return x.ReadyTimeoutSeconds
 	}
 	return 0
+}
+
+func (x *NtfnStreamResponse) GetConnected() bool {
+	if x != nil {
+		return x.Connected
+	}
+	return false
 }
 
 type InitConnectionRequest struct {
@@ -3095,7 +3107,7 @@ const file_pong_proto_rawDesc = "" +
 	"\tclient_id\x18\x01 \x01(\tR\bclientId\"\x1b\n" +
 	"\x19UnreadyGameStreamResponse\"5\n" +
 	"\x16StartNtfnStreamRequest\x12\x1b\n" +
-	"\tclient_id\x18\x01 \x01(\tR\bclientId\"\xfb\x03\n" +
+	"\tclient_id\x18\x01 \x01(\tR\bclientId\"\x99\x04\n" +
 	"\x12NtfnStreamResponse\x12C\n" +
 	"\x11notification_type\x18\x01 \x01(\x0e2\x16.pong.NotificationTypeR\x10notificationType\x12\x18\n" +
 	"\astarted\x18\x02 \x01(\bR\astarted\x12\x17\n" +
@@ -3112,7 +3124,8 @@ const file_pong_proto_rawDesc = "" +
 	"matchAlloc\x12\x14\n" +
 	"\x05confs\x18\f \x01(\rR\x05confs\x12\"\n" +
 	"\rserver_is_f2p\x18\r \x01(\bR\vserverIsF2p\x122\n" +
-	"\x15ready_timeout_seconds\x18\x0e \x01(\rR\x13readyTimeoutSeconds\">\n" +
+	"\x15ready_timeout_seconds\x18\x0e \x01(\rR\x13readyTimeoutSeconds\x12\x1c\n" +
+	"\tconnected\x18\x0f \x01(\bR\tconnected\">\n" +
 	"\x15InitConnectionRequest\x12%\n" +
 	"\x0eclient_version\x18\x01 \x01(\tR\rclientVersion\"p\n" +
 	"\x16InitConnectionResponse\x12%\n" +
@@ -3201,7 +3214,7 @@ const file_pong_proto_rawDesc = "" +
 	"\agame_id\x18\x02 \x01(\tR\x06gameId\"O\n" +
 	"\x19SignalReadyToPlayResponse\x12\x18\n" +
 	"\asuccess\x18\x01 \x01(\bR\asuccess\x12\x18\n" +
-	"\amessage\x18\x02 \x01(\tR\amessage*\xca\x02\n" +
+	"\amessage\x18\x02 \x01(\tR\amessage*\xe0\x02\n" +
 	"\x10NotificationType\x12\v\n" +
 	"\aUNKNOWN\x10\x00\x12\v\n" +
 	"\aMESSAGE\x10\x01\x12\x0e\n" +
@@ -3219,7 +3232,8 @@ const file_pong_proto_rawDesc = "" +
 	"\x0fMATCH_ALLOCATED\x10\r\x12\x11\n" +
 	"\rSERVER_CONFIG\x10\x0e\x12\r\n" +
 	"\tHEARTBEAT\x10\x0f\x12\x16\n" +
-	"\x12READY_TIMEOUT_HINT\x10\x102\x95\x01\n" +
+	"\x12READY_TIMEOUT_HINT\x10\x10\x12\x14\n" +
+	"\x10CONNECTION_STATE\x10\x112\x95\x01\n" +
 	"\bPongAuth\x12E\n" +
 	"\fRequestNonce\x12\x19.pong.RequestNonceRequest\x1a\x1a.pong.RequestNonceResponse\x12B\n" +
 	"\vVerifyLogin\x12\x18.pong.VerifyLoginRequest\x1a\x19.pong.VerifyLoginResponse2\xce\x03\n" +

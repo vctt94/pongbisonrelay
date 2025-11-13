@@ -34,6 +34,7 @@ const NotificationType$json = {
     {'1': 'SERVER_CONFIG', '2': 14},
     {'1': 'HEARTBEAT', '2': 15},
     {'1': 'READY_TIMEOUT_HINT', '2': 16},
+    {'1': 'CONNECTION_STATE', '2': 17},
   ],
 };
 
@@ -44,7 +45,8 @@ final $typed_data.Uint8List notificationTypeDescriptor = $convert.base64Decode(
     'T1VOVF9VUERBVEUQBRIUChBQTEFZRVJfSk9JTkVEX1dSEAYSEQoNT05fV1JfQ1JFQVRFRBAHEh'
     'MKD09OX1BMQVlFUl9SRUFEWRAIEhEKDU9OX1dSX1JFTU9WRUQQCRIUChBDT1VOVERPV05fVVBE'
     'QVRFEAsSFgoSR0FNRV9SRUFEWV9UT19QTEFZEAwSEwoPTUFUQ0hfQUxMT0NBVEVEEA0SEQoNU0'
-    'VSVkVSX0NPTkZJRxAOEg0KCUhFQVJUQkVBVBAPEhYKElJFQURZX1RJTUVPVVRfSElOVBAQ');
+    'VSVkVSX0NPTkZJRxAOEg0KCUhFQVJUQkVBVBAPEhYKElJFQURZX1RJTUVPVVRfSElOVBAQEhQK'
+    'EENPTk5FQ1RJT05fU1RBVEUQEQ==');
 
 @$core.Deprecated('Use requestNonceRequestDescriptor instead')
 const RequestNonceRequest$json = {
@@ -522,6 +524,7 @@ const NtfnStreamResponse$json = {
       '5': 13,
       '10': 'readyTimeoutSeconds'
     },
+    {'1': 'connected', '3': 15, '4': 1, '5': 8, '10': 'connected'},
   ],
 };
 
@@ -536,7 +539,7 @@ final $typed_data.Uint8List ntfnStreamResponseDescriptor = $convert.base64Decode
     'cmVhZHkSOQoLbWF0Y2hfYWxsb2MYCyABKAsyGC5wb25nLk1hdGNoQWxsb2NhdGVkTnRmblIKbW'
     'F0Y2hBbGxvYxIUCgVjb25mcxgMIAEoDVIFY29uZnMSIgoNc2VydmVyX2lzX2YycBgNIAEoCFIL'
     'c2VydmVySXNGMnASMgoVcmVhZHlfdGltZW91dF9zZWNvbmRzGA4gASgNUhNyZWFkeVRpbWVvdX'
-    'RTZWNvbmRz');
+    'RTZWNvbmRzEhwKCWNvbm5lY3RlZBgPIAEoCFIJY29ubmVjdGVk');
 
 @$core.Deprecated('Use initConnectionRequestDescriptor instead')
 const InitConnectionRequest$json = {

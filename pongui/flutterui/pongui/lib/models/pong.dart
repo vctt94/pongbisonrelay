@@ -308,6 +308,9 @@ class PongModel extends ChangeNotifier {
             case 'player_left_wr':
               _handleNtfnPlayerWRUpdate(n);
               break;
+            case 'connection_state':
+              _handleNtfnConnectionState(n);
+              break;
             default:
               if (n.text.isNotEmpty) {
                 notificationModel.showNotification(n.text);
@@ -581,6 +584,26 @@ class PongModel extends ChangeNotifier {
         waitingRooms[idx] = room;
       }
       if (currentWR?.id == room.id) currentWR = room;
+      notifyListeners();
+    }
+  }
+
+  void _handleNtfnConnectionState(UINotification n) async {
+    final extras = _extrasFrom(n);
+    final connected = extras['connected'];
+    if (connected is bool) {
+      final wasConnected = isConnected;
+      isConnected = connected;
+      
+      // If connection was restored, refresh waiting rooms
+      if (connected && !wasConnected) {
+        try {
+          waitingRooms = await Golib.getWaitingRooms();
+        } catch (e) {
+          developer.log("Failed to refresh waiting rooms after reconnection: $e");
+        }
+      }
+      
       notifyListeners();
     }
   }

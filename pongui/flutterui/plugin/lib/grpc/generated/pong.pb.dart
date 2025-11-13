@@ -1920,6 +1920,7 @@ class NtfnStreamResponse extends $pb.GeneratedMessage {
     $core.int? confs,
     $core.bool? serverIsF2p,
     $core.int? readyTimeoutSeconds,
+    $core.bool? connected,
   }) {
     final result = create();
     if (notificationType != null) result.notificationType = notificationType;
@@ -1937,6 +1938,7 @@ class NtfnStreamResponse extends $pb.GeneratedMessage {
     if (serverIsF2p != null) result.serverIsF2p = serverIsF2p;
     if (readyTimeoutSeconds != null)
       result.readyTimeoutSeconds = readyTimeoutSeconds;
+    if (connected != null) result.connected = connected;
     return result;
   }
 
@@ -1971,6 +1973,7 @@ class NtfnStreamResponse extends $pb.GeneratedMessage {
     ..aOB(13, _omitFieldNames ? '' : 'serverIsF2p')
     ..aI(14, _omitFieldNames ? '' : 'readyTimeoutSeconds',
         fieldType: $pb.PbFieldType.OU3)
+    ..aOB(15, _omitFieldNames ? '' : 'connected')
     ..hasRequiredFields = false;
 
   @$core.Deprecated('See https://github.com/google/protobuf.dart/issues/998.')
@@ -2124,6 +2127,16 @@ class NtfnStreamResponse extends $pb.GeneratedMessage {
   $core.bool hasReadyTimeoutSeconds() => $_has(13);
   @$pb.TagNumber(14)
   void clearReadyTimeoutSeconds() => $_clearField(14);
+
+  /// Connection state (true = connected, false = disconnected). Used with CONNECTION_STATE notification type.
+  @$pb.TagNumber(15)
+  $core.bool get connected => $_getBF(14);
+  @$pb.TagNumber(15)
+  set connected($core.bool value) => $_setBool(14, value);
+  @$pb.TagNumber(15)
+  $core.bool hasConnected() => $_has(14);
+  @$pb.TagNumber(15)
+  void clearConnected() => $_clearField(15);
 }
 
 class InitConnectionRequest extends $pb.GeneratedMessage {

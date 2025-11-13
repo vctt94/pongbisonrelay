@@ -51,6 +51,8 @@ class NotificationType extends $pb.ProtobufEnum {
   /// the given number of seconds. Carries ready_timeout_seconds in the payload.
   static const NotificationType READY_TIMEOUT_HINT =
       NotificationType._(16, _omitEnumNames ? '' : 'READY_TIMEOUT_HINT');
+  static const NotificationType CONNECTION_STATE =
+      NotificationType._(17, _omitEnumNames ? '' : 'CONNECTION_STATE');
 
   static const $core.List<NotificationType> values = <NotificationType>[
     UNKNOWN,
@@ -69,10 +71,11 @@ class NotificationType extends $pb.ProtobufEnum {
     SERVER_CONFIG,
     HEARTBEAT,
     READY_TIMEOUT_HINT,
+    CONNECTION_STATE,
   ];
 
   static final $core.List<NotificationType?> _byValue =
-      $pb.ProtobufEnum.$_initByValueList(values, 16);
+      $pb.ProtobufEnum.$_initByValueList(values, 17);
   static NotificationType? valueOf($core.int value) =>
       value < 0 || value >= _byValue.length ? null : _byValue[value];
 
