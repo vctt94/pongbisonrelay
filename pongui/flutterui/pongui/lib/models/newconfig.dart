@@ -7,11 +7,11 @@ import 'package:golib_plugin/golib_plugin.dart';
 class NewConfigModel extends ChangeNotifier {
   // ─── Editable fields ────────────────────────────────────────────────────
 
-  String serverAddr      = '';
-  String grpcCertPath    = '';
-  String network         = '';
-  String debugLevel      = '';
-  bool   showPerfOverlay = false;
+  String serverAddr = '';
+  String grpcCertPath = '';
+  String network = '';
+  String debugLevel = '';
+  bool showPerfOverlay = false;
 
   final List<String> appArgs;
 
@@ -19,16 +19,10 @@ class NewConfigModel extends ChangeNotifier {
   NewConfigModel(this.appArgs);
 
   factory NewConfigModel.fromConfig(Config c) => NewConfigModel([])
-    // ..rpcUser            = c.rpcUser
-    // ..rpcPass            = c.rpcPass
-    ..serverAddr         = c.serverAddr
-    ..grpcCertPath       = c.grpcCertPath
-    // ..rpcCertPath        = c.rpcCertPath
-    // ..rpcClientCertPath  = c.rpcClientCertPath
-    // ..rpcClientKeyPath   = c.rpcClientKeyPath
-    // ..rpcWebsocketURL    = c.rpcWebsocketURL
-    ..debugLevel         = c.debugLevel
-    ..showPerfOverlay    = c.showPerfOverlay;
+    ..serverAddr = c.serverAddr
+    ..grpcCertPath = c.grpcCertPath
+    ..debugLevel = c.debugLevel
+    ..showPerfOverlay = c.showPerfOverlay;
 
   // ─── Helpers ────────────────────────────────────────────────────────────
 

@@ -240,6 +240,21 @@ func (pc *PongClient) AppConfig() *PongConf {
 	return pc.appCfg
 }
 
+// UpdateAppConfig replaces the in-memory client config while preserving pointer identity.
+func (pc *PongClient) UpdateAppConfig(cfg *PongConf) {
+	if pc == nil || cfg == nil {
+		return
+	}
+
+	pc.Lock()
+	defer pc.Unlock()
+
+	if pc.appCfg == nil {
+		pc.appCfg = &PongConf{}
+	}
+	*pc.appCfg = *cfg
+}
+
 // ResolveClientID starts a short-lived BR RPC client to fetch the local
 // user's identity and returns it as a hex string. The internal RPC client
 // is stopped before returning.
@@ -464,20 +479,20 @@ func sanitize(matchID string) string {
 
 // EscrowInfo represents the data we need to store about an escrow for potential refund
 type EscrowInfo struct {
-    EscrowID        string `json:"escrow_id"`
-    FundingTxid     string `json:"funding_txid"`
-    FundingVout     uint32 `json:"funding_vout"`
-    FundedAmount    uint64 `json:"funded_amount"`
-    RedeemScriptHex string `json:"redeem_script_hex"`
-    PKScriptHex     string `json:"pk_script_hex"`
-    CSVBlocks       uint32 `json:"csv_blocks"`
-    // Status is a simple lifecycle marker for UI/UX such as
-    // "paid" (settled by match) or "tx built" (refund tx constructed).
-    Status          string `json:"status,omitempty"`
-    ArchivedAt      int64  `json:"archived_at"`
-    FundingVoutSet  bool   `json:"-"`
-    FundedAmountSet bool   `json:"-"`
-    CSVBlocksSet    bool   `json:"-"`
+	EscrowID        string `json:"escrow_id"`
+	FundingTxid     string `json:"funding_txid"`
+	FundingVout     uint32 `json:"funding_vout"`
+	FundedAmount    uint64 `json:"funded_amount"`
+	RedeemScriptHex string `json:"redeem_script_hex"`
+	PKScriptHex     string `json:"pk_script_hex"`
+	CSVBlocks       uint32 `json:"csv_blocks"`
+	// Status is a simple lifecycle marker for UI/UX such as
+	// "paid" (settled by match) or "tx built" (refund tx constructed).
+	Status          string `json:"status,omitempty"`
+	ArchivedAt      int64  `json:"archived_at"`
+	FundingVoutSet  bool   `json:"-"`
+	FundedAmountSet bool   `json:"-"`
+	CSVBlocksSet    bool   `json:"-"`
 }
 
 // SessionKeyData includes both the keypair and escrow info for archiving
@@ -745,36 +760,36 @@ func (pc *PongClient) CacheEscrowInfo(info *EscrowInfo) error {
 }
 
 func mergeEscrowInfo(dst, src *EscrowInfo) {
-    if dst == nil || src == nil {
-        return
-    }
-    if src.EscrowID != "" {
-        dst.EscrowID = src.EscrowID
-    }
-    if src.FundingTxid != "" {
-        dst.FundingTxid = src.FundingTxid
-    }
-    if src.FundingVoutSet || src.FundingVout != 0 {
-        dst.FundingVout = src.FundingVout
-    }
-    if src.FundedAmountSet || src.FundedAmount != 0 {
-        dst.FundedAmount = src.FundedAmount
-    }
-    if src.RedeemScriptHex != "" {
-        dst.RedeemScriptHex = src.RedeemScriptHex
-    }
-    if src.PKScriptHex != "" {
-        dst.PKScriptHex = src.PKScriptHex
-    }
-    if src.CSVBlocksSet || src.CSVBlocks != 0 {
-        dst.CSVBlocks = src.CSVBlocks
-    }
-    if src.Status != "" {
-        dst.Status = src.Status
-    }
-    if src.ArchivedAt != 0 {
-        dst.ArchivedAt = src.ArchivedAt
-    }
+	if dst == nil || src == nil {
+		return
+	}
+	if src.EscrowID != "" {
+		dst.EscrowID = src.EscrowID
+	}
+	if src.FundingTxid != "" {
+		dst.FundingTxid = src.FundingTxid
+	}
+	if src.FundingVoutSet || src.FundingVout != 0 {
+		dst.FundingVout = src.FundingVout
+	}
+	if src.FundedAmountSet || src.FundedAmount != 0 {
+		dst.FundedAmount = src.FundedAmount
+	}
+	if src.RedeemScriptHex != "" {
+		dst.RedeemScriptHex = src.RedeemScriptHex
+	}
+	if src.PKScriptHex != "" {
+		dst.PKScriptHex = src.PKScriptHex
+	}
+	if src.CSVBlocksSet || src.CSVBlocks != 0 {
+		dst.CSVBlocks = src.CSVBlocks
+	}
+	if src.Status != "" {
+		dst.Status = src.Status
+	}
+	if src.ArchivedAt != 0 {
+		dst.ArchivedAt = src.ArchivedAt
+	}
 }
 
 // LoadHistoricEscrows loads all escrow information from historic session key files
