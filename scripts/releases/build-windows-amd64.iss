@@ -1,9 +1,11 @@
+#define AppVersion "0.0.1"
+
 [Setup]
-AppName=BR Pong
-AppVersion=0.0.1-rc2
-DefaultDirName={pf}\BR Pong
-DefaultGroupName=BR Pong
-OutputBaseFilename=BR_Pong_Installer
+AppName=Bison Pong
+AppVersion={#AppVersion}
+DefaultDirName={pf}\Bison Pong
+DefaultGroupName=Bison Pong
+OutputBaseFilename=bisonpong-windows-amd64-{#AppVersion}
 Compression=lzma
 SolidCompression=yes
 
@@ -11,8 +13,8 @@ SolidCompression=yes
 Source: "C:\Users\vctt\projects\pong-bisonrelay\pongui\flutterui\pongui\build\windows\x64\runner\Release\*"; DestDir: "{app}"; Flags: recursesubdirs createallsubdirs
 
 [Icons]
-Name: "{group}\BR Pong"; Filename: "{app}\bisonpong-0.0.1-rc2.exe"
-Name: "{group}\Uninstall BR Pong"; Filename: "{uninstallexe}"
+Name: "{group}\Bison Pong"; Filename: "{app}\bisonpong-{#AppVersion}.exe"
+Name: "{group}\Uninstall Bison Pong"; Filename: "{uninstallexe}"
 
 [Run]
-Filename: "{app}\bisonpong.exe"; Description: "Launch BR Pong"; Flags: nowait postinstall skipifsilent
+Filename: "{app}\bisonpong.exe"; Description: "Launch Bison Pong"; Flags: nowait postinstall skipifsilent
