@@ -740,6 +740,21 @@ func (s *Server) manageWaitingRoom(ctx context.Context, wr *ponggame.WaitingRoom
 
 			s.log.Infof("Game starting with players: %s and %s", players[0].ID, players[1].ID)
 
+			// Require an active game stream for all ready players before starting.
+			streamsOK := true
+			for _, p := range players {
+				if p == nil || p.GameStream == nil {
+					streamsOK = false
+					// Inform the player via notifier stream if available.
+					_ = s.notify(p, &pong.NtfnStreamResponse{
+						NotificationType: pong.NotificationType_MESSAGE,
+						Message:          "Waiting: your game stream is not active. Please toggle ready or reconnect.",
+					})
+				}
+			}
+			if !streamsOK {
+				continue
+			}
 			go s.handleGameLifecycle(ctx, wr)
 			return nil
 		}

@@ -178,6 +178,25 @@ func (s *Server) StartGameStream(req *pong.StartGameStreamRequest, stream pong.P
 
 	// Wait for context to end and handle disconnection
 	<-ctx.Done()
+	// On disconnect: mark player unready and clear game stream to avoid zombie readiness.
+	player.Lock()
+	player.Ready = false
+	player.GameStream = nil
+	player.Unlock()
+	// Notify other players in the waiting room (if any) that this player is not ready.
+	if player.WR != nil {
+		pwr := player.WR.Marshal()
+		for _, p := range player.WR.Players {
+			_ = s.notify(p, &pong.NtfnStreamResponse{
+				NotificationType: pong.NotificationType_ON_PLAYER_READY,
+				Message:          fmt.Sprintf("Player %s is not ready (stream closed)", player.Nick),
+				PlayerId:         player.ID.String(),
+				RoomId:           player.WR.ID,
+				Wr:               pwr,
+				Ready:            false,
+			})
+		}
+	}
 	s.log.Debugf("Client %s disconnected from game stream: %v", clientID, ctx.Err())
 	return nil
 }
