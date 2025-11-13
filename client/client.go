@@ -464,17 +464,20 @@ func sanitize(matchID string) string {
 
 // EscrowInfo represents the data we need to store about an escrow for potential refund
 type EscrowInfo struct {
-	EscrowID        string `json:"escrow_id"`
-	FundingTxid     string `json:"funding_txid"`
-	FundingVout     uint32 `json:"funding_vout"`
-	FundedAmount    uint64 `json:"funded_amount"`
-	RedeemScriptHex string `json:"redeem_script_hex"`
-	PKScriptHex     string `json:"pk_script_hex"`
-	CSVBlocks       uint32 `json:"csv_blocks"`
-	ArchivedAt      int64  `json:"archived_at"`
-	FundingVoutSet  bool   `json:"-"`
-	FundedAmountSet bool   `json:"-"`
-	CSVBlocksSet    bool   `json:"-"`
+    EscrowID        string `json:"escrow_id"`
+    FundingTxid     string `json:"funding_txid"`
+    FundingVout     uint32 `json:"funding_vout"`
+    FundedAmount    uint64 `json:"funded_amount"`
+    RedeemScriptHex string `json:"redeem_script_hex"`
+    PKScriptHex     string `json:"pk_script_hex"`
+    CSVBlocks       uint32 `json:"csv_blocks"`
+    // Status is a simple lifecycle marker for UI/UX such as
+    // "paid" (settled by match) or "tx built" (refund tx constructed).
+    Status          string `json:"status,omitempty"`
+    ArchivedAt      int64  `json:"archived_at"`
+    FundingVoutSet  bool   `json:"-"`
+    FundedAmountSet bool   `json:"-"`
+    CSVBlocksSet    bool   `json:"-"`
 }
 
 // SessionKeyData includes both the keypair and escrow info for archiving
@@ -742,33 +745,36 @@ func (pc *PongClient) CacheEscrowInfo(info *EscrowInfo) error {
 }
 
 func mergeEscrowInfo(dst, src *EscrowInfo) {
-	if dst == nil || src == nil {
-		return
-	}
-	if src.EscrowID != "" {
-		dst.EscrowID = src.EscrowID
-	}
-	if src.FundingTxid != "" {
-		dst.FundingTxid = src.FundingTxid
-	}
-	if src.FundingVoutSet || src.FundingVout != 0 {
-		dst.FundingVout = src.FundingVout
-	}
-	if src.FundedAmountSet || src.FundedAmount != 0 {
-		dst.FundedAmount = src.FundedAmount
-	}
-	if src.RedeemScriptHex != "" {
-		dst.RedeemScriptHex = src.RedeemScriptHex
-	}
-	if src.PKScriptHex != "" {
-		dst.PKScriptHex = src.PKScriptHex
-	}
-	if src.CSVBlocksSet || src.CSVBlocks != 0 {
-		dst.CSVBlocks = src.CSVBlocks
-	}
-	if src.ArchivedAt != 0 {
-		dst.ArchivedAt = src.ArchivedAt
-	}
+    if dst == nil || src == nil {
+        return
+    }
+    if src.EscrowID != "" {
+        dst.EscrowID = src.EscrowID
+    }
+    if src.FundingTxid != "" {
+        dst.FundingTxid = src.FundingTxid
+    }
+    if src.FundingVoutSet || src.FundingVout != 0 {
+        dst.FundingVout = src.FundingVout
+    }
+    if src.FundedAmountSet || src.FundedAmount != 0 {
+        dst.FundedAmount = src.FundedAmount
+    }
+    if src.RedeemScriptHex != "" {
+        dst.RedeemScriptHex = src.RedeemScriptHex
+    }
+    if src.PKScriptHex != "" {
+        dst.PKScriptHex = src.PKScriptHex
+    }
+    if src.CSVBlocksSet || src.CSVBlocks != 0 {
+        dst.CSVBlocks = src.CSVBlocks
+    }
+    if src.Status != "" {
+        dst.Status = src.Status
+    }
+    if src.ArchivedAt != 0 {
+        dst.ArchivedAt = src.ArchivedAt
+    }
 }
 
 // LoadHistoricEscrows loads all escrow information from historic session key files
@@ -870,7 +876,7 @@ func (pc *PongClient) UpdateHistoricEscrow(info *EscrowInfo) error {
 }
 
 // DeleteHistoricEscrow removes the historic session file associated with the
-// provided escrow ID. This allows users to clean up refunded escrows.
+// provided escrow ID. This allows users to clean up old/refunded escrows.
 func (pc *PongClient) DeleteHistoricEscrow(escrowID string) error {
 	escrowID = strings.TrimSpace(escrowID)
 	if escrowID == "" {

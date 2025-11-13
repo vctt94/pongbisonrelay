@@ -288,8 +288,8 @@ UINotification _$UINotificationFromJson(Map<String, dynamic> json) =>
     UINotification(
       json['type'] as String,
       json['text'] as String,
-      (json['count'] as num).toInt(),
-      json['from'] as String,
+      (json['count'] as num?)?.toInt() ?? 0,
+      json['from'] as String? ?? '',
     );
 
 Map<String, dynamic> _$UINotificationToJson(UINotification instance) =>

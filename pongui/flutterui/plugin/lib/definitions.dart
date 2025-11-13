@@ -409,7 +409,9 @@ const UINtfnMultiple = "multiple";
 class UINotification {
   final String type;
   final String text;
+  @JsonKey(defaultValue: 0)
   final int count;
+  @JsonKey(defaultValue: "")
   final String from;
 
   UINotification(this.type, this.text, this.count, this.from);
