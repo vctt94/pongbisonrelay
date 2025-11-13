@@ -46,7 +46,8 @@ type authState struct {
 	addrToUID map[string]zkidentity.ShortID
 	// Fast lookup of authenticated wallet keys per uid.
 	uidToPubkey map[zkidentity.ShortID][]byte // 33B compressed
-	uidToP2PK   map[zkidentity.ShortID]string // P2PK address string
+	// Track currently authenticated users to prevent duplicate auth for same uid.
+	uidToToken map[zkidentity.ShortID]string // uid -> latest active token
 }
 
 // initAuth initializes the in-memory auth state maps.
@@ -65,8 +66,8 @@ func (s *Server) initAuth() {
 	if s.auth.uidToPubkey == nil {
 		s.auth.uidToPubkey = make(map[zkidentity.ShortID][]byte)
 	}
-	if s.auth.uidToP2PK == nil {
-		s.auth.uidToP2PK = make(map[zkidentity.ShortID]string)
+	if s.auth.uidToToken == nil {
+		s.auth.uidToToken = make(map[zkidentity.ShortID]string)
 	}
 }
 
@@ -140,6 +141,7 @@ func (s *Server) RequestNonce(ctx context.Context, _ *pong.RequestNonceRequest) 
 // VerifyLogin verifies the signed nonce and establishes a session, also
 // returning the recovered 33-byte compressed pubkey and its P2PK address.
 func (s *Server) VerifyLogin(ctx context.Context, req *pong.VerifyLoginRequest) (*pong.VerifyLoginResponse, error) {
+	s.initAuth()
 	if req == nil || strings.TrimSpace(req.Address) == "" || strings.TrimSpace(req.Nonce) == "" || strings.TrimSpace(req.Signature) == "" {
 		return nil, statusError(http.StatusBadRequest, "missing fields")
 	}
@@ -218,6 +220,20 @@ func (s *Server) VerifyLogin(ctx context.Context, req *pong.VerifyLoginRequest) 
 		uid = sid
 		s.auth.addrToUID[addrStr] = uid
 	}
+	s.auth.mu.Unlock()
+
+	// Reject duplicate auths for the same uid when an active user is present.
+	// Prefer a strong signal: if the user has an active notifier/game stream, reject.
+	s.usersMu.RLock()
+	_, userActive := s.users[uid]
+	s.usersMu.RUnlock()
+	if userActive {
+		return nil, statusError(http.StatusConflict, fmt.Sprintf("uid %s already authenticated with active session", uid.String()))
+	}
+
+	// Create token and store session with recovered pubkey + p2pk address.
+	// Also enforce single active token per uid (duplicate auth blocked above).
+	s.auth.mu.Lock()
 	// Create token and store session with recovered pubkey + p2pk address.
 	tok := fmt.Sprintf("sess_%d_%08x", time.Now().Unix(), rand.Uint32())
 	s.auth.sessions[tok] = sessionInfo{
@@ -227,6 +243,8 @@ func (s *Server) VerifyLogin(ctx context.Context, req *pong.VerifyLoginRequest) 
 		compPubkey: pub.SerializeCompressed(),
 		p2pkAddr:   p2pkAddr.String(),
 	}
+	// Record active token for this uid; replaces any stale token.
+	s.auth.uidToToken[uid] = tok
 	s.auth.mu.Unlock()
 
 	// Persist uid -> wallet key mappings for payout defaults.
@@ -243,7 +261,6 @@ func (s *Server) VerifyLogin(ctx context.Context, req *pong.VerifyLoginRequest) 
 	} else {
 		// First time authentication for this uid - store it
 		s.auth.uidToPubkey[uid] = append([]byte(nil), pub.SerializeCompressed()...)
-		s.auth.uidToP2PK[uid] = p2pkAddr.String()
 	}
 	s.auth.mu.Unlock()
 
