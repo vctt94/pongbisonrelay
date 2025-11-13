@@ -15,11 +15,33 @@ class NotificationBar extends StatelessWidget {
           child: Container(
             width: double.infinity,
             color: Colors.blueAccent,
-            padding: EdgeInsets.all(8.0),
-            child: Text(
-              notificationModel.notification,
-              style: TextStyle(color: Colors.white),
-              textAlign: TextAlign.center,
+            padding: const EdgeInsets.symmetric(horizontal: 12.0, vertical: 8.0),
+            child: Row(
+              crossAxisAlignment: CrossAxisAlignment.center,
+              children: [
+                Expanded(
+                  child: Text(
+                    notificationModel.notification,
+                    style: const TextStyle(color: Colors.white),
+                    textAlign: TextAlign.center,
+                  ),
+                ),
+                // Use tooltip only when an Overlay is available to avoid
+                // debugCheckHasOverlay assertion when this bar is outside
+                // the Navigator's overlay.
+                Builder(builder: (ctx) {
+                  final hasOverlay = Overlay.maybeOf(ctx) != null;
+                  final closeBtn = IconButton(
+                    icon: const Icon(Icons.close, color: Colors.white),
+                    padding: EdgeInsets.zero,
+                    constraints: const BoxConstraints(),
+                    onPressed: () => notificationModel.hideNotification(),
+                  );
+                  return hasOverlay
+                      ? Tooltip(message: 'Dismiss', child: closeBtn)
+                      : closeBtn;
+                }),
+              ],
             ),
           ),
         );

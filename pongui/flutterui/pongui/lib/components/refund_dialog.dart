@@ -1,5 +1,6 @@
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
+import 'package:golib_plugin/golib_plugin.dart';
 import 'package:pongui/models/pong.dart';
 import 'package:provider/provider.dart';
 
@@ -197,6 +198,23 @@ class _RefundEscrowsScreenState extends State<RefundEscrowsScreen> {
                 final csvBlocks = _toInt(escrow['csv_blocks']);
                 final archivedAt = _toInt(escrow['archived_at']);
                 final isDeleting = _deletingEscrowId == escrowId;
+                final status = (escrow['status']?.toString() ?? '').toLowerCase();
+                String statusLabel = 'Open';
+                Color statusColor = Colors.grey;
+                switch (status) {
+                  case 'paid':
+                    statusLabel = 'Paid';
+                    statusColor = Colors.greenAccent;
+                    break;
+                  case 'tx built':
+                  case 'tx_built':
+                    statusLabel = 'Tx Built';
+                    statusColor = Colors.lightBlueAccent;
+                    break;
+                  default:
+                    statusLabel = 'Open';
+                    statusColor = Colors.grey;
+                }
                 final archivedText = archivedAt > 0
                     ? DateTime.fromMillisecondsSinceEpoch(archivedAt)
                         .toLocal()
@@ -232,22 +250,39 @@ class _RefundEscrowsScreenState extends State<RefundEscrowsScreen> {
                                   ),
                                 ),
                               ),
-                              Chip(
-                                visualDensity: VisualDensity.compact,
-                                backgroundColor: needsFunding
-                                    ? Colors.orange.withOpacity(0.15)
-                                    : Colors.green.withOpacity(0.15),
-                                label: Text(
-                                  needsFunding
-                                      ? 'Needs funding details'
-                                      : 'Funding recorded',
-                                  style: TextStyle(
-                                    fontSize: 12,
-                                    color: needsFunding
-                                        ? Colors.orangeAccent
-                                        : Colors.greenAccent,
+                              Wrap(
+                                spacing: 8,
+                                children: [
+                                  Chip(
+                                    visualDensity: VisualDensity.compact,
+                                    backgroundColor: needsFunding
+                                        ? Colors.orange.withOpacity(0.15)
+                                        : Colors.green.withOpacity(0.15),
+                                    label: Text(
+                                      needsFunding
+                                          ? 'Needs funding details'
+                                          : 'Funding recorded',
+                                      style: TextStyle(
+                                        fontSize: 12,
+                                        color: needsFunding
+                                            ? Colors.orangeAccent
+                                            : Colors.greenAccent,
+                                      ),
+                                    ),
                                   ),
-                                ),
+                                  Chip(
+                                    visualDensity: VisualDensity.compact,
+                                    backgroundColor:
+                                        statusColor.withOpacity(0.15),
+                                    label: Text(
+                                      statusLabel,
+                                      style: TextStyle(
+                                        fontSize: 12,
+                                        color: statusColor,
+                                      ),
+                                    ),
+                                  ),
+                                ],
                               ),
                             ],
                           ),
@@ -550,6 +585,8 @@ class _RefundEscrowDialogState extends State<RefundEscrowDialog> {
           if (result['utxo_value'] != null) {
             _escrow['funded_amount'] = result['utxo_value'];
           }
+          // Mark escrow as having a refund tx built (not broadcast).
+          _escrow['status'] = 'tx built';
         } else {
           _refundTxHex = null;
           final reason = result['reason']?.toString();
@@ -559,6 +596,20 @@ class _RefundEscrowDialogState extends State<RefundEscrowDialog> {
           _statusIsError = true;
         }
       });
+      // Persist status change when refund tx is built.
+      if (_refundTxHex != null && _refundTxHex!.isNotEmpty) {
+        try {
+          await Golib.updateHistoricEscrow({
+            'escrow_id': _escrowId,
+            'status': 'tx built',
+          });
+          // Also refresh the model's list so the caller screen updates.
+          if (!mounted) return;
+          await context.read<PongModel>().loadHistoricEscrows();
+        } catch (_) {
+          // Non-fatal; UI already updated.
+        }
+      }
     } catch (e) {
       if (!mounted) return;
       setState(() {
@@ -580,6 +631,16 @@ class _RefundEscrowDialogState extends State<RefundEscrowDialog> {
     if (!mounted) return;
     ScaffoldMessenger.of(context).showSnackBar(
       const SnackBar(content: Text('Refund transaction copied to clipboard')),
+    );
+  }
+
+  Future<void> _copyFundingTx() async {
+    final fundingTx = _escrow['funding_txid']?.toString() ?? '';
+    if (fundingTx.isEmpty) return;
+    await Clipboard.setData(ClipboardData(text: fundingTx));
+    if (!mounted) return;
+    ScaffoldMessenger.of(context).showSnackBar(
+      const SnackBar(content: Text('Funding transaction ID copied to clipboard')),
     );
   }
 
@@ -614,15 +675,53 @@ class _RefundEscrowDialogState extends State<RefundEscrowDialog> {
                     const TextStyle(fontWeight: FontWeight.bold, fontSize: 14),
               ),
               const SizedBox(height: 12),
-              _InfoRow(
-                label: 'Funding',
-                value: fundingTx.isNotEmpty
-                    ? '${_shorten(fundingTx, head: 12, tail: 12)}:${fundingVout >= 0 ? fundingVout : 0}'
-                    : 'Not recorded',
-                valueStyle: TextStyle(
-                  color: fundingTx.isEmpty ? Colors.orangeAccent : null,
-                  fontStyle:
-                      fundingTx.isEmpty ? FontStyle.italic : FontStyle.normal,
+              Padding(
+                padding: const EdgeInsets.symmetric(vertical: 4),
+                child: Row(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    SizedBox(
+                      width: 120,
+                      child: Text(
+                        'Funding',
+                        style: TextStyle(
+                          fontSize: 12,
+                          color: Colors.grey.shade400,
+                        ),
+                      ),
+                    ),
+                    Expanded(
+                      child: Row(
+                        children: [
+                          Expanded(
+                            child: Text(
+                              fundingTx.isNotEmpty
+                                  ? '${_shorten(fundingTx, head: 12, tail: 12)}:${fundingVout >= 0 ? fundingVout : 0}'
+                                  : 'Not recorded',
+                              style: TextStyle(
+                                fontSize: 12,
+                                color: fundingTx.isEmpty ? Colors.orangeAccent : null,
+                                fontStyle:
+                                    fundingTx.isEmpty ? FontStyle.italic : FontStyle.normal,
+                              ),
+                            ),
+                          ),
+                          if (fundingTx.isNotEmpty)
+                            IconButton(
+                              icon: const Icon(Icons.copy, size: 16),
+                              onPressed: _copyFundingTx,
+                              tooltip: 'Copy funding transaction ID',
+                              padding: EdgeInsets.zero,
+                              constraints: const BoxConstraints(
+                                minWidth: 24,
+                                minHeight: 24,
+                              ),
+                              color: Colors.grey.shade400,
+                            ),
+                        ],
+                      ),
+                    ),
+                  ],
                 ),
               ),
               _InfoRow(

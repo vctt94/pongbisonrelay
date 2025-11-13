@@ -1,4 +1,5 @@
 import 'package:flutter/material.dart';
+import 'package:flutter/services.dart';
 import 'package:pongui/models/pong.dart';
 import 'package:golib_plugin/golib_plugin.dart';
 import 'package:provider/provider.dart';
@@ -84,6 +85,15 @@ class _LoginScreenState extends State<LoginScreen> {
         _loading = false;
       });
     }
+  }
+
+  Future<void> _copyNonce() async {
+    if (_nonce.isEmpty) return;
+    await Clipboard.setData(ClipboardData(text: _nonce));
+    if (!mounted) return;
+    ScaffoldMessenger.of(context).showSnackBar(
+      const SnackBar(content: Text('Login code copied to clipboard')),
+    );
   }
 
   Future<void> _verify(PongModel m) async {
@@ -361,11 +371,24 @@ class _LoginScreenState extends State<LoginScreen> {
                           child: Column(
                             crossAxisAlignment: CrossAxisAlignment.start,
                             children: [
-                              const Text(
-                                'Code to sign:',
-                                style: TextStyle(
-                                    color: Colors.greenAccent,
-                                    fontWeight: FontWeight.bold),
+                              Row(
+                                mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                                children: [
+                                  const Text(
+                                    'Code to sign:',
+                                    style: TextStyle(
+                                        color: Colors.greenAccent,
+                                        fontWeight: FontWeight.bold),
+                                  ),
+                                  IconButton(
+                                    icon: const Icon(Icons.copy,
+                                        color: Colors.greenAccent, size: 20),
+                                    onPressed: _copyNonce,
+                                    tooltip: 'Copy code',
+                                    padding: EdgeInsets.zero,
+                                    constraints: const BoxConstraints(),
+                                  ),
+                                ],
                               ),
                               const SizedBox(height: 8),
                               SelectableText(

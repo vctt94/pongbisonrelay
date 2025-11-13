@@ -137,17 +137,17 @@ void _readAsyncResultsIsolate(SendPort sp) async {
     // Periodic perf log (once per second) — helps track frame rates.
     final now = DateTime.now();
     if (now.difference(lastLog).inSeconds >= 1) {
-      final avgGap = gapCount > 0 ? (sumGapMs ~/ gapCount) : 0;
-      final avgNative = nativeCount > 0 ? (nativeSumMs ~/ nativeCount) : 0;
-      final avgCopyUs = copyCount > 0 ? (copySumUs ~/ copyCount) : 0;
-      final avgSendUs = sendCount > 0 ? (sendSumUs ~/ sendCount) : 0;
-      print('[ffi-isolate] NTGameFrame fwd=$framesForwarded '
-          'gap_max=${maxGapMs}ms gap_avg=${avgGap}ms gap>=100ms=$gapsOver100 gap>=500ms=$gapsOver500 '
-          'loop_gap_max=${loopMaxGapMs}ms loop_gap>=100ms=$loopGapsOver100 loop_gap>=500ms=$loopGapsOver500 '
-          'native_max=${nativeMaxMs}ms native_avg=${avgNative}ms '
-          'copy_max=${copyMaxUs}us copy_avg=${avgCopyUs}us '
-          'send_max=${sendMaxUs}us send_avg=${avgSendUs}us '
-          'payload_max=${payloadMax}B');
+      // final avgGap = gapCount > 0 ? (sumGapMs ~/ gapCount) : 0;
+      // final avgNative = nativeCount > 0 ? (nativeSumMs ~/ nativeCount) : 0;
+      // final avgCopyUs = copyCount > 0 ? (copySumUs ~/ copyCount) : 0;
+      // final avgSendUs = sendCount > 0 ? (sendSumUs ~/ sendCount) : 0;
+      // print('[ffi-isolate] NTGameFrame fwd=$framesForwarded '
+      //     'gap_max=${maxGapMs}ms gap_avg=${avgGap}ms gap>=100ms=$gapsOver100 gap>=500ms=$gapsOver500 '
+      //     'loop_gap_max=${loopMaxGapMs}ms loop_gap>=100ms=$loopGapsOver100 loop_gap>=500ms=$loopGapsOver500 '
+      //     'native_max=${nativeMaxMs}ms native_avg=${avgNative}ms '
+      //     'copy_max=${copyMaxUs}us copy_avg=${avgCopyUs}us '
+      //     'send_max=${sendMaxUs}us send_avg=${avgSendUs}us '
+      //     'payload_max=${payloadMax}B');
       // Also send a perf notification to the UI isolate.
       sp.send([0, false, NTPerfFwd, framesForwarded]);
       // Reset counters for next interval.
