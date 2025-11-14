@@ -116,9 +116,9 @@ class SharedLayout extends StatelessWidget {
                       leading: const Icon(Icons.logout, color: Colors.red),
                       title: const Text('Logout',
                           style: TextStyle(color: Colors.red)),
-                      onTap: () {
+                      onTap: () async {
                         Navigator.of(context).pop(); // Close drawer first
-                        pongModel!.logout();
+                        await pongModel!.logout();
                         Navigator.of(context).pushReplacementNamed('/login');
                       },
                     ),

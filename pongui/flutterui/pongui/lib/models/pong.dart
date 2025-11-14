@@ -354,7 +354,31 @@ class PongModel extends ChangeNotifier {
     notifyListeners();
   }
 
-  void logout() {
+  Future<void> logout() async {
+    // Treat logout as a full client stop so the server
+    // can cleanly remove this player from any waiting room
+    // via the standard disconnect path.
+    try {
+      await Golib.asyncCall(CTStopClient, "");
+    } catch (_) {
+      // Ignore errors if client is already stopped.
+    }
+
+    // Reset connection/client state so a future login
+    // (including prelogin init on the login screen) will
+    // reinitialize golib cleanly.
+    isConnected = false;
+    _preloginInitialized = false;
+    clientId = '';
+    serverVersion = "";
+    waitingRooms = [];
+
+    // Stop UI/game subscriptions tied to the old client.
+    await _gameStreamSub?.cancel();
+    _gameStreamSub = null;
+    await _uiNtfnSub?.cancel();
+    _uiNtfnSub = null;
+
     isWalletAuthenticated = false;
     walletAddress = '';
     authToken = '';
@@ -375,9 +399,6 @@ class PongModel extends ChangeNotifier {
     currentWR = null;
     _currentGameState = GameState.idle;
     serverIsF2P = false;
-    // Stop UI notifications subscription
-    _uiNtfnSub?.cancel();
-    _uiNtfnSub = null;
     notifyListeners();
   }
 

@@ -569,7 +569,25 @@ func handleClientCmd(cc *clientCtx, cmd *cmd) (interface{}, error) {
 		}, nil
 
 	case CTStopClient:
-		cc.cancel()
+		// Gracefully stop the running client for this handle:
+		// - cancel the context so background goroutines exit
+		// - close the underlying gRPC connection
+		// - remove the clientCtx from the global map so a future
+		//   CTInitClient call will fully reinitialize a fresh client.
+		if cc.cancel != nil {
+			cc.cancel()
+		}
+		if cc.c != nil {
+			_ = cc.c.Close()
+		}
+		cmtx.Lock()
+		for h, c := range cs {
+			if c == cc {
+				delete(cs, h)
+				break
+			}
+		}
+		cmtx.Unlock()
 		return nil, nil
 
 	case CTLeaveWaitingRoom:
