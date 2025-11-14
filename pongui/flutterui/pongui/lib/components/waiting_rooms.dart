@@ -43,7 +43,10 @@ class WaitingRoomList extends StatelessWidget {
             final int playerCount = wr.players.length;
             const int maxPlayers = 2;
             final bool isRoomFull = playerCount >= maxPlayers;
-            final bool canJoinThisRoom = canJoinRooms && !isRoomFull;
+            // Do not allow joining rooms that are full or that currently have
+            // disconnected players in the lobby.
+            final bool canJoinThisRoom =
+                canJoinRooms && !isRoomFull && !hasDisconnectedPlayer;
 
             return Card(
               elevation: 4,
@@ -101,6 +104,9 @@ class WaitingRoomList extends StatelessWidget {
                                 tooltipMessage = joinDisabledTooltip;
                               } else if (isRoomFull) {
                                 tooltipMessage = 'Room is full';
+                              } else if (hasDisconnectedPlayer) {
+                                tooltipMessage =
+                                    'Room has a disconnected player';
                               }
                             }
 

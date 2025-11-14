@@ -56,6 +56,23 @@ func (s *Server) StartNtfnStream(req *pong.StartNtfnStreamRequest, stream pong.P
 	s.usersMu.Lock()
 	s.users[clientID] = player
 	s.usersMu.Unlock()
+
+	// If this player is already in a waiting room (e.g. reconnecting after
+	// an idle disconnect), broadcast an updated waiting-room snapshot so
+	// all UIs can clear any \"opponent disconnected\" indicators.
+	if wr := s.gameManager.GetWaitingRoomFromPlayer(clientID); wr != nil {
+		wr.RLock()
+		pwr := wr.Marshal()
+		wr.RUnlock()
+		s.notifyallusers(&pong.NtfnStreamResponse{
+			NotificationType: pong.NotificationType_PLAYER_JOINED_WR,
+			Message:          "Player reconnected to waiting room",
+			PlayerId:         clientID.String(),
+			RoomId:           wr.ID,
+			Wr:               pwr,
+		})
+	}
+
 	defer func() {
 		s.usersMu.Lock()
 		delete(s.users, clientID)
@@ -110,7 +127,7 @@ func (s *Server) StartNtfnStream(req *pong.StartNtfnStreamRequest, stream pong.P
 
 		s.notifyallusers(&pong.NtfnStreamResponse{
 			NotificationType: pong.NotificationType_OPPONENT_DISCONNECTED,
-			Message:          "Opponent disconnected",
+			Message:          "Opponent disconnected or left the waiting room",
 			PlayerId:         clientID.String(),
 			RoomId:           wr.ID,
 			Wr:               wrSnapshot,
