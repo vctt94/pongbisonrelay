@@ -17,6 +17,7 @@ import 'package:pongui/screens/login.dart';
 import 'package:pongui/screens/newconfig.dart';
 import 'package:pongui/screens/logs.dart';
 import 'package:pongui/screens/devtools.dart';
+import 'package:pongui/components/refund_dialog.dart';
 import 'package:pongui/components/perf_overlay.dart';
 
 Future<void> runNewConfigApp(List<String> args) async {
@@ -153,6 +154,11 @@ class MyApp extends StatelessWidget {
           case '/logs':
             return MaterialPageRoute(
               builder: (_) => const LogsScreen(),
+              settings: settings,
+            );
+          case '/refunds':
+            return MaterialPageRoute(
+              builder: (_) => const RefundEscrowsScreen(),
               settings: settings,
             );
           case '/devtools':

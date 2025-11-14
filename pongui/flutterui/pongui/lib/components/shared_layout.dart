@@ -93,6 +93,14 @@ class SharedLayout extends StatelessWidget {
                         Navigator.of(context).pushNamed('/logs');
                       },
                     ),
+                    ListTile(
+                      leading: const Icon(Icons.refresh, color: Colors.white),
+                      title: const Text('Refund Escrows',
+                          style: TextStyle(color: Colors.white)),
+                      onTap: () {
+                        Navigator.of(context).pushNamed('/refunds');
+                      },
+                    ),
                     const Divider(height: 1),
                     ListTile(
                       leading:
