@@ -23,7 +23,7 @@ func (s *Server) InitConnection(ctx context.Context, req *pong.InitConnectionReq
 	if clientVer == "" {
 		clientVer = "unknown"
 	}
-	s.log.Infof("InitConnection from client version=%s (server version=%s isF2P=%v)", clientVer, version, s.isF2P)
+	s.log.Infof("InitConnection from client version=%s (server version=%s,  Network=%s)", clientVer, version, s.network)
 	return &pong.InitConnectionResponse{
 		ServerVersion: version,
 		IsF2P:         s.isF2P,

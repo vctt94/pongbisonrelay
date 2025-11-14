@@ -28,8 +28,8 @@ import (
 )
 
 const (
-	name    = "pong"
-	version = "v0.0.0"
+	name    = "bisonpong"
+	version = "v0.0.1"
 
 	WarnSendBlock = 50 * time.Millisecond
 	ErrSendBlock  = 250 * time.Millisecond
