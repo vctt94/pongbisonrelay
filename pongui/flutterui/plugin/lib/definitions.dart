@@ -497,6 +497,7 @@ mixin NtfStreams {
       try {
         if (!_perfStatsCtrl.isClosed) {
           _perfStatsCtrl.add(PerfStats(
+            pingCurMs: sinceLastMs,
             framesIn: _framesIn,
             framesOut: _framesDecoded,
             decodeLastMs: _lastDecodeMs,
@@ -956,6 +957,7 @@ class PerfStats {
   final int outDtMin;
   final int outDtAvg;
   final int outDtMax;
+  final int pingCurMs;
 
   const PerfStats({
     required this.framesIn,
@@ -972,6 +974,7 @@ class PerfStats {
     required this.outDtMin,
     required this.outDtAvg,
     required this.outDtMax,
+    required this.pingCurMs,
   });
 }
 
