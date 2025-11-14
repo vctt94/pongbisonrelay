@@ -1004,6 +1004,16 @@ class PongModel extends ChangeNotifier {
       _currentGameState = GameState.idle;
       errorMessage = '';
       _stopGameStreamAndRenderLoop();
+      
+      // Refresh waiting rooms list to reflect updated player counts
+      // (the player who left won't receive OPPONENT_DISCONNECTED notification)
+      try {
+        waitingRooms = await Golib.getWaitingRooms();
+      } catch (e) {
+        developer.log("Failed to refresh waiting rooms after leaving: $e");
+        // Non-fatal
+      }
+      
       notifyListeners();
 
       notificationModel.showNotification("Left waiting room successfully");
