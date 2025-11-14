@@ -927,6 +927,9 @@ const int CTGetClientConfig = 0x1a;
 const int CTSaveClientConfig = 0x1b;
 const int CTValidateRefundSession = 0x1c;
 
+// Client/runtime state helpers
+const int CTGetRunState = 0x83;
+
 const int CTCreateLockFile = 0x60;
 const int CTCloseLockFile = 0x61;
 

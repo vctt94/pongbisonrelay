@@ -120,6 +120,16 @@ class MyApp extends StatelessWidget {
 
         switch (settings.name) {
           case '/':
+            if (!pongModel.isWalletAuthenticated) {
+              return MaterialPageRoute(
+                builder: (_) => const LoginScreen(),
+                settings: settings,
+              );
+            }
+            return MaterialPageRoute(
+              builder: (_) => const HomeScreen(),
+              settings: settings,
+            );
           case '/login':
             return MaterialPageRoute(
               builder: (_) => const LoginScreen(),

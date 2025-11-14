@@ -244,13 +244,14 @@ class PongModel extends ChangeNotifier {
       developer.log("InitClient args: $initArgs");
 
       var localInfo = await Golib.initClient(initArgs);
-      // If this was a prelogin init (no clientId), record success and return early.
-      if (clientId.isEmpty) {
+      // For prelogin callers, record success and return early.
+      if (prelogin) {
         _preloginInitialized = true;
         return;
       }
 
-      // Full init: use IDs returned by golib as authoritative.
+      // Full init: use IDs returned by golib as authoritative (including
+      // attaching to an existing client when clientId is initially empty).
       if ((localInfo.id).isNotEmpty) clientId = localInfo.id;
       nick = localInfo.nick;
       serverIsF2P = localInfo.serverIsF2P;
@@ -258,6 +259,7 @@ class PongModel extends ChangeNotifier {
 
       // Query initial waiting rooms via golib
       waitingRooms = await Golib.getWaitingRooms();
+      _restoreCurrentWaitingRoomFromList();
 
       // Initialize game client (notifications come via golib now)
       pongGame = PongGame(clientId);
@@ -352,6 +354,23 @@ class PongModel extends ChangeNotifier {
     // Initialize the client with wallet-authenticated clientId
     await _initPongClient(cfg);
     notifyListeners();
+  }
+
+  // Attach to an already-running golib client (e.g. after a hot restart).
+  // This reuses the existing client handle and marks the model as
+  // authenticated only if a non-empty clientId is discovered.
+  Future<void> attachToExistingClient() async {
+    try {
+      await _initPongClient(cfg);
+      if (clientId.isNotEmpty) {
+        isWalletAuthenticated = true;
+      }
+      notifyListeners();
+    } catch (e) {
+      errorMessage = e.toString();
+      notifyListeners();
+      rethrow;
+    }
   }
 
   Future<void> logout() async {
@@ -651,6 +670,7 @@ class PongModel extends ChangeNotifier {
       if (connected && !wasConnected) {
         try {
           waitingRooms = await Golib.getWaitingRooms();
+          _restoreCurrentWaitingRoomFromList();
         } catch (e) {
           developer
               .log("Failed to refresh waiting rooms after reconnection: $e");
@@ -683,6 +703,40 @@ class PongModel extends ChangeNotifier {
     clearEscrowState();
     _stopGameStreamAndRenderLoop();
     notifyListeners();
+  }
+
+  // Derive the current waiting room from the latest server-provided list
+  // and the local clientId. This is used after re-attaching to an existing
+  // golib client (hot restart) or after reconnecting the gRPC stream so
+  // the UI can show the correct room membership.
+  void _restoreCurrentWaitingRoomFromList() {
+    if (clientId.isEmpty) {
+      currentWR = null;
+      return;
+    }
+
+    LocalWaitingRoom? myRoom;
+    for (final wr in waitingRooms) {
+      final hasMe = wr.players.any((p) => p.uid == clientId);
+      if (hasMe) {
+        myRoom = wr;
+        break;
+      }
+    }
+
+    if (myRoom != null) {
+      currentWR = myRoom;
+      // If we previously had no game state (e.g. after restart), mark as
+      // being in a waiting room without overriding active game states.
+      if (_currentGameState == GameState.idle ||
+          _currentGameState == GameState.gameEnded) {
+        _currentGameState = GameState.inWaitingRoom;
+      }
+    } else if (currentWR != null &&
+        !waitingRooms.any((wr) => wr.id == currentWR!.id)) {
+      // If the room no longer exists on the server, clear local ref.
+      currentWR = null;
+    }
   }
 
   void _handleNtfnReadyTimeout(UINotification n) {
