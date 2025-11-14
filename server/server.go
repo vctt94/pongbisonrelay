@@ -431,7 +431,9 @@ func (s *Server) handleDisconnect(clientID zkidentity.ShortID) {
 	for _, remainingPlayer := range remainingPlayers {
 		_ = s.notify(remainingPlayer, &pong.NtfnStreamResponse{
 			NotificationType: pong.NotificationType_OPPONENT_DISCONNECTED,
-			Message:          "player left the waiting room",
+			Message:          "Opponent disconnected",
+			PlayerId:         clientID.String(),
+			RoomId:           wr.ID,
 			Wr:               wrSnapshot,
 		})
 	}
@@ -440,7 +442,7 @@ func (s *Server) handleDisconnect(clientID zkidentity.ShortID) {
 func (s *Server) Run(ctx context.Context) error {
 	for {
 		select {
-	case <-ctx.Done():
+		case <-ctx.Done():
 			ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
 			defer cancel()
 

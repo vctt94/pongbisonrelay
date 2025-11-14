@@ -43,6 +43,7 @@ type Player struct {
 	GameStream     pong.PongGame_StartGameStreamServer
 	NotifierStream pong.PongGame_StartNtfnStreamServer
 	Ready          bool
+	Connected      bool
 
 	// Per-player frame buffer to prevent one slow client from affecting others
 	FrameCh chan []byte
@@ -57,12 +58,13 @@ func (p *Player) Marshal() *pong.Player {
 	p.RLock()
 	defer p.RUnlock()
 	return &pong.Player{
-		Uid:    p.ID.String(),
-		Nick:   p.Nick,
-		BetAmt: p.BetAmt,
-		Number: p.PlayerNumber,
-		Score:  int32(p.Score),
-		Ready:  p.Ready,
+		Uid:       p.ID.String(),
+		Nick:      p.Nick,
+		BetAmt:    p.BetAmt,
+		Number:    p.PlayerNumber,
+		Score:     int32(p.Score),
+		Ready:     p.Ready,
+		Connected: p.Connected,
 	}
 }
 

@@ -106,7 +106,6 @@ class RenderLoop extends ChangeNotifier {
     _ticks += 1;
     final nowMs = DateTime.now().millisecondsSinceEpoch;
     if (nowMs - _lastLogMs >= 1000) {
-      debugPrint('[render] fps=$_ticks');
       _ticks = 0;
       _lastLogMs = nowMs;
     }

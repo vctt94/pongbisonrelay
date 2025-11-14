@@ -80,10 +80,11 @@ type waitingRoom struct {
 }
 
 type player struct {
-	UID    string `json:"uid"`
-	Nick   string `json:"nick"`
-	BetAmt int64  `json:"bet_amt"`
-	Ready  bool   `json:"ready"`
+	UID       string `json:"uid"`
+	Nick      string `json:"nick"`
+	BetAmt    int64  `json:"bet_amt"`
+	Ready     bool   `json:"ready"`
+	Connected bool   `json:"connected"`
 }
 
 func playerFromServer(p *pong.Player) (*player, error) {
@@ -93,10 +94,11 @@ func playerFromServer(p *pong.Player) (*player, error) {
 		return nil, err
 	}
 	return &player{
-		UID:    id.String(),
-		Nick:   p.Nick,
-		BetAmt: p.BetAmt,
-		Ready:  p.Ready,
+		UID:       id.String(),
+		Nick:      p.Nick,
+		BetAmt:    p.BetAmt,
+		Ready:     p.Ready,
+		Connected: p.Connected,
 	}, nil
 }
 

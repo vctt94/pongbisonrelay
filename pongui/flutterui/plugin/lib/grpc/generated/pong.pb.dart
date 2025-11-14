@@ -2855,6 +2855,7 @@ class Player extends $pb.GeneratedMessage {
     $core.int? number,
     $core.int? score,
     $core.bool? ready,
+    $core.bool? connected,
   }) {
     final result = create();
     if (uid != null) result.uid = uid;
@@ -2863,6 +2864,7 @@ class Player extends $pb.GeneratedMessage {
     if (number != null) result.number = number;
     if (score != null) result.score = score;
     if (ready != null) result.ready = ready;
+    if (connected != null) result.connected = connected;
     return result;
   }
 
@@ -2885,6 +2887,7 @@ class Player extends $pb.GeneratedMessage {
     ..aI(4, _omitFieldNames ? '' : 'number')
     ..aI(5, _omitFieldNames ? '' : 'score')
     ..aOB(6, _omitFieldNames ? '' : 'ready')
+    ..aOB(7, _omitFieldNames ? '' : 'connected')
     ..hasRequiredFields = false;
 
   @$core.Deprecated('See https://github.com/google/protobuf.dart/issues/998.')
@@ -2958,6 +2961,16 @@ class Player extends $pb.GeneratedMessage {
   $core.bool hasReady() => $_has(5);
   @$pb.TagNumber(6)
   void clearReady() => $_clearField(6);
+
+  /// Whether this player currently has an active notifier/game connection.
+  @$pb.TagNumber(7)
+  $core.bool get connected => $_getBF(6);
+  @$pb.TagNumber(7)
+  set connected($core.bool value) => $_setBool(6, value);
+  @$pb.TagNumber(7)
+  $core.bool hasConnected() => $_has(6);
+  @$pb.TagNumber(7)
+  void clearConnected() => $_clearField(7);
 }
 
 /// SignalReadyRequest contains information about the client signaling readiness

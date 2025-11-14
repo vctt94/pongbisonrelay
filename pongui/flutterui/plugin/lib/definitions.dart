@@ -146,12 +146,17 @@ class LocalPlayer {
   final int betAmount;
   @JsonKey(name: 'ready')
   bool ready;
+  // Whether this player is currently connected to the server (as far as the
+  // client knows). Used to highlight disconnected opponents in waiting rooms.
+  @JsonKey(name: 'connected', defaultValue: true)
+  bool connected;
 
   LocalPlayer(
     this.uid,
     this.nick,
     this.betAmount, {
     this.ready = false,
+    this.connected = true,
   });
 
   factory LocalPlayer.fromJson(Map<String, dynamic> json) =>
@@ -164,6 +169,7 @@ class LocalPlayer {
       player.nick,
       player.betAmt.toInt(),
       ready: player.ready,
+      connected: player.connected,
     );
   }
 }

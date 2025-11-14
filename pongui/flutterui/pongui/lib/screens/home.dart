@@ -1172,7 +1172,7 @@ class _HomeScreenState extends State<HomeScreen> {
         icon = Icons.people_alt_outlined;
         color = Colors.white70;
       } else {
-        label = 'Escrow confirmed. Preparing settlement.';
+        label = 'Escrow confirmed. Preparing settlement after players are ready.';
         icon = Icons.shield_outlined;
         color = Colors.lightBlueAccent;
       }

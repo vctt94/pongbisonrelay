@@ -35,10 +35,18 @@ class WaitingRoomList extends StatelessWidget {
           itemBuilder: (context, index) {
             final wr = waitingRooms[index];
             final bool isCurrentRoom = currentRoomId == wr.id;
+            // Mark rooms that contain any disconnected players; this allows
+            // users to see at a glance which rooms have opponents that are
+            // currently offline.
+            final bool hasDisconnectedPlayer =
+                wr.players.any((p) => p.connected == false);
             final int playerCount = wr.players.length;
             const int maxPlayers = 2;
             final bool isRoomFull = playerCount >= maxPlayers;
-            final bool canJoinThisRoom = canJoinRooms && !isRoomFull;
+            // Do not allow joining rooms that are full or that currently have
+            // disconnected players in the lobby.
+            final bool canJoinThisRoom =
+                canJoinRooms && !isRoomFull && !hasDisconnectedPlayer;
 
             return Card(
               elevation: 4,
@@ -69,6 +77,17 @@ class WaitingRoomList extends StatelessWidget {
                       style: const TextStyle(color: Colors.white70),
                     ),
                     const SizedBox(height: 4),
+                    if (hasDisconnectedPlayer)
+                      const Text(
+                        'Status: Opponent disconnected',
+                        style: TextStyle(
+                          color: Colors.redAccent,
+                          fontStyle: FontStyle.italic,
+                        ),
+                      )
+                    else
+                      const SizedBox.shrink(),
+                    const SizedBox(height: 4),
                     Text(
                       'Bet: ${wr.betAmt / 1e8} DCR',
                       style: const TextStyle(color: Colors.white70),
@@ -85,6 +104,9 @@ class WaitingRoomList extends StatelessWidget {
                                 tooltipMessage = joinDisabledTooltip;
                               } else if (isRoomFull) {
                                 tooltipMessage = 'Room is full';
+                              } else if (hasDisconnectedPlayer) {
+                                tooltipMessage =
+                                    'Room has a disconnected player';
                               }
                             }
 

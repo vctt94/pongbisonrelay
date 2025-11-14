@@ -344,6 +344,11 @@ func handleInitClient(handle uint32, args initClient) (*localInfo, error) {
 							players := make([]*player, len(ntfn.Wr.Players))
 							for i, p := range ntfn.Wr.Players {
 								pp, _ := playerFromServer(p)
+								// Mark the disconnected player as not connected so UIs
+								// can highlight them while they remain in the room.
+								if ntfn.PlayerId != "" && p.Uid == ntfn.PlayerId {
+									pp.Connected = false
+								}
 								players[i] = pp
 							}
 							wr = &waitingRoom{ID: ntfn.Wr.Id, HostID: ntfn.Wr.HostId, BetAmt: ntfn.Wr.BetAmt, Players: players}
