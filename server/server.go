@@ -340,6 +340,15 @@ func (s *Server) handleDisconnect(clientID zkidentity.ShortID) {
 	// Capture current waiting room (if any) before mutating game state.
 	wr := s.gameManager.GetWaitingRoomFromPlayer(clientID)
 
+	// Snapshot players in the waiting room, if any, so we can safely
+	// adjust their state even after the room is removed from the manager.
+	var wrPlayers []*ponggame.Player
+	if wr != nil {
+		wr.RLock()
+		wrPlayers = append([]*ponggame.Player(nil), wr.Players...)
+		wr.RUnlock()
+	}
+
 	// Get the player session, if it still exists.
 	player := s.gameManager.PlayerSessions.GetPlayer(clientID)
 	if player != nil {
@@ -362,6 +371,38 @@ func (s *Server) handleDisconnect(clientID zkidentity.ShortID) {
 	}
 
 	if isHost {
+		// Host disconnected: ensure all other players that were in this room
+		// are no longer considered ready and have their game streams cleaned
+		// up, so they don't stay \"ready\" after the room is closed.
+		for _, p := range wrPlayers {
+			if p == nil || p.ID == nil {
+				continue
+			}
+			// Skip the just-disconnected host (already cleaned up above).
+			if *p.ID == clientID {
+				continue
+			}
+
+			// Mark player not ready and clear any stale game stream reference.
+			p.Lock()
+			p.Ready = false
+			p.GameStream = nil
+			p.Unlock()
+
+			// Cancel any active game stream context to trigger StartGameStream
+			// cleanup on the client-specific goroutine, if still running.
+			if cancel, ok := s.activeGameStreams.Load(*p.ID); ok {
+				if cancelFn, isCancel := cancel.(context.CancelFunc); isCancel {
+					cancelFn()
+				}
+			}
+
+			// Clear presign artifacts for this player's escrow bound to this room.
+			if es := s.escrowForRoomPlayer(*p.ID, wr.ID); es != nil {
+				es.clearPreSigns()
+			}
+		}
+
 		// Host disconnected: cancel the room context and broadcast removal so
 		// UIs drop it from their lists.
 		if wr.Cancel != nil {
