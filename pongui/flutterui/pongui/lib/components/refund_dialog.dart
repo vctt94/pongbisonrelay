@@ -962,15 +962,14 @@ class _RefundEscrowDialogState extends State<RefundEscrowDialog> {
         ),
       ),
       actions: [
-        if (widget.onDelete != null)
-          TextButton.icon(
-            onPressed: _handleDeleteEscrow,
-            icon: const Icon(Icons.delete_outline, size: 18),
-            label: const Text('Delete'),
-            style: TextButton.styleFrom(
-              foregroundColor: Colors.redAccent,
-            ),
+        TextButton.icon(
+          onPressed: widget.onDelete != null ? _handleDeleteEscrow : null,
+          icon: const Icon(Icons.delete_outline, size: 18),
+          label: const Text('Delete escrow'),
+          style: TextButton.styleFrom(
+            foregroundColor: Colors.redAccent,
           ),
+        ),
         TextButton(
           onPressed: () => Navigator.of(context).pop(),
           child: const Text('Close'),
