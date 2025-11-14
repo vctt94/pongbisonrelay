@@ -431,7 +431,7 @@ func (s *Server) handleDisconnect(clientID zkidentity.ShortID) {
 	for _, remainingPlayer := range remainingPlayers {
 		_ = s.notify(remainingPlayer, &pong.NtfnStreamResponse{
 			NotificationType: pong.NotificationType_OPPONENT_DISCONNECTED,
-			Message:          "Opponent disconnected or left the waiting room",
+			Message:          "Opponent disconnected",
 			PlayerId:         clientID.String(),
 			RoomId:           wr.ID,
 			Wr:               wrSnapshot,

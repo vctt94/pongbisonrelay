@@ -127,7 +127,7 @@ func (s *Server) StartNtfnStream(req *pong.StartNtfnStreamRequest, stream pong.P
 
 		s.notifyallusers(&pong.NtfnStreamResponse{
 			NotificationType: pong.NotificationType_OPPONENT_DISCONNECTED,
-			Message:          "Opponent disconnected or left the waiting room",
+			Message:          "Opponent disconnected",
 			PlayerId:         clientID.String(),
 			RoomId:           wr.ID,
 			Wr:               wrSnapshot,

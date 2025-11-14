@@ -79,7 +79,7 @@ class WaitingRoomList extends StatelessWidget {
                     const SizedBox(height: 4),
                     if (hasDisconnectedPlayer)
                       const Text(
-                        'Status: Opponent disconnected or left',
+                        'Status: Opponent disconnected',
                         style: TextStyle(
                           color: Colors.redAccent,
                           fontStyle: FontStyle.italic,
