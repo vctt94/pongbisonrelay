@@ -35,19 +35,28 @@ class _RefundEscrowsScreenState extends State<RefundEscrowsScreen> {
   }
 
   void _openEscrowDialog(Map<String, dynamic> escrow) {
+    final escrowId = escrow['escrow_id']?.toString() ?? '';
     showDialog(
       context: context,
       barrierDismissible: false,
-      builder: (_) => RefundEscrowDialog(
+      builder: (dialogContext) => RefundEscrowDialog(
         escrow: Map<String, dynamic>.from(escrow),
+        onDelete: (refundDialogContext) async {
+          await _confirmDeleteEscrow(escrowId, refundDialogContext);
+          // Close the refund dialog after delete confirmation completes
+          if (dialogContext.mounted) {
+            Navigator.of(dialogContext).pop();
+          }
+        },
       ),
     );
   }
 
-  Future<void> _confirmDeleteEscrow(String escrowId) async {
+  Future<void> _confirmDeleteEscrow(String escrowId, BuildContext? dialogContext) async {
     _confirmationCtrl.clear();
+    final confirmContext = dialogContext ?? context;
     final confirm = await showDialog<bool>(
-      context: context,
+      context: confirmContext,
       builder: (dialogContext) => AlertDialog(
         title: const Text('Delete escrow record?'),
         content: Column(
@@ -66,6 +75,11 @@ class _RefundEscrowsScreenState extends State<RefundEscrowsScreen> {
               decoration: const InputDecoration(
                 labelText: 'Type OK to confirm',
               ),
+              textInputAction: TextInputAction.done,
+              onSubmitted: (_) {
+                final ok = _confirmationCtrl.text.trim().toLowerCase() == 'ok';
+                Navigator.of(dialogContext).pop(ok);
+              },
             ),
           ],
         ),
@@ -325,7 +339,7 @@ class _RefundEscrowsScreenState extends State<RefundEscrowsScreen> {
                                 TextButton.icon(
                                   onPressed: isDeleting
                                       ? null
-                                      : () => _confirmDeleteEscrow(escrowId),
+                                      : () => _confirmDeleteEscrow(escrowId, null),
                                   style: TextButton.styleFrom(
                                     foregroundColor: Colors.redAccent,
                                   ),
@@ -380,9 +394,14 @@ class _RefundEscrowsScreenState extends State<RefundEscrowsScreen> {
 }
 
 class RefundEscrowDialog extends StatefulWidget {
-  const RefundEscrowDialog({super.key, required this.escrow});
+  const RefundEscrowDialog({
+    super.key,
+    required this.escrow,
+    this.onDelete,
+  });
 
   final Map<String, dynamic> escrow;
+  final Future<void> Function(BuildContext)? onDelete;
 
   @override
   State<RefundEscrowDialog> createState() => _RefundEscrowDialogState();
@@ -439,6 +458,7 @@ class _RefundEscrowDialogState extends State<RefundEscrowDialog> {
       text: currentVout >= 0 ? currentVout.toString() : '',
     );
 
+    if (!mounted) return;
     final result = await showDialog<Map<String, String>>(
       context: context,
       builder: (dialogContext) => AlertDialog(
@@ -489,12 +509,13 @@ class _RefundEscrowDialogState extends State<RefundEscrowDialog> {
       ),
     );
 
-    if (result == null) {
+    if (!mounted || result == null) {
       return;
     }
     final txid = result['txid']?.trim() ?? '';
     final vout = int.tryParse(result['vout'] ?? '') ?? 0;
     if (txid.isEmpty) {
+      if (!mounted) return;
       setState(() {
         _statusMessage = 'Funding transaction ID is required.';
         _statusIsError = true;
@@ -502,13 +523,14 @@ class _RefundEscrowDialogState extends State<RefundEscrowDialog> {
       return;
     }
 
+    if (!mounted) return;
     setState(() {
       _isUpdatingFunding = true;
       _statusMessage = null;
     });
 
+    final model = context.read<PongModel>();
     try {
-      final model = context.read<PongModel>();
       await model.updateEscrowFundingTx(_escrowId, txid, vout);
       await model.loadHistoricEscrows();
       if (!mounted) return;
@@ -605,7 +627,7 @@ class _RefundEscrowDialogState extends State<RefundEscrowDialog> {
           });
           // Also refresh the model's list so the caller screen updates.
           if (!mounted) return;
-          await context.read<PongModel>().loadHistoricEscrows();
+          await model.loadHistoricEscrows();
         } catch (_) {
           // Non-fatal; UI already updated.
         }
@@ -627,9 +649,11 @@ class _RefundEscrowDialogState extends State<RefundEscrowDialog> {
 
   Future<void> _copyRefundTx() async {
     if (_refundTxHex == null || _refundTxHex!.isEmpty) return;
+    if (!mounted) return;
+    final messenger = ScaffoldMessenger.of(context);
     await Clipboard.setData(ClipboardData(text: _refundTxHex!));
     if (!mounted) return;
-    ScaffoldMessenger.of(context).showSnackBar(
+    messenger.showSnackBar(
       const SnackBar(content: Text('Refund transaction copied to clipboard')),
     );
   }
@@ -637,11 +661,19 @@ class _RefundEscrowDialogState extends State<RefundEscrowDialog> {
   Future<void> _copyFundingTx() async {
     final fundingTx = _escrow['funding_txid']?.toString() ?? '';
     if (fundingTx.isEmpty) return;
+    if (!mounted) return;
+    final messenger = ScaffoldMessenger.of(context);
     await Clipboard.setData(ClipboardData(text: fundingTx));
     if (!mounted) return;
-    ScaffoldMessenger.of(context).showSnackBar(
+    messenger.showSnackBar(
       const SnackBar(content: Text('Funding transaction ID copied to clipboard')),
     );
+  }
+
+  Future<void> _handleDeleteEscrow() async {
+    if (widget.onDelete != null) {
+      await widget.onDelete!(context);
+    }
   }
 
   @override
@@ -693,20 +725,24 @@ class _RefundEscrowDialogState extends State<RefundEscrowDialog> {
                     Expanded(
                       child: Row(
                         children: [
-                          Expanded(
-                            child: Text(
-                              fundingTx.isNotEmpty
-                                  ? '${_shorten(fundingTx, head: 12, tail: 12)}:${fundingVout >= 0 ? fundingVout : 0}'
-                                  : 'Not recorded',
-                              style: TextStyle(
-                                fontSize: 12,
-                                color: fundingTx.isEmpty ? Colors.orangeAccent : null,
-                                fontStyle:
-                                    fundingTx.isEmpty ? FontStyle.italic : FontStyle.normal,
+                          Flexible(
+                            child: ConstrainedBox(
+                              constraints: const BoxConstraints(maxWidth: 400),
+                              child: Text(
+                                fundingTx.isNotEmpty
+                                    ? '${_shorten(fundingTx, head: 12, tail: 12)}:${fundingVout >= 0 ? fundingVout : 0}'
+                                    : 'Not recorded',
+                                style: TextStyle(
+                                  fontSize: 12,
+                                  color: fundingTx.isEmpty ? Colors.orangeAccent : null,
+                                  fontStyle:
+                                      fundingTx.isEmpty ? FontStyle.italic : FontStyle.normal,
+                                ),
                               ),
                             ),
                           ),
-                          if (fundingTx.isNotEmpty)
+                          if (fundingTx.isNotEmpty) ...[
+                            const SizedBox(width: 8),
                             IconButton(
                               icon: const Icon(Icons.copy, size: 16),
                               onPressed: _copyFundingTx,
@@ -718,6 +754,7 @@ class _RefundEscrowDialogState extends State<RefundEscrowDialog> {
                               ),
                               color: Colors.grey.shade400,
                             ),
+                          ],
                         ],
                       ),
                     ),
@@ -859,16 +896,25 @@ class _RefundEscrowDialogState extends State<RefundEscrowDialog> {
         ),
       ),
       actions: [
+        if (widget.onDelete != null)
+          TextButton.icon(
+            onPressed: _handleDeleteEscrow,
+            icon: const Icon(Icons.delete_outline, size: 18),
+            label: const Text('Delete'),
+            style: TextButton.styleFrom(
+              foregroundColor: Colors.redAccent,
+            ),
+          ),
+        TextButton(
+          onPressed: () => Navigator.of(context).pop(),
+          child: const Text('Close'),
+        ),
         if (_refundTxHex != null && _refundTxHex!.isNotEmpty)
           TextButton.icon(
             onPressed: _copyRefundTx,
             icon: const Icon(Icons.copy, size: 18),
             label: const Text('Copy transaction'),
           ),
-        TextButton(
-          onPressed: () => Navigator.of(context).pop(),
-          child: const Text('Close'),
-        ),
       ],
     );
   }
