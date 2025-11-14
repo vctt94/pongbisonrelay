@@ -607,11 +607,39 @@ class _HomeScreenState extends State<HomeScreen> {
                                   ],
                                 ),
                                 const SizedBox(height: 8),
-                                Text(
-                                  "Players: ${pongModel.currentWR?.players.length ?? 0} / 2",
-                                  style: const TextStyle(
-                                    color: Colors.white,
-                                  ),
+                                Builder(
+                                  builder: (context) {
+                                    final room = pongModel.currentWR;
+                                    int totalPlayers = 0;
+                                    int readyPlayers = 0;
+                                    if (room != null) {
+                                      totalPlayers = room.players.length;
+                                      readyPlayers = room.players
+                                          .where((p) => p.ready)
+                                          .length;
+                                    }
+                                    return Column(
+                                      crossAxisAlignment:
+                                          CrossAxisAlignment.start,
+                                      children: [
+                                        Text(
+                                          "Players: $totalPlayers / 2",
+                                          style: const TextStyle(
+                                            color: Colors.white,
+                                          ),
+                                        ),
+                                        const SizedBox(height: 4),
+                                        Text(
+                                          "Ready: $readyPlayers / 2",
+                                          style: TextStyle(
+                                            color: readyPlayers == 2
+                                                ? Colors.greenAccent
+                                                : Colors.white70,
+                                          ),
+                                        ),
+                                      ],
+                                    );
+                                  },
                                 ),
 
                                 // Add ready/leave buttons if in a room

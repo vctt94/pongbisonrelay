@@ -35,6 +35,11 @@ class WaitingRoomList extends StatelessWidget {
           itemBuilder: (context, index) {
             final wr = waitingRooms[index];
             final bool isCurrentRoom = currentRoomId == wr.id;
+            final int playerCount = wr.players.length;
+            final int readyCount = wr.players.where((p) => p.ready).length;
+            const int maxPlayers = 2;
+            final bool isRoomFull = playerCount >= maxPlayers;
+            final bool canJoinThisRoom = canJoinRooms && !isRoomFull;
 
             return Card(
               elevation: 4,
@@ -82,6 +87,34 @@ class WaitingRoomList extends StatelessWidget {
                     const SizedBox(height: 4),
                     Row(
                       children: [
+                        const Icon(Icons.people,
+                            size: 16, color: Colors.lightBlueAccent),
+                        const SizedBox(width: 4),
+                        Text(
+                          'Players: $playerCount / $maxPlayers',
+                          style: const TextStyle(color: Colors.white70),
+                        ),
+                      ],
+                    ),
+                    const SizedBox(height: 4),
+                    Row(
+                      children: [
+                        const Icon(Icons.check_circle,
+                            size: 16, color: Colors.greenAccent),
+                        const SizedBox(width: 4),
+                        Text(
+                          'Ready: $readyCount / $maxPlayers',
+                          style: TextStyle(
+                            color: readyCount == maxPlayers
+                                ? Colors.greenAccent
+                                : Colors.white70,
+                          ),
+                        ),
+                      ],
+                    ),
+                    const SizedBox(height: 4),
+                    Row(
+                      children: [
                         const Icon(Icons.tag, size: 16, color: Colors.white54),
                         const SizedBox(width: 4),
                         Text(
@@ -96,11 +129,22 @@ class WaitingRoomList extends StatelessWidget {
                 trailing: currentRoomId != wr.id
                     ? currentRoomId == null
                         ? Builder(builder: (context) {
+                            String? tooltipMessage;
+                            if (!canJoinThisRoom) {
+                              if (!canJoinRooms &&
+                                  (joinDisabledTooltip ?? '').isNotEmpty) {
+                                tooltipMessage = joinDisabledTooltip;
+                              } else if (isRoomFull) {
+                                tooltipMessage = 'Room is full';
+                              }
+                            }
+
                             final btn = ElevatedButton(
-                              onPressed:
-                                  canJoinRooms ? () => onJoinRoom(wr.id) : null,
+                              onPressed: canJoinThisRoom
+                                  ? () => onJoinRoom(wr.id)
+                                  : null,
                               style: ElevatedButton.styleFrom(
-                                backgroundColor: canJoinRooms
+                                backgroundColor: canJoinThisRoom
                                     ? Colors.blueAccent
                                     : Colors.blueGrey,
                                 foregroundColor: Colors.white,
@@ -116,12 +160,12 @@ class WaitingRoomList extends StatelessWidget {
                                 style: TextStyle(fontWeight: FontWeight.bold),
                               ),
                             );
-                            if (canJoinRooms ||
-                                (joinDisabledTooltip ?? '').isEmpty) {
+                            if (tooltipMessage == null ||
+                                tooltipMessage.isEmpty) {
                               return btn;
                             }
                             return Tooltip(
-                              message: joinDisabledTooltip!,
+                              message: tooltipMessage,
                               child: AbsorbPointer(child: btn),
                             );
                           })

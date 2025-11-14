@@ -562,7 +562,38 @@ class PongModel extends ChangeNotifier {
     final extras = _extrasFrom(n);
     final pid = (extras['player_id'] ?? '').toString();
     final r = extras['ready'] == true;
-    if (pid == clientId && r) {
+    final wr = extras['waiting_room'];
+
+    // When a waiting room snapshot is provided, update local room state so
+    // both players can see each other's ready status.
+    if (wr is Map<String, dynamic>) {
+      final room = LocalWaitingRoom.fromJson(Map<String, dynamic>.from(wr));
+      final idx = waitingRooms.indexWhere((r) => r.id == room.id);
+      if (idx == -1) {
+        waitingRooms = [room, ...waitingRooms];
+      } else {
+        waitingRooms[idx] = room;
+      }
+      if (currentWR?.id == room.id) {
+        currentWR = room;
+      }
+
+      // Keep local readiness state in sync for this client while in a room.
+      if (pid == clientId) {
+        if (r) {
+          _currentGameState = GameState.waitingRoomReady;
+        } else if (_currentGameState == GameState.waitingRoomReady) {
+          _currentGameState = GameState.inWaitingRoom;
+        }
+      }
+      notifyListeners();
+      return;
+    }
+
+    // Fallback for legacy notifications that only include player_id/ready and
+    // no waiting room context: only adjust state if we're still in the
+    // waiting-room phase to avoid clobbering in-game states.
+    if (pid == clientId && r && _currentGameState == GameState.inWaitingRoom) {
       _currentGameState = GameState.waitingRoomReady;
       notifyListeners();
     }
@@ -615,16 +646,17 @@ class PongModel extends ChangeNotifier {
     if (connected is bool) {
       final wasConnected = isConnected;
       isConnected = connected;
-      
+
       // If connection was restored, refresh waiting rooms
       if (connected && !wasConnected) {
         try {
           waitingRooms = await Golib.getWaitingRooms();
         } catch (e) {
-          developer.log("Failed to refresh waiting rooms after reconnection: $e");
+          developer
+              .log("Failed to refresh waiting rooms after reconnection: $e");
         }
       }
-      
+
       notifyListeners();
     }
   }

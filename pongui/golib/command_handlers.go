@@ -403,7 +403,27 @@ func handleInitClient(handle uint32, args initClient) (*localInfo, error) {
 						}, nil)
 
 					case pong.NotificationType_ON_PLAYER_READY:
-						extras := map[string]interface{}{"player_id": ntfn.PlayerId, "ready": ntfn.Ready}
+						// Include updated waiting room snapshot when available so UIs
+						// can reflect both players' ready state.
+						var wr *waitingRoom
+						if ntfn.Wr != nil {
+							players := make([]*player, len(ntfn.Wr.Players))
+							for i, p := range ntfn.Wr.Players {
+								pp, _ := playerFromServer(p)
+								players[i] = pp
+							}
+							wr = &waitingRoom{
+								ID:      ntfn.Wr.Id,
+								HostID:  ntfn.Wr.HostId,
+								BetAmt:  ntfn.Wr.BetAmt,
+								Players: players,
+							}
+						}
+						extras := map[string]interface{}{
+							"waiting_room": wr,
+							"player_id":    ntfn.PlayerId,
+							"ready":        ntfn.Ready,
+						}
 						fromJSON, _ := json.Marshal(extras)
 						notify(NTUINotification, map[string]interface{}{
 							"type":  "player_ready",

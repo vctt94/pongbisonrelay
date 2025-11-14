@@ -102,9 +102,41 @@ class TopStatusCard extends StatelessWidget {
                           ],
                         ),
                         const SizedBox(height: 8),
-                        Text(
-                          "Players: ${pongModel.currentWR?.players.length ?? 0} / 2",
-                          style: Theme.of(context).textTheme.bodyMedium,
+                        Builder(
+                          builder: (context) {
+                            final room = pongModel.currentWR;
+                            int totalPlayers = 0;
+                            int readyPlayers = 0;
+                            if (room != null) {
+                              totalPlayers = room.players.length;
+                              readyPlayers = room.players
+                                  .where((p) => p.ready)
+                                  .length;
+                            }
+                            return Column(
+                              crossAxisAlignment: CrossAxisAlignment.start,
+                              children: [
+                                Text(
+                                  "Players: $totalPlayers / 2",
+                                  style: Theme.of(context)
+                                      .textTheme
+                                      .bodyMedium,
+                                ),
+                                const SizedBox(height: 4),
+                                Text(
+                                  "Ready: $readyPlayers / 2",
+                                  style: Theme.of(context)
+                                      .textTheme
+                                      .bodyMedium
+                                      ?.copyWith(
+                                        color: readyPlayers == 2
+                                            ? Colors.greenAccent
+                                            : Colors.white70,
+                                      ),
+                                ),
+                              ],
+                            );
+                          },
                         ),
                       ],
                     ],
