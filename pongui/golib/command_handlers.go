@@ -989,6 +989,13 @@ func handleClientCmd(cc *clientCtx, cmd *cmd) (interface{}, error) {
 		}
 		return result, nil
 
+	case CTGetCurrentWaitingRoom:
+		roomID := ""
+		if cc.c != nil {
+			roomID = cc.c.CurrentWaitingRoomID()
+		}
+		return map[string]interface{}{"room_id": roomID}, nil
+
 	case CTValidateRefundSession:
 		var req struct {
 			EscrowID string `json:"escrow_id"`

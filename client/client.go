@@ -71,6 +71,10 @@ type PongClient struct {
 	// Wallet auth info (persisted with session key)
 	walletAddress         string
 	payoutAddressOrPubkey string
+
+	// Current waiting room ID for this client (cached in-memory so UIs can
+	// reattach to the same room across hot restarts).
+	currentWRID string
 }
 
 // LoadTLSCreds loads client TLS credentials using the configured cert path,
@@ -179,6 +183,14 @@ func (pc *PongClient) SetID(newID string) {
 	pc.Lock()
 	defer pc.Unlock()
 	pc.id = newID
+}
+
+// CurrentWaitingRoomID returns the cached waiting-room ID (if any) that this
+// client most recently joined or created. Empty string means no active room.
+func (pc *PongClient) CurrentWaitingRoomID() string {
+	pc.RLock()
+	defer pc.RUnlock()
+	return strings.TrimSpace(pc.currentWRID)
 }
 
 func (pc *PongClient) IsReady() bool {

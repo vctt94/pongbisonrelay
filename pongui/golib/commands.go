@@ -65,6 +65,8 @@ const (
 	CTGetWalletAuthInfo   = 0x1e
 	// Get active escrow info
 	CTGetActiveEscrowInfo = 0x1f
+	// Get current waiting room id for this client
+	CTGetCurrentWaitingRoom = 0x20
 
 	CTCreateLockFile        = 0x60
 	CTCloseLockFile         = 0x61

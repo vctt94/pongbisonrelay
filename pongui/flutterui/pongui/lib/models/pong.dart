@@ -267,7 +267,6 @@ class PongModel extends ChangeNotifier {
 
       // Query initial waiting rooms via golib
       waitingRooms = await Golib.getWaitingRooms();
-      _restoreCurrentWaitingRoomFromList();
 
       // Initialize game client (notifications come via golib now)
       pongGame = PongGame(clientId);
@@ -480,6 +479,41 @@ class PongModel extends ChangeNotifier {
         } catch (e) {
           developer.log('Failed to restore auth/escrow info: $e', name: 'auth');
           // Non-fatal: continue even if restoration fails
+        }
+
+        // Restore current waiting room (if any) using the cached room ID from
+        // the running golib client, then reconcile with the latest server
+        // snapshot of waiting rooms.
+        try {
+          final currentRoomId = (await Golib.getCurrentWaitingRoomId()).trim();
+          if (currentRoomId.isNotEmpty && waitingRooms.isNotEmpty) {
+            LocalWaitingRoom? myRoom;
+            for (final wr in waitingRooms) {
+              if (wr.id == currentRoomId) {
+                myRoom = wr;
+                break;
+              }
+            }
+            if (myRoom != null) {
+              currentWR = myRoom;
+              bool myReady = false;
+              for (final p in myRoom.players) {
+                if (p.uid == clientId) {
+                  myReady = p.ready;
+                  break;
+                }
+              }
+              if (_currentGameState == GameState.idle ||
+                  _currentGameState == GameState.gameEnded) {
+                _currentGameState = myReady
+                    ? GameState.waitingRoomReady
+                    : GameState.inWaitingRoom;
+              }
+            }
+          }
+        } catch (e) {
+          developer.log('Failed to restore waiting room from golib: $e',
+              name: 'waitingroom');
         }
       }
       notifyListeners();
@@ -809,7 +843,6 @@ class PongModel extends ChangeNotifier {
       if (connected && !wasConnected) {
         try {
           waitingRooms = await Golib.getWaitingRooms();
-          _restoreCurrentWaitingRoomFromList();
         } catch (e) {
           developer
               .log("Failed to refresh waiting rooms after reconnection: $e");
@@ -842,40 +875,6 @@ class PongModel extends ChangeNotifier {
     clearEscrowState();
     _stopGameStreamAndRenderLoop();
     notifyListeners();
-  }
-
-  // Derive the current waiting room from the latest server-provided list
-  // and the local clientId. This is used after re-attaching to an existing
-  // golib client (hot restart) or after reconnecting the gRPC stream so
-  // the UI can show the correct room membership.
-  void _restoreCurrentWaitingRoomFromList() {
-    if (clientId.isEmpty) {
-      currentWR = null;
-      return;
-    }
-
-    LocalWaitingRoom? myRoom;
-    for (final wr in waitingRooms) {
-      final hasMe = wr.players.any((p) => p.uid == clientId);
-      if (hasMe) {
-        myRoom = wr;
-        break;
-      }
-    }
-
-    if (myRoom != null) {
-      currentWR = myRoom;
-      // If we previously had no game state (e.g. after restart), mark as
-      // being in a waiting room without overriding active game states.
-      if (_currentGameState == GameState.idle ||
-          _currentGameState == GameState.gameEnded) {
-        _currentGameState = GameState.inWaitingRoom;
-      }
-    } else if (currentWR != null &&
-        !waitingRooms.any((wr) => wr.id == currentWR!.id)) {
-      // If the room no longer exists on the server, clear local ref.
-      currentWR = null;
-    }
   }
 
   void _handleNtfnReadyTimeout(UINotification n) {

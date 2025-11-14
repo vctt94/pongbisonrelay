@@ -732,6 +732,18 @@ abstract class PluginPlatform {
     }).toList();
   }
 
+  /// Get the current waiting room ID (if any) for this client from the
+  /// running golib PongClient instance. Empty string means no active room.
+  Future<String> getCurrentWaitingRoomId() async {
+    final res = await asyncCall(CTGetCurrentWaitingRoom, "");
+    if (res == null) return "";
+    final map = Map<String, dynamic>.from(res as Map);
+    final id = map['room_id'];
+    if (id is String) return id;
+    if (id == null) return "";
+    return id.toString();
+  }
+
   Future<LocalWaitingRoom> JoinWaitingRoom(String id,
       {String? escrowId}) async {
     try {
@@ -948,6 +960,7 @@ const int CTCacheEscrowInfo = 0x17;
 const int CTCacheWalletAuthInfo = 0x1d;
 const int CTGetWalletAuthInfo = 0x1e;
 const int CTGetActiveEscrowInfo = 0x1f;
+const int CTGetCurrentWaitingRoom = 0x20;
 const int CTUpdateHistoricEscrow = 0x18;
 const int CTDeleteHistoricEscrow = 0x19;
 
