@@ -464,235 +464,234 @@ class _HomeScreenState extends State<HomeScreen> {
                     ),
 
                     // 2) Current waiting room info
-                    // 2) Current waiting room info
-                    Center(
-                      child: Container(
-                        width: MediaQuery.of(context).size.width * 0.85,
-                        margin: const EdgeInsets.only(top: 16.0),
-                        child: Card(
-                          color:
-                              const Color(0xFF1B1E2C), // Dark card background
-                          shape: RoundedRectangleBorder(
-                            borderRadius: BorderRadius.circular(12),
-                          ),
-                          child: Padding(
-                            padding: const EdgeInsets.all(16.0),
-                            child: Column(
-                              crossAxisAlignment: CrossAxisAlignment.start,
-                              children: [
-                                if (pongModel.escrowDepositAddress.isNotEmpty &&
-                                    pongModel.escrowInfoPersisted &&
-                                    pongModel.escrowRefundSessionValid) ...[
-                                  Row(
-                                    children: [
-                                      const Icon(Icons.account_balance_wallet,
-                                          color: Colors.amber),
-                                      const SizedBox(width: 8),
-                                      const Text(
-                                        'Deposit Address:',
-                                        style: TextStyle(color: Colors.white70),
-                                      ),
-                                      const SizedBox(width: 8),
-                                      Expanded(
-                                        child: SelectableText(
-                                          pongModel.escrowDepositAddress,
-                                          style: const TextStyle(
-                                              color: Colors.white),
-                                        ),
-                                      ),
-                                      IconButton(
-                                        tooltip: 'Copy',
-                                        onPressed: () async {
-                                          await Clipboard.setData(ClipboardData(
-                                              text: pongModel
-                                                  .escrowDepositAddress));
-                                          if (!context.mounted) return;
-                                          ScaffoldMessenger.of(context)
-                                              .showSnackBar(
-                                            const SnackBar(
-                                                content:
-                                                    Text('Address copied')),
-                                          );
-                                        },
-                                        icon: const Icon(Icons.copy,
-                                            color: Colors.white70),
-                                      ),
-                                    ],
-                                  ),
-                                  const SizedBox(height: 12),
-                                  Container(
-                                    padding: const EdgeInsets.all(12),
-                                    decoration: BoxDecoration(
-                                      color: Colors.amber.withOpacity(0.15),
-                                      border: Border.all(
-                                          color: Colors.amberAccent, width: 1),
-                                      borderRadius: BorderRadius.circular(8),
-                                    ),
-                                    child: Row(
-                                      crossAxisAlignment:
-                                          CrossAxisAlignment.start,
+                    if (pongModel.currentWR != null)
+                      Center(
+                        child: Container(
+                          width: MediaQuery.of(context).size.width * 0.85,
+                          margin: const EdgeInsets.only(top: 16.0),
+                          child: Card(
+                            color:
+                                const Color(0xFF1B1E2C), // Dark card background
+                            shape: RoundedRectangleBorder(
+                              borderRadius: BorderRadius.circular(12),
+                            ),
+                            child: Padding(
+                              padding: const EdgeInsets.all(16.0),
+                              child: Column(
+                                crossAxisAlignment: CrossAxisAlignment.start,
+                                children: [
+                                  if (pongModel.escrowDepositAddress.isNotEmpty &&
+                                      pongModel.escrowInfoPersisted &&
+                                      pongModel.escrowRefundSessionValid) ...[
+                                    Row(
                                       children: [
-                                        const Icon(Icons.warning_amber_rounded,
-                                            color: Colors.amberAccent),
+                                        const Icon(Icons.account_balance_wallet,
+                                            color: Colors.amber),
+                                        const SizedBox(width: 8),
+                                        const Text(
+                                          'Deposit Address:',
+                                          style: TextStyle(color: Colors.white70),
+                                        ),
                                         const SizedBox(width: 8),
                                         Expanded(
-                                          child: Text(
-                                            'Warning: Deposit exactly ${(pongModel.betAmt / 1e8).toStringAsFixed(2)} DCR (default). Do NOT send a different amount.',
+                                          child: SelectableText(
+                                            pongModel.escrowDepositAddress,
                                             style: const TextStyle(
-                                              color: Colors.amberAccent,
-                                              fontWeight: FontWeight.w600,
-                                            ),
+                                                color: Colors.white),
                                           ),
+                                        ),
+                                        IconButton(
+                                          tooltip: 'Copy',
+                                          onPressed: () async {
+                                            await Clipboard.setData(ClipboardData(
+                                                text: pongModel
+                                                    .escrowDepositAddress));
+                                            if (!context.mounted) return;
+                                            ScaffoldMessenger.of(context)
+                                                .showSnackBar(
+                                              const SnackBar(
+                                                  content:
+                                                      Text('Address copied')),
+                                            );
+                                          },
+                                          icon: const Icon(Icons.copy,
+                                              color: Colors.white70),
                                         ),
                                       ],
                                     ),
-                                  ),
-                                  const SizedBox(height: 12),
-                                ],
-                                if (pongModel.escrowInfoError.isNotEmpty)
-                                  Padding(
-                                    padding:
-                                        const EdgeInsets.only(bottom: 12.0),
-                                    child: Text(
-                                      pongModel.escrowInfoError,
-                                      style: const TextStyle(
-                                        color: Colors.redAccent,
-                                        fontSize: 12,
+                                    const SizedBox(height: 12),
+                                    Container(
+                                      padding: const EdgeInsets.all(12),
+                                      decoration: BoxDecoration(
+                                        color: Colors.amber.withOpacity(0.15),
+                                        border: Border.all(
+                                            color: Colors.amberAccent, width: 1),
+                                        borderRadius: BorderRadius.circular(8),
                                       ),
-                                    ),
-                                  ),
-                                if (pongModel
-                                    .escrowRefundSessionError.isNotEmpty)
-                                  Padding(
-                                    padding:
-                                        const EdgeInsets.only(bottom: 12.0),
-                                    child: Text(
-                                      pongModel.escrowRefundSessionError,
-                                      style: const TextStyle(
-                                        color: Colors.redAccent,
-                                        fontSize: 12,
-                                      ),
-                                    ),
-                                  ),
-                                const Text(
-                                  "Current Waiting Room",
-                                  style: TextStyle(
-                                    color: Colors.white,
-                                    fontSize: 18,
-                                    fontWeight: FontWeight.bold,
-                                  ),
-                                ),
-                                const SizedBox(height: 8),
-                                Builder(
-                                  builder: (context) {
-                                    final room = pongModel.currentWR;
-                                    int totalPlayers = 0;
-                                    int readyPlayers = 0;
-                                    if (room != null) {
-                                      totalPlayers = room.players.length;
-                                      readyPlayers = room.players
-                                          .where((p) => p.ready)
-                                          .length;
-                                    }
-                                    return Column(
-                                      crossAxisAlignment:
-                                          CrossAxisAlignment.start,
-                                      children: [
-                                        // Room ID and Not Ready side by side
-                                        Row(
-                                          mainAxisAlignment:
-                                              MainAxisAlignment.spaceBetween,
-                                          children: [
-                                            Row(
-                                              children: [
-                                                const Icon(Icons.tag,
-                                                    size: 16,
-                                                    color: Colors.white54),
-                                                const SizedBox(width: 4),
-                                                Text(
-                                                  "Room ID: ${pongModel.currentWR?.id ?? ""}",
-                                                  style: const TextStyle(
-                                                    color: Colors.white,
-                                                  ),
-                                                ),
-                                              ],
+                                      child: Row(
+                                        crossAxisAlignment:
+                                            CrossAxisAlignment.start,
+                                        children: [
+                                          const Icon(Icons.warning_amber_rounded,
+                                              color: Colors.amberAccent),
+                                          const SizedBox(width: 8),
+                                          Expanded(
+                                            child: Text(
+                                              'Warning: Deposit exactly ${(pongModel.betAmt / 1e8).toStringAsFixed(2)} DCR (default). Do NOT send a different amount.',
+                                              style: const TextStyle(
+                                                color: Colors.amberAccent,
+                                                fontWeight: FontWeight.w600,
+                                              ),
                                             ),
-                                            Row(
-                                              children: [
-                                                Icon(
-                                                  pongModel.isReady
-                                                      ? Icons.check_circle
-                                                      : Icons.cancel,
-                                                  size: 16,
-                                                  color: pongModel.isReady
-                                                      ? Colors.green
-                                                      : Colors.white70,
-                                                ),
-                                                const SizedBox(width: 4),
-                                                Text(
-                                                  pongModel.isReady
-                                                      ? "Ready"
-                                                      : "Not Ready",
-                                                  style: TextStyle(
+                                          ),
+                                        ],
+                                      ),
+                                    ),
+                                    const SizedBox(height: 12),
+                                  ],
+                                  if (pongModel.escrowInfoError.isNotEmpty)
+                                    Padding(
+                                      padding:
+                                          const EdgeInsets.only(bottom: 12.0),
+                                      child: Text(
+                                        pongModel.escrowInfoError,
+                                        style: const TextStyle(
+                                          color: Colors.redAccent,
+                                          fontSize: 12,
+                                        ),
+                                      ),
+                                    ),
+                                  if (pongModel
+                                      .escrowRefundSessionError.isNotEmpty)
+                                    Padding(
+                                      padding:
+                                          const EdgeInsets.only(bottom: 12.0),
+                                      child: Text(
+                                        pongModel.escrowRefundSessionError,
+                                        style: const TextStyle(
+                                          color: Colors.redAccent,
+                                          fontSize: 12,
+                                        ),
+                                      ),
+                                    ),
+                                  const Text(
+                                    "Current Waiting Room",
+                                    style: TextStyle(
+                                      color: Colors.white,
+                                      fontSize: 18,
+                                      fontWeight: FontWeight.bold,
+                                    ),
+                                  ),
+                                  const SizedBox(height: 8),
+                                  Builder(
+                                    builder: (context) {
+                                      final room = pongModel.currentWR;
+                                      int totalPlayers = 0;
+                                      int readyPlayers = 0;
+                                      if (room != null) {
+                                        totalPlayers = room.players.length;
+                                        readyPlayers = room.players
+                                            .where((p) => p.ready)
+                                            .length;
+                                      }
+                                      return Column(
+                                        crossAxisAlignment:
+                                            CrossAxisAlignment.start,
+                                        children: [
+                                          // Room ID and Not Ready side by side
+                                          Row(
+                                            mainAxisAlignment:
+                                                MainAxisAlignment.spaceBetween,
+                                            children: [
+                                              Row(
+                                                children: [
+                                                  const Icon(Icons.tag,
+                                                      size: 16,
+                                                      color: Colors.white54),
+                                                  const SizedBox(width: 4),
+                                                  Text(
+                                                    "Room ID: ${pongModel.currentWR?.id ?? ""}",
+                                                    style: const TextStyle(
+                                                      color: Colors.white,
+                                                    ),
+                                                  ),
+                                                ],
+                                              ),
+                                              Row(
+                                                children: [
+                                                  Icon(
+                                                    pongModel.isReady
+                                                        ? Icons.check_circle
+                                                        : Icons.cancel,
+                                                    size: 16,
                                                     color: pongModel.isReady
                                                         ? Colors.green
                                                         : Colors.white70,
-                                                    fontWeight:
-                                                        pongModel.isReady
-                                                            ? FontWeight.bold
-                                                            : FontWeight.normal,
                                                   ),
-                                                ),
-                                              ],
-                                            ),
-                                          ],
-                                        ),
-                                        const SizedBox(height: 8),
-                                        // Players and Ready count side by side
-                                        Row(
-                                          mainAxisAlignment:
-                                              MainAxisAlignment.spaceBetween,
-                                          children: [
-                                            Row(
-                                              children: [
-                                                const Icon(Icons.people,
-                                                    size: 16,
-                                                    color:
-                                                        Colors.lightBlueAccent),
-                                                const SizedBox(width: 4),
-                                                Text(
-                                                  "Players: $totalPlayers / 2",
-                                                  style: const TextStyle(
-                                                    color: Colors.white,
+                                                  const SizedBox(width: 4),
+                                                  Text(
+                                                    pongModel.isReady
+                                                        ? "Ready"
+                                                        : "Not Ready",
+                                                    style: TextStyle(
+                                                      color: pongModel.isReady
+                                                          ? Colors.green
+                                                          : Colors.white70,
+                                                      fontWeight:
+                                                          pongModel.isReady
+                                                              ? FontWeight.bold
+                                                              : FontWeight.normal,
+                                                    ),
                                                   ),
-                                                ),
-                                              ],
-                                            ),
-                                            Row(
-                                              children: [
-                                                const Icon(Icons.check_circle,
-                                                    size: 16,
-                                                    color: Colors.greenAccent),
-                                                const SizedBox(width: 4),
-                                                Text(
-                                                  "Ready: $readyPlayers / 2",
-                                                  style: TextStyle(
-                                                    color: readyPlayers == 2
-                                                        ? Colors.greenAccent
-                                                        : Colors.white70,
+                                                ],
+                                              ),
+                                            ],
+                                          ),
+                                          const SizedBox(height: 8),
+                                          // Players and Ready count side by side
+                                          Row(
+                                            mainAxisAlignment:
+                                                MainAxisAlignment.spaceBetween,
+                                            children: [
+                                              Row(
+                                                children: [
+                                                  const Icon(Icons.people,
+                                                      size: 16,
+                                                      color:
+                                                          Colors.lightBlueAccent),
+                                                  const SizedBox(width: 4),
+                                                  Text(
+                                                    "Players: $totalPlayers / 2",
+                                                    style: const TextStyle(
+                                                      color: Colors.white,
+                                                    ),
                                                   ),
-                                                ),
-                                              ],
-                                            ),
-                                          ],
-                                        ),
-                                      ],
-                                    );
-                                  },
-                                ),
+                                                ],
+                                              ),
+                                              Row(
+                                                children: [
+                                                  const Icon(Icons.check_circle,
+                                                      size: 16,
+                                                      color: Colors.greenAccent),
+                                                  const SizedBox(width: 4),
+                                                  Text(
+                                                    "Ready: $readyPlayers / 2",
+                                                    style: TextStyle(
+                                                      color: readyPlayers == 2
+                                                          ? Colors.greenAccent
+                                                          : Colors.white70,
+                                                    ),
+                                                  ),
+                                                ],
+                                              ),
+                                            ],
+                                          ),
+                                        ],
+                                      );
+                                    },
+                                  ),
 
-                                // Add ready/leave buttons if in a room
-                                if (pongModel.currentWR != null) ...[
+                                  // Add ready/leave buttons if in a room
                                   const SizedBox(height: 16),
                                   Row(
                                     mainAxisAlignment: MainAxisAlignment.end,
@@ -720,12 +719,11 @@ class _HomeScreenState extends State<HomeScreen> {
                                     ],
                                   ),
                                 ],
-                              ],
+                              ),
                             ),
                           ),
                         ),
                       ),
-                    ),
 
                     // 3) Error message if exists
                     if (pongModel.errorMessage.isNotEmpty)
