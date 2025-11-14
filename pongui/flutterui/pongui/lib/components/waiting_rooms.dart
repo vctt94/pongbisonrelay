@@ -35,6 +35,11 @@ class WaitingRoomList extends StatelessWidget {
           itemBuilder: (context, index) {
             final wr = waitingRooms[index];
             final bool isCurrentRoom = currentRoomId == wr.id;
+            // Mark rooms that contain any disconnected players; this allows
+            // users to see at a glance which rooms have opponents that are
+            // currently offline.
+            final bool hasDisconnectedPlayer =
+                wr.players.any((p) => p.connected == false);
             final int playerCount = wr.players.length;
             const int maxPlayers = 2;
             final bool isRoomFull = playerCount >= maxPlayers;
@@ -68,6 +73,17 @@ class WaitingRoomList extends StatelessWidget {
                       'Players: $playerCount / $maxPlayers',
                       style: const TextStyle(color: Colors.white70),
                     ),
+                    const SizedBox(height: 4),
+                    if (hasDisconnectedPlayer)
+                      const Text(
+                        'Status: Opponent disconnected or left',
+                        style: TextStyle(
+                          color: Colors.redAccent,
+                          fontStyle: FontStyle.italic,
+                        ),
+                      )
+                    else
+                      const SizedBox.shrink(),
                     const SizedBox(height: 4),
                     Text(
                       'Bet: ${wr.betAmt / 1e8} DCR',

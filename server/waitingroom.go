@@ -330,7 +330,9 @@ func (s *Server) LeaveWaitingRoom(ctx context.Context, req *pong.LeaveWaitingRoo
 		for _, remainingPlayer := range remainingPlayers {
 			_ = s.notify(remainingPlayer, &pong.NtfnStreamResponse{
 				NotificationType: pong.NotificationType_OPPONENT_DISCONNECTED,
-				Message:          "player left the waiting room",
+				Message:          "Opponent disconnected or left the waiting room",
+				PlayerId:         clientID.String(),
+				RoomId:           wr.ID,
 				Wr:               wrSnapshot,
 			})
 		}

@@ -64,6 +64,7 @@ LocalPlayer _$LocalPlayerFromJson(Map<String, dynamic> json) => LocalPlayer(
       json['nick'] as String?,
       (json['bet_amt'] as num).toInt(),
       ready: json['ready'] as bool? ?? false,
+      connected: json['connected'] as bool? ?? true,
     );
 
 Map<String, dynamic> _$LocalPlayerToJson(LocalPlayer instance) =>
@@ -72,6 +73,7 @@ Map<String, dynamic> _$LocalPlayerToJson(LocalPlayer instance) =>
       'nick': instance.nick,
       'bet_amt': instance.betAmount,
       'ready': instance.ready,
+      'connected': instance.connected,
     };
 
 LocalWaitingRoom _$LocalWaitingRoomFromJson(Map<String, dynamic> json) =>

@@ -46,7 +46,10 @@ func (s *Server) StartNtfnStream(req *pong.StartNtfnStreamRequest, stream pong.P
 
 	// Create player session
 	player := s.gameManager.PlayerSessions.CreateSession(clientID)
+	player.Lock()
 	player.NotifierStream = stream
+	player.Connected = true
+	player.Unlock()
 
 	// Track connected user so broadcast notifications (e.g. ON_WR_CREATED)
 	// are delivered to all clients with active notifier streams.
@@ -59,6 +62,7 @@ func (s *Server) StartNtfnStream(req *pong.StartNtfnStreamRequest, stream pong.P
 		s.usersMu.Unlock()
 		player.Lock()
 		player.NotifierStream = nil
+		player.Connected = false
 		player.Unlock()
 	}()
 
@@ -92,8 +96,28 @@ func (s *Server) StartNtfnStream(req *pong.StartNtfnStreamRequest, stream pong.P
 
 	// Block until the stream context ends; transport-level keepalives handle idleness.
 	<-ctx.Done()
-	s.log.Debugf("Notifier stream ended for client %s, error: %v", clientID, ctx.Err())
-	return ctx.Err()
+	err := ctx.Err()
+	s.log.Debugf("Notifier stream ended for client %s, error: %v", clientID, err)
+
+	// Do not remove the player from any waiting room here (they may reconnect
+	// after idle), but if they were in a room, notify all users so UIs can
+	// update waiting-room lists and per-player connection status.
+	wr := s.gameManager.GetWaitingRoomFromPlayer(clientID)
+	if wr != nil {
+		wr.RLock()
+		wrSnapshot := wr.Marshal()
+		wr.RUnlock()
+
+		s.notifyallusers(&pong.NtfnStreamResponse{
+			NotificationType: pong.NotificationType_OPPONENT_DISCONNECTED,
+			Message:          "Opponent disconnected",
+			PlayerId:         clientID.String(),
+			RoomId:           wr.ID,
+			Wr:               wrSnapshot,
+		})
+	}
+
+	return err
 }
 
 func (s *Server) StartGameStream(req *pong.StartGameStreamRequest, stream pong.PongGame_StartGameStreamServer) error {

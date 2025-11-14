@@ -84,6 +84,11 @@ class PongModel extends ChangeNotifier {
   int readyCancelRemaining = 0;
   Timer? _readyCancelTimer;
 
+  // Track when the opponent in the current waiting room has disconnected or
+  // left, so the UI can show a clear label instead of silently keeping the
+  // player waiting.
+  bool opponentDisconnectedInCurrentRoom = false;
+
   // Track last settlement match id used for presign so we can archive the
   // session key safely after game completion.
   String lastMatchId = '';
@@ -878,13 +883,33 @@ class PongModel extends ChangeNotifier {
     final wr = extras['waiting_room'];
     if (wr is Map<String, dynamic>) {
       final room = LocalWaitingRoom.fromJson(Map<String, dynamic>.from(wr));
+      final pid = (extras['player_id'] ?? '').toString();
       final idx = waitingRooms.indexWhere((r) => r.id == room.id);
       if (idx == -1) {
         waitingRooms = [room, ...waitingRooms];
       } else {
         waitingRooms[idx] = room;
       }
-      if (currentWR?.id == room.id) currentWR = room;
+      if (currentWR?.id == room.id) {
+        currentWR = room;
+
+        // When we receive a player_left_wr for our current room and the
+        // player_id is not us, treat this as the opponent disconnecting or
+        // leaving. This lets the UI surface a clear label instead of leaving
+        // the user guessing about the room state.
+        if (n.type == 'player_left_wr' && pid.isNotEmpty && pid != clientId) {
+          opponentDisconnectedInCurrentRoom = true;
+          notificationModel.showNotification(
+            'Opponent disconnected or left this waiting room.',
+          );
+        }
+
+        // If someone joins our current room, clear any previous disconnect
+        // label since there is now an opponent present again.
+        if (n.type == 'player_joined_wr') {
+          opponentDisconnectedInCurrentRoom = false;
+        }
+      }
       notifyListeners();
     }
   }
@@ -922,6 +947,7 @@ class PongModel extends ChangeNotifier {
   void resetGameState() {
     _currentGameState = GameState.idle;
     currentWR = null;
+    opponentDisconnectedInCurrentRoom = false;
     betAmt = DEFAULT_BET_ATOMS;
     currentGameId = '';
     countdownMessage = '';

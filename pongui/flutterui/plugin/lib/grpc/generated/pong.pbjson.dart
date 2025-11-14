@@ -715,6 +715,7 @@ const Player$json = {
     {'1': 'number', '3': 4, '4': 1, '5': 5, '10': 'number'},
     {'1': 'score', '3': 5, '4': 1, '5': 5, '10': 'score'},
     {'1': 'ready', '3': 6, '4': 1, '5': 8, '10': 'ready'},
+    {'1': 'connected', '3': 7, '4': 1, '5': 8, '10': 'connected'},
   ],
 };
 
@@ -722,7 +723,8 @@ const Player$json = {
 final $typed_data.Uint8List playerDescriptor = $convert.base64Decode(
     'CgZQbGF5ZXISEAoDdWlkGAEgASgJUgN1aWQSEgoEbmljaxgCIAEoCVIEbmljaxIXCgdiZXRfYW'
     '10GAMgASgDUgZiZXRBbXQSFgoGbnVtYmVyGAQgASgFUgZudW1iZXISFAoFc2NvcmUYBSABKAVS'
-    'BXNjb3JlEhQKBXJlYWR5GAYgASgIUgVyZWFkeQ==');
+    'BXNjb3JlEhQKBXJlYWR5GAYgASgIUgVyZWFkeRIcCgljb25uZWN0ZWQYByABKAhSCWNvbm5lY3'
+    'RlZA==');
 
 @$core.Deprecated('Use startGameStreamRequestDescriptor instead')
 const StartGameStreamRequest$json = {

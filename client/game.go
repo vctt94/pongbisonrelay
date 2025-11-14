@@ -111,6 +111,50 @@ func (pc *PongClient) runNtfnLoop(ctx context.Context, stream pong.PongGame_Star
 			return
 		}
 		stream = ns
+
+		// On reconnection, re-sync waiting rooms and our local ready state.
+		rooms, err := pc.RefGetWaitingRooms(ctx)
+		if err != nil {
+			pc.log.Warnf("failed to get waiting rooms: %v", err)
+			return
+		}
+		var (
+			found  bool
+			ready  bool
+			myRoom *pong.WaitingRoom
+		)
+		for _, room := range rooms {
+			for _, player := range room.Players {
+				if player.Uid == pc.id {
+					found = true
+					ready = player.Ready
+					myRoom = room
+					break
+				}
+			}
+			if found {
+				break
+			}
+		}
+		if !found {
+			ready = false
+		}
+		pc.isReady = ready
+		pc.updatesCh <- UpdatedMsg{}
+
+		// Emit a synthetic ON_PLAYER_READY notification with the latest room
+		// snapshot so higher-level UIs (e.g. Flutter) can reconcile their
+		// local "ready" state after reconnection, even if the original
+		// not-ready notification was lost when the connection dropped.
+		if myRoom != nil {
+			pc.updatesCh <- &pong.NtfnStreamResponse{
+				NotificationType: pong.NotificationType_ON_PLAYER_READY,
+				PlayerId:         pc.id,
+				Wr:               myRoom,
+				Ready:            ready,
+			}
+		}
+
 		backoff = time.Second
 		// Notify UI that connection is restored
 		pc.updatesCh <- &pong.NtfnStreamResponse{

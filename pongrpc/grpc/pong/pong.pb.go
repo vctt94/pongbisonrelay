@@ -2256,13 +2256,15 @@ func (x *WaitingRoomResponse) GetWr() *WaitingRoom {
 }
 
 type Player struct {
-	state         protoimpl.MessageState `protogen:"open.v1"`
-	Uid           string                 `protobuf:"bytes,1,opt,name=uid,proto3" json:"uid,omitempty"`
-	Nick          string                 `protobuf:"bytes,2,opt,name=nick,proto3" json:"nick,omitempty"`
-	BetAmt        int64                  `protobuf:"varint,3,opt,name=bet_amt,json=betAmt,proto3" json:"bet_amt,omitempty"`
-	Number        int32                  `protobuf:"varint,4,opt,name=number,proto3" json:"number,omitempty"`
-	Score         int32                  `protobuf:"varint,5,opt,name=score,proto3" json:"score,omitempty"`
-	Ready         bool                   `protobuf:"varint,6,opt,name=ready,proto3" json:"ready,omitempty"`
+	state  protoimpl.MessageState `protogen:"open.v1"`
+	Uid    string                 `protobuf:"bytes,1,opt,name=uid,proto3" json:"uid,omitempty"`
+	Nick   string                 `protobuf:"bytes,2,opt,name=nick,proto3" json:"nick,omitempty"`
+	BetAmt int64                  `protobuf:"varint,3,opt,name=bet_amt,json=betAmt,proto3" json:"bet_amt,omitempty"`
+	Number int32                  `protobuf:"varint,4,opt,name=number,proto3" json:"number,omitempty"`
+	Score  int32                  `protobuf:"varint,5,opt,name=score,proto3" json:"score,omitempty"`
+	Ready  bool                   `protobuf:"varint,6,opt,name=ready,proto3" json:"ready,omitempty"`
+	// Whether this player currently has an active notifier/game connection.
+	Connected     bool `protobuf:"varint,7,opt,name=connected,proto3" json:"connected,omitempty"`
 	unknownFields protoimpl.UnknownFields
 	sizeCache     protoimpl.SizeCache
 }
@@ -2335,6 +2337,13 @@ func (x *Player) GetScore() int32 {
 func (x *Player) GetReady() bool {
 	if x != nil {
 		return x.Ready
+	}
+	return false
+}
+
+func (x *Player) GetConnected() bool {
+	if x != nil {
+		return x.Connected
 	}
 	return false
 }
@@ -3156,14 +3165,15 @@ const file_pong_proto_rawDesc = "" +
 	"\x12WaitingRoomRequest\x12\x17\n" +
 	"\aroom_id\x18\x01 \x01(\tR\x06roomId\"8\n" +
 	"\x13WaitingRoomResponse\x12!\n" +
-	"\x02wr\x18\x01 \x01(\v2\x11.pong.WaitingRoomR\x02wr\"\x8b\x01\n" +
+	"\x02wr\x18\x01 \x01(\v2\x11.pong.WaitingRoomR\x02wr\"\xa9\x01\n" +
 	"\x06Player\x12\x10\n" +
 	"\x03uid\x18\x01 \x01(\tR\x03uid\x12\x12\n" +
 	"\x04nick\x18\x02 \x01(\tR\x04nick\x12\x17\n" +
 	"\abet_amt\x18\x03 \x01(\x03R\x06betAmt\x12\x16\n" +
 	"\x06number\x18\x04 \x01(\x05R\x06number\x12\x14\n" +
 	"\x05score\x18\x05 \x01(\x05R\x05score\x12\x14\n" +
-	"\x05ready\x18\x06 \x01(\bR\x05ready\"5\n" +
+	"\x05ready\x18\x06 \x01(\bR\x05ready\x12\x1c\n" +
+	"\tconnected\x18\a \x01(\bR\tconnected\"5\n" +
 	"\x16StartGameStreamRequest\x12\x1b\n" +
 	"\tclient_id\x18\x01 \x01(\tR\bclientId\"%\n" +
 	"\x0fGameUpdateBytes\x12\x12\n" +
