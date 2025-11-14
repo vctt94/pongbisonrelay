@@ -671,6 +671,9 @@ class PongModel extends ChangeNotifier {
     }
 
     notifyListeners();
+    // Escrow funding/confirm status may have changed; if both players are
+    // already ready in the current room, attempt to start presign.
+    unawaited(_maybeStartPresignForCurrentRoom());
   }
 
   void _handleNtfnServerConfig(UINotification n) {
@@ -745,6 +748,56 @@ class PongModel extends ChangeNotifier {
     notifyListeners();
   }
 
+  Future<void> _maybeStartPresignForCurrentRoom() async {
+    // Only used for escrow-backed matches.
+    if (serverIsF2P) return;
+    if (isGameStarted) return;
+    final room = currentWR;
+    if (room == null) return;
+    if (escrowId.isEmpty || !escrowConfirmed) return;
+    if (presignInProgress || presignCompleted) return;
+
+    // Require exactly two players and both marked ready.
+    final players = room.players;
+    if (players.length != 2) return;
+    final allReady = players.every((p) => p.ready);
+    if (!allReady) return;
+
+    final matchId = '${room.id}|${room.host}';
+
+    presignInProgress = true;
+    presignError = '';
+    notifyListeners();
+
+    developer.log(
+      'Starting settlement presign for match $matchId',
+      name: 'settlement',
+    );
+
+    try {
+      await Golib.startPreSign(matchId);
+      presignInProgress = false;
+      presignCompleted = true;
+      lastMatchId = matchId;
+      notificationModel.showNotification(
+        'Settlement prepared for this match.',
+      );
+    } catch (e, st) {
+      presignInProgress = false;
+      presignCompleted = false;
+      presignError = '$e';
+      developer.log(
+        'startPreSign error: $e',
+        name: 'settlement',
+        stackTrace: st,
+      );
+      notificationModel.showNotification(
+        'Settlement presign failed; will retry when conditions change.',
+      );
+    }
+    notifyListeners();
+  }
+
   void _handleNtfnPlayerReady(UINotification n) {
     final extras = _extrasFrom(n);
     final pid = (extras['player_id'] ?? '').toString();
@@ -774,6 +827,9 @@ class PongModel extends ChangeNotifier {
         }
       }
       notifyListeners();
+      // When both players become ready in this room, automatically
+      // kick off the presign handshake.
+      unawaited(_maybeStartPresignForCurrentRoom());
       return;
     }
 
@@ -783,6 +839,7 @@ class PongModel extends ChangeNotifier {
     if (pid == clientId && r && _currentGameState == GameState.inWaitingRoom) {
       _currentGameState = GameState.waitingRoomReady;
       notifyListeners();
+      unawaited(_maybeStartPresignForCurrentRoom());
     }
   }
 
