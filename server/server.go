@@ -158,6 +158,11 @@ type Server struct {
 
 	// In-memory auth/session state and HTTP auth server
 	auth authState
+
+	// wrManagers tracks which waiting rooms currently have an active
+	// manageWaitingRoom goroutine to avoid starting duplicates.
+	wrManagersMu sync.Mutex
+	wrManagers   map[string]struct{}
 }
 
 func NewServer(id *zkidentity.ShortID, cfg ServerConfig) (*Server, error) {
@@ -197,6 +202,7 @@ func NewServer(id *zkidentity.ShortID, cfg ServerConfig) (*Server, error) {
 			PlayerGameMap:  make(map[zkidentity.ShortID]*ponggame.GameInstance),
 		},
 		adaptorSecret: cfg.AdaptorSecret,
+		wrManagers:    make(map[string]struct{}),
 	}
 
 	if cfg.ReadyTimeoutSeconds <= 0 {
@@ -434,7 +440,7 @@ func (s *Server) handleDisconnect(clientID zkidentity.ShortID) {
 func (s *Server) Run(ctx context.Context) error {
 	for {
 		select {
-		case <-ctx.Done():
+	case <-ctx.Done():
 			ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
 			defer cancel()
 
@@ -449,10 +455,21 @@ func (s *Server) Run(ctx context.Context) error {
 			s.log.Debugf("New waiting room created")
 
 			for _, wr := range s.gameManager.WaitingRoomsSnapshot() {
-				if wr.Ctx.Err() == nil { // Only manage rooms with active contexts
-					s.log.Debugf("Managing waiting room: %s", wr.ID)
-					go s.manageWaitingRoom(wr.Ctx, wr)
+				if wr == nil || wr.Ctx.Err() != nil {
+					continue
 				}
+
+				// Ensure we only start a single manager goroutine per waiting room.
+				s.wrManagersMu.Lock()
+				if _, exists := s.wrManagers[wr.ID]; exists {
+					s.wrManagersMu.Unlock()
+					continue
+				}
+				s.wrManagers[wr.ID] = struct{}{}
+				s.wrManagersMu.Unlock()
+
+				s.log.Debugf("Managing waiting room: %s", wr.ID)
+				go s.manageWaitingRoom(wr.Ctx, wr)
 			}
 		}
 	}
@@ -745,6 +762,14 @@ func (es *escrowSession) preSignSnapshot() (bound string, inputs []string, consi
 func (s *Server) manageWaitingRoom(ctx context.Context, wr *ponggame.WaitingRoom) error {
 	ticker := time.NewTicker(time.Second)
 	defer ticker.Stop()
+
+	// When this manager exits, allow future managers for this WR ID if it
+	// somehow reappears.
+	defer func() {
+		s.wrManagersMu.Lock()
+		delete(s.wrManagers, wr.ID)
+		s.wrManagersMu.Unlock()
+	}()
 
 	for {
 		select {
