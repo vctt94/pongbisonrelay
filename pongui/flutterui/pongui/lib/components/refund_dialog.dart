@@ -1,3 +1,5 @@
+import 'dart:io';
+
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'package:golib_plugin/golib_plugin.dart';
@@ -845,12 +847,76 @@ class _RefundEscrowDialogState extends State<RefundEscrowDialog> {
                   ),
                 ),
                 const SizedBox(height: 8),
-                Text(
-                  'Copy this transaction and broadcast it from your Decred wallet.',
-                  style: TextStyle(
-                    fontSize: 12,
-                    color: Colors.grey.shade400,
-                    fontStyle: FontStyle.italic,
+                const SizedBox(height: 12),
+                Container(
+                  padding: const EdgeInsets.all(12),
+                  decoration: BoxDecoration(
+                    color: Colors.blue.withOpacity(0.1),
+                    borderRadius: BorderRadius.circular(8),
+                    border: Border.all(color: Colors.blue.withOpacity(0.3)),
+                  ),
+                  child: Column(
+                    crossAxisAlignment: CrossAxisAlignment.start,
+                    children: [
+                      Text(
+                        'To rebroadcast this transaction, visit dcrdata:',
+                        style: TextStyle(
+                          fontSize: 12,
+                          color: Colors.blue.shade200,
+                          fontWeight: FontWeight.w500,
+                        ),
+                      ),
+                      const SizedBox(height: 8),
+                      InkWell(
+                        onTap: () async {
+                          const url = 'https://dcrdata.org/decodetx';
+                          try {
+                            if (Platform.isWindows) {
+                              await Process.run('start', [url], runInShell: true);
+                            } else if (Platform.isMacOS) {
+                              await Process.run('open', [url]);
+                            } else if (Platform.isLinux) {
+                              await Process.run('xdg-open', [url]);
+                            } else {
+                              // Fallback: copy to clipboard
+                              await Clipboard.setData(ClipboardData(text: url));
+                              if (!mounted) return;
+                              ScaffoldMessenger.of(context).showSnackBar(
+                                const SnackBar(
+                                  content: Text('URL copied to clipboard'),
+                                ),
+                              );
+                            }
+                          } catch (e) {
+                            // Fallback: copy to clipboard if opening fails
+                            await Clipboard.setData(ClipboardData(text: url));
+                            if (!mounted) return;
+                            ScaffoldMessenger.of(context).showSnackBar(
+                              SnackBar(
+                                content: Text('URL copied to clipboard: $url'),
+                              ),
+                            );
+                          }
+                        },
+                        child: Text(
+                          'https://dcrdata.org/decodetx',
+                          style: TextStyle(
+                            fontSize: 12,
+                            color: Colors.blue.shade300,
+                            decoration: TextDecoration.underline,
+                          ),
+                        ),
+                      ),
+                      const SizedBox(height: 8),
+                      Text(
+                        'Paste the transaction hex above into the "Broadcast Tx" field on dcrdata to rebroadcast it to the network.',
+                        style: TextStyle(
+                          fontSize: 11,
+                          color: Colors.grey.shade400,
+                          fontStyle: FontStyle.italic,
+                        ),
+                      ),
+                    ],
                   ),
                 ),
               ],
