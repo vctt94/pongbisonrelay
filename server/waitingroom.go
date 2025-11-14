@@ -85,7 +85,7 @@ func (s *Server) CreateWaitingRoom(ctx context.Context, req *pong.CreateWaitingR
 		return nil, fmt.Errorf("player %s is already in a waiting room", hostID.String())
 	}
 
-	s.log.Debugf("creating waiting room. Host ID: %s", hostID)
+	s.log.Infof("creating waiting room. Host ID: %s", hostID)
 
 	// F2P mode: allow creating a waiting room without an escrow.
 	if s.isF2P {
@@ -99,7 +99,7 @@ func (s *Server) CreateWaitingRoom(ctx context.Context, req *pong.CreateWaitingR
 		// Add to list of rooms.
 		totalRooms := s.gameManager.AppendWaitingRoom(wr)
 
-		s.log.Debugf("waiting room created (F2P). Total rooms: %d", totalRooms)
+		s.log.Infof("waiting room created (F2P). Total rooms: %d", totalRooms)
 
 		// Signal creation (non-blocking).
 		select {
@@ -144,7 +144,7 @@ func (s *Server) CreateWaitingRoom(ctx context.Context, req *pong.CreateWaitingR
 	// Add to list of rooms.
 	totalRooms := s.gameManager.AppendWaitingRoom(wr)
 
-	s.log.Debugf("waiting room created. Total rooms: %d", totalRooms)
+	s.log.Infof("waiting room created. Total rooms: %d", totalRooms)
 
 	// Signal creation (non-blocking).
 	select {

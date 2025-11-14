@@ -148,7 +148,7 @@ func (s *Server) StartGameStream(req *pong.StartGameStreamRequest, stream pong.P
 	// Store the cancel function
 	s.activeGameStreams.Store(clientID, cancel)
 
-	s.log.Debugf("Client %s called StartGameStream", req.ClientId)
+	s.log.Infof("Client %s called StartGameStream", req.ClientId)
 
 	player := s.gameManager.PlayerSessions.GetPlayer(clientID)
 	if player == nil {

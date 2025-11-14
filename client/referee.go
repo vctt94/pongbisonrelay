@@ -206,6 +206,7 @@ func BuildVerifyOk(xPrivHex string, req *pong.NeedPreSigs) (*pong.VerifyOk, erro
 // Escrow-first referee helpers
 func (pc *PongClient) RefOpenEscrow(ownerID string, compPub []byte, payoutPubkey []byte, betAtoms uint64, csv uint32) (*pong.OpenEscrowResponse, error) {
 	ctx := context.Background()
+	pc.log.Infof("Opening escrow: ownerID=%s betAtoms=%d csvBlocks=%d", ownerID, betAtoms, csv)
 	return pc.rc.OpenEscrow(ctx, &pong.OpenEscrowRequest{OwnerUid: ownerID, CompPubkey: compPub, PayoutPubkey: payoutPubkey, BetAtoms: betAtoms, CsvBlocks: csv})
 }
 
@@ -257,6 +258,7 @@ func (pc *PongClient) RefStartSettlementHandshake(ctx context.Context, matchID s
 		return fmt.Errorf("no settlement session key present; generate one before presigning")
 	}
 
+	pc.log.Infof("Starting settlement handshake for match %s", matchID)
 	// Open stream to referee.
 	stream, err := pc.RefStartSettlementStream(ctx)
 	if err != nil {

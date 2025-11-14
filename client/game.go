@@ -15,6 +15,7 @@ import (
 func (pc *PongClient) RefSignalReadyToPlay(gameID string) error {
 	ctx := context.Background()
 
+	pc.log.Infof("Signaling ready for game %s", gameID)
 	resp, err := pc.gc.SignalReadyToPlay(ctx, &pong.SignalReadyToPlayRequest{
 		ClientId: pc.id,
 		GameId:   gameID,
@@ -35,6 +36,7 @@ func (pc *PongClient) RefUnreadyGameStream() error {
 
 	ctx := context.Background()
 
+	pc.log.Infof("Signaling unready")
 	// Call the unready RPC method
 	_, err := pc.gc.UnreadyGameStream(ctx, &pong.UnreadyGameStreamRequest{
 		ClientId: pc.id,
@@ -293,6 +295,7 @@ func (pc *PongClient) RefStartGameStream() error {
 
 	ctx, cancel := context.WithCancel(pc.ctx)
 
+	pc.log.Infof("Starting game stream")
 	// Signal readiness after stream is initialized
 	stream, err := pc.gc.StartGameStream(ctx, &pong.StartGameStreamRequest{
 		ClientId: pc.id,
