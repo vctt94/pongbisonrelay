@@ -119,8 +119,9 @@ func NewPongClient(clientID string, cfg *PongClientCfg) (*PongClient, error) {
 	dialOpts := []grpc.DialOption{
 		grpc.WithTransportCredentials(creds),
 		grpc.WithKeepaliveParams(keepalive.ClientParameters{
-			Time:    30 * time.Second,
-			Timeout: 10 * time.Second,
+			Time:                30 * time.Second,
+			Timeout:             10 * time.Second,
+			PermitWithoutStream: true,
 		}),
 	}
 
