@@ -540,9 +540,9 @@ func (s *Server) handleGameEnd(ctx context.Context, game *ponggame.GameInstance)
 	var winnerID string
 	if winner != nil {
 		winnerID = winner.String()
-		s.log.Infof("Game ended. Winner: %s", winnerID)
+		s.log.Infof("Game ended. Winner: %s game=%s wr=%s players=%v", winnerID, game.Id, gameWR.ID)
 	} else {
-		s.log.Infof("Game ended in a draw.")
+		s.log.Infof("Game ended in a draw. game=%s wr=%s players=%v", game.Id, gameWR.ID)
 	}
 
 	// Notify players of game outcome (no transfers)
@@ -699,6 +699,7 @@ func (s *Server) handleGameEnd(ctx context.Context, game *ponggame.GameInstance)
 			return
 		}
 		txid := h.String()
+		s.log.Infof("Settlement broadcasted successfully: txid=%s winner=%s wr=%s players=%d", txid, winnerID, wrID, len(players))
 		// Notify both players of settlement broadcast.
 		for _, p := range players {
 			_ = s.notify(p, &pong.NtfnStreamResponse{

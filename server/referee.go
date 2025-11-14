@@ -313,7 +313,7 @@ func (s *Server) SettlementStream(stream pong.PongReferee_SettlementStreamServer
 		return status.Error(codes.FailedPrecondition, "caller escrow not found in room")
 	}
 
-	s.log.Debugf("SettlementStream: wr=%s host=%s caller=%s", wrID, host.String(), caller.String())
+	s.log.Infof("SettlementStream: wr=%s host=%s caller=%s", wrID, host.String(), caller.String())
 
 	// 5) Hand off to the room-specific handler (no string conversions needed)
 	return s.settlementStreamForRoom(stream, X, wr, caller, host)
@@ -657,7 +657,7 @@ func (s *Server) settlementStreamTwoInputs(
 	// 3) Sanity log + assert each branch actually contains the exact input IDs.
 	aID := fmt.Sprintf("%s:%d", aUTXO.Txid, aUTXO.Vout)
 	bID := fmt.Sprintf("%s:%d", bUTXO.Txid, bUTXO.Vout)
-	s.log.Debugf("settle: a.Owner=%s a.InputID=%s  b.Owner=%s b.InputID=%s  (branch 0 pays a)",
+	s.log.Infof("settle: a.Owner=%s a.InputID=%s  b.Owner=%s b.InputID=%s  (branch 0 pays a)",
 		aEscrow.ownerUID, aID, bEscrow.ownerUID, bID)
 
 	ensureHas := func(who, want string, all []*pong.NeedPreSigs_PerInput) error {
