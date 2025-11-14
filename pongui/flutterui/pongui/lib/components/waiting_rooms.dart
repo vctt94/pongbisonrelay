@@ -35,6 +35,10 @@ class WaitingRoomList extends StatelessWidget {
           itemBuilder: (context, index) {
             final wr = waitingRooms[index];
             final bool isCurrentRoom = currentRoomId == wr.id;
+            final int playerCount = wr.players.length;
+            const int maxPlayers = 2;
+            final bool isRoomFull = playerCount >= maxPlayers;
+            final bool canJoinThisRoom = canJoinRooms && !isRoomFull;
 
             return Card(
               elevation: 4,
@@ -49,58 +53,47 @@ class WaitingRoomList extends StatelessWidget {
               child: ListTile(
                 contentPadding:
                     const EdgeInsets.symmetric(horizontal: 16, vertical: 12),
-                leading: CircleAvatar(
-                  backgroundColor: Colors.blueAccent.withOpacity(0.3),
-                  child: const Icon(
-                    Icons.person,
-                    color: Colors.white,
-                  ),
-                ),
-                title: Text(
-                  wr.host,
-                  style: const TextStyle(
-                    color: Colors.white,
-                    fontWeight: FontWeight.bold,
-                    fontSize: 16,
-                  ),
-                ),
-                subtitle: Column(
+                title: Column(
                   crossAxisAlignment: CrossAxisAlignment.start,
                   children: [
-                    const SizedBox(height: 6),
-                    Row(
-                      children: [
-                        const Icon(Icons.attach_money,
-                            size: 16, color: Colors.amber),
-                        const SizedBox(width: 4),
-                        Text(
-                          'Bet: ${wr.betAmt / 1e8} DCR',
-                          style: const TextStyle(color: Colors.white70),
-                        ),
-                      ],
+                    Text(
+                      'Room ID: ${wr.id}',
+                      style: const TextStyle(
+                          color: Colors.white,
+                          fontSize: 14,
+                          fontWeight: FontWeight.bold),
+                    ),
+                    const SizedBox(height: 8),
+                    Text(
+                      'Players: $playerCount / $maxPlayers',
+                      style: const TextStyle(color: Colors.white70),
                     ),
                     const SizedBox(height: 4),
-                    Row(
-                      children: [
-                        const Icon(Icons.tag, size: 16, color: Colors.white54),
-                        const SizedBox(width: 4),
-                        Text(
-                          'Room ID: ${wr.id}',
-                          style: const TextStyle(
-                              color: Colors.white60, fontSize: 12),
-                        ),
-                      ],
+                    Text(
+                      'Bet: ${wr.betAmt / 1e8} DCR',
+                      style: const TextStyle(color: Colors.white70),
                     ),
                   ],
                 ),
                 trailing: currentRoomId != wr.id
                     ? currentRoomId == null
                         ? Builder(builder: (context) {
+                            String? tooltipMessage;
+                            if (!canJoinThisRoom) {
+                              if (!canJoinRooms &&
+                                  (joinDisabledTooltip ?? '').isNotEmpty) {
+                                tooltipMessage = joinDisabledTooltip;
+                              } else if (isRoomFull) {
+                                tooltipMessage = 'Room is full';
+                              }
+                            }
+
                             final btn = ElevatedButton(
-                              onPressed:
-                                  canJoinRooms ? () => onJoinRoom(wr.id) : null,
+                              onPressed: canJoinThisRoom
+                                  ? () => onJoinRoom(wr.id)
+                                  : null,
                               style: ElevatedButton.styleFrom(
-                                backgroundColor: canJoinRooms
+                                backgroundColor: canJoinThisRoom
                                     ? Colors.blueAccent
                                     : Colors.blueGrey,
                                 foregroundColor: Colors.white,
@@ -116,12 +109,12 @@ class WaitingRoomList extends StatelessWidget {
                                 style: TextStyle(fontWeight: FontWeight.bold),
                               ),
                             );
-                            if (canJoinRooms ||
-                                (joinDisabledTooltip ?? '').isEmpty) {
+                            if (tooltipMessage == null ||
+                                tooltipMessage.isEmpty) {
                               return btn;
                             }
                             return Tooltip(
-                              message: joinDisabledTooltip!,
+                              message: tooltipMessage,
                               child: AbsorbPointer(child: btn),
                             );
                           })

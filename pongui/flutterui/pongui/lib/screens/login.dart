@@ -49,6 +49,25 @@ class _LoginScreenState extends State<LoginScreen> {
     });
     try {
       final model = context.read<PongModel>();
+      // If a golib client is already running for our handle (e.g. after a hot
+      // restart), attach to it and skip the login screen when it's a fully
+      // authenticated session.
+      try {
+        final runState = await Golib.asyncCall(CTGetRunState, "");
+        if (runState is Map &&
+            (runState['client_running'] == true ||
+                runState['client_running'] == 1)) {
+          await model.attachToExistingClient();
+          if (model.isWalletAuthenticated) {
+            if (!mounted) return;
+            Navigator.of(context).pushReplacementNamed('/home');
+            return;
+          }
+        }
+      } catch (_) {
+        // If checking run state fails, fall back to normal prelogin init.
+      }
+
       await model.ensurePreloginInitialized();
       if (!mounted) return;
       setState(() {

@@ -497,6 +497,7 @@ mixin NtfStreams {
       try {
         if (!_perfStatsCtrl.isClosed) {
           _perfStatsCtrl.add(PerfStats(
+            pingCurMs: sinceLastMs,
             framesIn: _framesIn,
             framesOut: _framesDecoded,
             decodeLastMs: _lastDecodeMs,
@@ -731,6 +732,18 @@ abstract class PluginPlatform {
     }).toList();
   }
 
+  /// Get the current waiting room ID (if any) for this client from the
+  /// running golib PongClient instance. Empty string means no active room.
+  Future<String> getCurrentWaitingRoomId() async {
+    final res = await asyncCall(CTGetCurrentWaitingRoom, "");
+    if (res == null) return "";
+    final map = Map<String, dynamic>.from(res as Map);
+    final id = map['room_id'];
+    if (id is String) return id;
+    if (id == null) return "";
+    return id.toString();
+  }
+
   Future<LocalWaitingRoom> JoinWaitingRoom(String id,
       {String? escrowId}) async {
     try {
@@ -850,6 +863,32 @@ abstract class PluginPlatform {
     await asyncCall(CTCacheEscrowInfo, escrowInfo);
   }
 
+  /// Cache wallet authentication information (wallet address and payout address)
+  /// to persist it across hot reloads.
+  Future<void> cacheWalletAuthInfo({
+    required String walletAddress,
+    required String payoutAddressOrPubkey,
+  }) async {
+    await asyncCall(CTCacheWalletAuthInfo, {
+      'wallet_address': walletAddress,
+      'payout_address_or_pubkey': payoutAddressOrPubkey,
+    });
+  }
+
+  /// Get cached wallet authentication information.
+  /// Returns a map with 'wallet_address' and 'payout_address_or_pubkey' keys.
+  Future<Map<String, String>> getWalletAuthInfo() async {
+    final result = await asyncCall(CTGetWalletAuthInfo, {});
+    return Map<String, String>.from(result);
+  }
+
+  /// Get active escrow information from the cached session key file.
+  /// Returns a map with escrow metadata (escrow_id, funding_txid, etc.) or empty map if none.
+  Future<Map<String, dynamic>> getActiveEscrowInfo() async {
+    final result = await asyncCall(CTGetActiveEscrowInfo, {});
+    return Map<String, dynamic>.from(result);
+  }
+
   Future<void> updateHistoricEscrow(Map<String, dynamic> escrowInfo) async {
     await asyncCall(CTUpdateHistoricEscrow, escrowInfo);
   }
@@ -918,6 +957,10 @@ const int CTStartGameStream = 0x14;
 const int CTRefundEscrow = 0x15;
 const int CTListHistoricEscrows = 0x16;
 const int CTCacheEscrowInfo = 0x17;
+const int CTCacheWalletAuthInfo = 0x1d;
+const int CTGetWalletAuthInfo = 0x1e;
+const int CTGetActiveEscrowInfo = 0x1f;
+const int CTGetCurrentWaitingRoom = 0x20;
 const int CTUpdateHistoricEscrow = 0x18;
 const int CTDeleteHistoricEscrow = 0x19;
 
@@ -925,6 +968,9 @@ const int CTDeleteHistoricEscrow = 0x19;
 const int CTGetClientConfig = 0x1a;
 const int CTSaveClientConfig = 0x1b;
 const int CTValidateRefundSession = 0x1c;
+
+// Client/runtime state helpers
+const int CTGetRunState = 0x83;
 
 const int CTCreateLockFile = 0x60;
 const int CTCloseLockFile = 0x61;
@@ -956,6 +1002,7 @@ class PerfStats {
   final int outDtMin;
   final int outDtAvg;
   final int outDtMax;
+  final int pingCurMs;
 
   const PerfStats({
     required this.framesIn,
@@ -972,6 +1019,7 @@ class PerfStats {
     required this.outDtMin,
     required this.outDtAvg,
     required this.outDtMax,
+    required this.pingCurMs,
   });
 }
 

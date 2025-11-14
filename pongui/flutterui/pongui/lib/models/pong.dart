@@ -53,6 +53,10 @@ class PongModel extends ChangeNotifier {
   // Escrow funding flags derived from notifications
   bool escrowFunded = false; // true when deposit seen (0-conf OK)
   bool escrowConfirmed = false; // true when at least 1 confirmation
+  bool presignInProgress = false; // true while presign handshake is running
+  bool presignCompleted =
+      false; // true once presign completed for current match
+  String presignError = '';
   String errorMessage = '';
   List<LocalWaitingRoom> waitingRooms = [];
   LocalWaitingRoom? currentWR;
@@ -138,15 +142,19 @@ class PongModel extends ChangeNotifier {
     required int csvBlocks,
     required String pkScriptHex,
     required String redeemScriptHex,
+    String depositAddress = '',
   }) async {
-    final ok = await persistEscrowInfo({
+    final info = {
       'escrow_id': escrowId,
       'funded_amount': betAtoms,
       'pk_script_hex': pkScriptHex,
       'redeem_script_hex': redeemScriptHex,
       'csv_blocks': csvBlocks,
       'archived_at': DateTime.now().millisecondsSinceEpoch,
-    }, failureContext: 'Saving initial escrow metadata');
+      'deposit_address': depositAddress,
+    };
+    final ok = await persistEscrowInfo(info,
+        failureContext: 'Saving initial escrow metadata');
     if (!ok) {
       return false;
     }
@@ -244,13 +252,14 @@ class PongModel extends ChangeNotifier {
       developer.log("InitClient args: $initArgs");
 
       var localInfo = await Golib.initClient(initArgs);
-      // If this was a prelogin init (no clientId), record success and return early.
-      if (clientId.isEmpty) {
+      // For prelogin callers, record success and return early.
+      if (prelogin) {
         _preloginInitialized = true;
         return;
       }
 
-      // Full init: use IDs returned by golib as authoritative.
+      // Full init: use IDs returned by golib as authoritative (including
+      // attaching to an existing client when clientId is initially empty).
       if ((localInfo.id).isNotEmpty) clientId = localInfo.id;
       nick = localInfo.nick;
       serverIsF2P = localInfo.serverIsF2P;
@@ -351,14 +360,210 @@ class PongModel extends ChangeNotifier {
     }
     // Initialize the client with wallet-authenticated clientId
     await _initPongClient(cfg);
+    // Cache wallet auth info to persist across hot reloads
+    if (walletAddress.isNotEmpty || payoutAddressOrPubkey.isNotEmpty) {
+      try {
+        await Golib.cacheWalletAuthInfo(
+          walletAddress: walletAddress,
+          payoutAddressOrPubkey: payoutAddressOrPubkey,
+        );
+      } catch (e) {
+        developer.log('Failed to cache wallet auth info: $e', name: 'auth');
+        // Non-fatal: continue even if caching fails
+      }
+    }
     notifyListeners();
   }
 
-  void logout() {
+  // Attach to an already-running golib client (e.g. after a hot restart).
+  // This reuses the existing client handle and marks the model as
+  // authenticated only if a non-empty clientId is discovered.
+  Future<void> attachToExistingClient() async {
+    try {
+      await _initPongClient(cfg);
+      if (clientId.isNotEmpty) {
+        isWalletAuthenticated = true;
+        // Restore wallet auth info and escrow state from cached session key file
+        try {
+          final authInfo = await Golib.getWalletAuthInfo();
+          final cachedWalletAddr = authInfo['wallet_address'] ?? '';
+          final cachedPayoutAddr = authInfo['payout_address_or_pubkey'] ?? '';
+          if (cachedWalletAddr.isNotEmpty) {
+            walletAddress = cachedWalletAddr;
+          }
+          if (cachedPayoutAddr.isNotEmpty) {
+            payoutAddressOrPubkey = cachedPayoutAddr;
+          }
+
+          final escrowInfo = await Golib.getActiveEscrowInfo();
+          if (escrowInfo.isNotEmpty) {
+            final escrowIdFromCache = escrowInfo['escrow_id']?.toString() ?? '';
+            if (escrowIdFromCache.isNotEmpty) {
+              escrowId = escrowIdFromCache;
+
+              final depositAddr =
+                  escrowInfo['deposit_address']?.toString() ?? '';
+              if (depositAddr.isNotEmpty) {
+                escrowDepositAddress = depositAddr;
+              }
+
+              // Restore escrow metadata if available
+              final txid = escrowInfo['funding_txid']?.toString() ?? '';
+              if (txid.isNotEmpty) {
+                escrowFundingTxid = txid;
+              }
+
+              final vout = escrowInfo['funding_vout'];
+              if (vout is int) {
+                escrowFundingVout = vout;
+              } else if (vout is num) {
+                escrowFundingVout = vout.toInt();
+              }
+
+              final amount = escrowInfo['funded_amount'];
+              if (amount is int) {
+                escrowFundingValueAtoms = amount;
+                escrowBetAtoms = amount;
+                betAmt = amount;
+              } else if (amount is num) {
+                escrowFundingValueAtoms = amount.toInt();
+                escrowBetAtoms = amount.toInt();
+                betAmt = amount.toInt();
+              }
+
+              final redeem = escrowInfo['redeem_script_hex']?.toString() ?? '';
+              if (redeem.isNotEmpty) {
+                escrowRedeemScriptHex = redeem;
+              }
+
+              final pk = escrowInfo['pk_script_hex']?.toString() ?? '';
+              if (pk.isNotEmpty) {
+                escrowPkScriptHex = pk;
+              }
+
+              final csv = escrowInfo['csv_blocks'];
+              if (csv is int) {
+                escrowCsvBlocks = csv;
+              } else if (csv is num) {
+                escrowCsvBlocks = csv.toInt();
+              }
+
+              // Mark escrow info as persisted since it was loaded from cache
+              escrowInfoPersisted = true;
+              escrowInfoError = '';
+
+              // Re-validate refund session so we can decide whether it's safe
+              // to show the deposit address after a hot restart.
+              try {
+                final res = await Golib.validateRefundSession(escrowId);
+                final valid = res['ok'] == true;
+                escrowRefundSessionValid = valid;
+                escrowRefundSessionError = valid
+                    ? ''
+                    : (res['reason']?.toString() ?? 'unknown validation error');
+                if (!valid) {
+                  fundingStatus =
+                      'CRITICAL: escrow session backup invalid. Deposit address hidden.';
+                }
+              } catch (e) {
+                escrowRefundSessionValid = false;
+                escrowRefundSessionError = 'Validation error: $e';
+                fundingStatus =
+                    'CRITICAL: escrow session backup validation failed. Deposit address hidden.';
+              }
+
+              // Note: escrowConfs, escrowFunded, escrowConfirmed will be restored
+              // when the next bet_update notification arrives from the server
+            }
+          }
+        } catch (e) {
+          developer.log('Failed to restore auth/escrow info: $e', name: 'auth');
+          // Non-fatal: continue even if restoration fails
+        }
+
+        // Restore current waiting room (if any) using the cached room ID from
+        // the running golib client, then reconcile with the latest server
+        // snapshot of waiting rooms.
+        try {
+          final currentRoomId = (await Golib.getCurrentWaitingRoomId()).trim();
+          if (currentRoomId.isNotEmpty && waitingRooms.isNotEmpty) {
+            LocalWaitingRoom? myRoom;
+            for (final wr in waitingRooms) {
+              if (wr.id == currentRoomId) {
+                myRoom = wr;
+                break;
+              }
+            }
+            if (myRoom != null) {
+              currentWR = myRoom;
+              bool myReady = false;
+              for (final p in myRoom.players) {
+                if (p.uid == clientId) {
+                  myReady = p.ready;
+                  break;
+                }
+              }
+              if (_currentGameState == GameState.idle ||
+                  _currentGameState == GameState.gameEnded) {
+                _currentGameState = myReady
+                    ? GameState.waitingRoomReady
+                    : GameState.inWaitingRoom;
+              }
+            }
+          }
+        } catch (e) {
+          developer.log('Failed to restore waiting room from golib: $e',
+              name: 'waitingroom');
+        }
+      }
+      notifyListeners();
+    } catch (e) {
+      errorMessage = e.toString();
+      notifyListeners();
+      rethrow;
+    }
+  }
+
+  Future<void> logout() async {
+    // Treat logout as a full client stop so the server
+    // can cleanly remove this player from any waiting room
+    // via the standard disconnect path.
+    try {
+      await Golib.asyncCall(CTStopClient, "");
+    } catch (_) {
+      // Ignore errors if client is already stopped.
+    }
+
+    // Reset connection/client state so a future login
+    // (including prelogin init on the login screen) will
+    // reinitialize golib cleanly.
+    isConnected = false;
+    _preloginInitialized = false;
+    clientId = '';
+    serverVersion = "";
+    waitingRooms = [];
+
+    // Stop UI/game subscriptions tied to the old client.
+    await _gameStreamSub?.cancel();
+    _gameStreamSub = null;
+    await _uiNtfnSub?.cancel();
+    _uiNtfnSub = null;
+
     isWalletAuthenticated = false;
     walletAddress = '';
     authToken = '';
     payoutAddressOrPubkey = '';
+    // Clear cached wallet auth info
+    try {
+      await Golib.cacheWalletAuthInfo(
+        walletAddress: '',
+        payoutAddressOrPubkey: '',
+      );
+    } catch (e) {
+      developer.log('Failed to clear cached wallet auth info: $e',
+          name: 'auth');
+      // Non-fatal: continue even if clearing fails
+    }
     escrowId = '';
     escrowDepositAddress = '';
     escrowPkScriptHex = '';
@@ -372,12 +577,12 @@ class PongModel extends ChangeNotifier {
     escrowInfoError = '';
     escrowFunded = false;
     escrowConfirmed = false;
+    presignInProgress = false;
+    presignCompleted = false;
+    presignError = '';
     currentWR = null;
     _currentGameState = GameState.idle;
     serverIsF2P = false;
-    // Stop UI notifications subscription
-    _uiNtfnSub?.cancel();
-    _uiNtfnSub = null;
     notifyListeners();
   }
 
@@ -449,6 +654,9 @@ class PongModel extends ChangeNotifier {
         'csv_blocks': escrowCsvBlocks,
         'archived_at': DateTime.now().millisecondsSinceEpoch,
       };
+      if (escrowDepositAddress.isNotEmpty) {
+        info['deposit_address'] = escrowDepositAddress;
+      }
       if (escrowFundingTxid.isNotEmpty) {
         info['funding_txid'] = escrowFundingTxid;
       }
@@ -463,6 +671,9 @@ class PongModel extends ChangeNotifier {
     }
 
     notifyListeners();
+    // Escrow funding/confirm status may have changed; if both players are
+    // already ready in the current room, attempt to start presign.
+    unawaited(_maybeStartPresignForCurrentRoom());
   }
 
   void _handleNtfnServerConfig(UINotification n) {
@@ -537,13 +748,98 @@ class PongModel extends ChangeNotifier {
     notifyListeners();
   }
 
+  Future<void> _maybeStartPresignForCurrentRoom() async {
+    // Only used for escrow-backed matches.
+    if (serverIsF2P) return;
+    if (isGameStarted) return;
+    final room = currentWR;
+    if (room == null) return;
+    if (escrowId.isEmpty || !escrowConfirmed) return;
+    if (presignInProgress || presignCompleted) return;
+
+    // Require exactly two players and both marked ready.
+    final players = room.players;
+    if (players.length != 2) return;
+    final allReady = players.every((p) => p.ready);
+    if (!allReady) return;
+
+    final matchId = '${room.id}|${room.host}';
+
+    presignInProgress = true;
+    presignError = '';
+    notifyListeners();
+
+    developer.log(
+      'Starting settlement presign for match $matchId',
+      name: 'settlement',
+    );
+
+    try {
+      await Golib.startPreSign(matchId);
+      presignInProgress = false;
+      presignCompleted = true;
+      lastMatchId = matchId;
+      notificationModel.showNotification(
+        'Settlement prepared for this match.',
+      );
+    } catch (e, st) {
+      presignInProgress = false;
+      presignCompleted = false;
+      presignError = '$e';
+      developer.log(
+        'startPreSign error: $e',
+        name: 'settlement',
+        stackTrace: st,
+      );
+      notificationModel.showNotification(
+        'Settlement presign failed; will retry when conditions change.',
+      );
+    }
+    notifyListeners();
+  }
+
   void _handleNtfnPlayerReady(UINotification n) {
     final extras = _extrasFrom(n);
     final pid = (extras['player_id'] ?? '').toString();
     final r = extras['ready'] == true;
-    if (pid == clientId && r) {
+    final wr = extras['waiting_room'];
+
+    // When a waiting room snapshot is provided, update local room state so
+    // both players can see each other's ready status.
+    if (wr is Map<String, dynamic>) {
+      final room = LocalWaitingRoom.fromJson(Map<String, dynamic>.from(wr));
+      final idx = waitingRooms.indexWhere((r) => r.id == room.id);
+      if (idx == -1) {
+        waitingRooms = [room, ...waitingRooms];
+      } else {
+        waitingRooms[idx] = room;
+      }
+      if (currentWR?.id == room.id) {
+        currentWR = room;
+      }
+
+      // Keep local readiness state in sync for this client while in a room.
+      if (pid == clientId) {
+        if (r) {
+          _currentGameState = GameState.waitingRoomReady;
+        } else if (_currentGameState == GameState.waitingRoomReady) {
+          _currentGameState = GameState.inWaitingRoom;
+        }
+      }
+      notifyListeners();
+      // When both players become ready in this room, automatically
+      // kick off the presign handshake.
+      unawaited(_maybeStartPresignForCurrentRoom());
+      return;
+    }
+
+    // Fallback for legacy notifications that only include player_id/ready and
+    // no waiting room context: only adjust state if we're still in the
+    // waiting-room phase to avoid clobbering in-game states.
+    if (pid == clientId && r && _currentGameState == GameState.inWaitingRoom) {
       _currentGameState = GameState.waitingRoomReady;
       notifyListeners();
+      unawaited(_maybeStartPresignForCurrentRoom());
     }
   }
 
@@ -568,7 +864,12 @@ class PongModel extends ChangeNotifier {
     if (rid.isEmpty) return;
     waitingRooms =
         waitingRooms.where((r) => r.id != rid).toList(growable: false);
-    if (currentWR?.id == rid) currentWR = null;
+    if (currentWR?.id == rid) {
+      currentWR = null;
+      _currentGameState = GameState.idle;
+      errorMessage = '';
+      _stopGameStreamAndRenderLoop();
+    }
     notifyListeners();
   }
 
@@ -594,16 +895,17 @@ class PongModel extends ChangeNotifier {
     if (connected is bool) {
       final wasConnected = isConnected;
       isConnected = connected;
-      
+
       // If connection was restored, refresh waiting rooms
       if (connected && !wasConnected) {
         try {
           waitingRooms = await Golib.getWaitingRooms();
         } catch (e) {
-          developer.log("Failed to refresh waiting rooms after reconnection: $e");
+          developer
+              .log("Failed to refresh waiting rooms after reconnection: $e");
         }
       }
-      
+
       notifyListeners();
     }
   }
@@ -740,6 +1042,9 @@ class PongModel extends ChangeNotifier {
     escrowConfirmed = false;
     escrowConfs = 0;
     fundingStatus = '';
+    presignInProgress = false;
+    presignCompleted = false;
+    presignError = '';
     lastMatchId = '';
     notifyListeners();
   }
@@ -789,6 +1094,9 @@ class PongModel extends ChangeNotifier {
       } else {
         waitingRooms[idx] = roomInfo;
       }
+      presignInProgress = false;
+      presignCompleted = false;
+      presignError = '';
       _currentGameState = GameState.inWaitingRoom;
       errorMessage = '';
       notifyListeners();
@@ -831,6 +1139,9 @@ class PongModel extends ChangeNotifier {
         waitingRooms[idx] = roomInfo;
       }
 
+      presignInProgress = false;
+      presignCompleted = false;
+      presignError = '';
       _currentGameState = GameState.inWaitingRoom;
       errorMessage = '';
       notifyListeners();
@@ -892,6 +1203,19 @@ class PongModel extends ChangeNotifier {
       _currentGameState = GameState.idle;
       errorMessage = '';
       _stopGameStreamAndRenderLoop();
+      presignInProgress = false;
+      presignCompleted = false;
+      presignError = '';
+
+      // Refresh waiting rooms list to reflect updated player counts
+      // (the player who left won't receive OPPONENT_DISCONNECTED notification)
+      try {
+        waitingRooms = await Golib.getWaitingRooms();
+      } catch (e) {
+        developer.log("Failed to refresh waiting rooms after leaving: $e");
+        // Non-fatal
+      }
+
       notifyListeners();
 
       notificationModel.showNotification("Left waiting room successfully");

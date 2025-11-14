@@ -403,7 +403,27 @@ func handleInitClient(handle uint32, args initClient) (*localInfo, error) {
 						}, nil)
 
 					case pong.NotificationType_ON_PLAYER_READY:
-						extras := map[string]interface{}{"player_id": ntfn.PlayerId, "ready": ntfn.Ready}
+						// Include updated waiting room snapshot when available so UIs
+						// can reflect both players' ready state.
+						var wr *waitingRoom
+						if ntfn.Wr != nil {
+							players := make([]*player, len(ntfn.Wr.Players))
+							for i, p := range ntfn.Wr.Players {
+								pp, _ := playerFromServer(p)
+								players[i] = pp
+							}
+							wr = &waitingRoom{
+								ID:      ntfn.Wr.Id,
+								HostID:  ntfn.Wr.HostId,
+								BetAmt:  ntfn.Wr.BetAmt,
+								Players: players,
+							}
+						}
+						extras := map[string]interface{}{
+							"waiting_room": wr,
+							"player_id":    ntfn.PlayerId,
+							"ready":        ntfn.Ready,
+						}
 						fromJSON, _ := json.Marshal(extras)
 						notify(NTUINotification, map[string]interface{}{
 							"type":  "player_ready",
@@ -569,7 +589,25 @@ func handleClientCmd(cc *clientCtx, cmd *cmd) (interface{}, error) {
 		}, nil
 
 	case CTStopClient:
-		cc.cancel()
+		// Gracefully stop the running client for this handle:
+		// - cancel the context so background goroutines exit
+		// - close the underlying gRPC connection
+		// - remove the clientCtx from the global map so a future
+		//   CTInitClient call will fully reinitialize a fresh client.
+		if cc.cancel != nil {
+			cc.cancel()
+		}
+		if cc.c != nil {
+			_ = cc.c.Close()
+		}
+		cmtx.Lock()
+		for h, c := range cs {
+			if c == cc {
+				delete(cs, h)
+				break
+			}
+		}
+		cmtx.Unlock()
 		return nil, nil
 
 	case CTLeaveWaitingRoom:
@@ -722,6 +760,9 @@ func handleClientCmd(cc *clientCtx, cmd *cmd) (interface{}, error) {
 		}
 		if info.EscrowID == "" {
 			return nil, fmt.Errorf("cache escrow payload missing escrow_id")
+		}
+		if addr, ok := payload["deposit_address"].(string); ok {
+			info.DepositAddress = addr
 		}
 		if txid, ok := payload["funding_txid"].(string); ok {
 			info.FundingTxid = txid
@@ -885,6 +926,75 @@ func handleClientCmd(cc *clientCtx, cmd *cmd) (interface{}, error) {
 		return map[string]interface{}{
 			"escrows": result,
 		}, nil
+
+	case CTCacheWalletAuthInfo:
+		var payload map[string]interface{}
+		if err := json.Unmarshal(cmd.Payload, &payload); err != nil {
+			return nil, fmt.Errorf("bad cache wallet auth payload: %v", err)
+		}
+		walletAddr := ""
+		payoutAddr := ""
+		if addr, ok := payload["wallet_address"].(string); ok {
+			walletAddr = strings.TrimSpace(addr)
+		}
+		if addr, ok := payload["payout_address_or_pubkey"].(string); ok {
+			payoutAddr = strings.TrimSpace(addr)
+		}
+		if err := cc.c.CacheWalletAuthInfo(walletAddr, payoutAddr); err != nil {
+			return nil, err
+		}
+		return map[string]string{"status": "cached"}, nil
+
+	case CTGetWalletAuthInfo:
+		walletAddr, payoutAddr := cc.c.GetWalletAuthInfo()
+		return map[string]string{
+			"wallet_address":           walletAddr,
+			"payout_address_or_pubkey": payoutAddr,
+		}, nil
+
+	case CTGetActiveEscrowInfo:
+		info := cc.c.GetActiveEscrowInfo()
+		if info == nil {
+			return map[string]interface{}{}, nil
+		}
+		result := map[string]interface{}{
+			"escrow_id": info.EscrowID,
+		}
+		if info.DepositAddress != "" {
+			result["deposit_address"] = info.DepositAddress
+		}
+		if info.FundingTxid != "" {
+			result["funding_txid"] = info.FundingTxid
+		}
+		if info.FundingVoutSet || info.FundingVout != 0 {
+			result["funding_vout"] = info.FundingVout
+		}
+		if info.FundedAmountSet || info.FundedAmount != 0 {
+			result["funded_amount"] = info.FundedAmount
+		}
+		if info.RedeemScriptHex != "" {
+			result["redeem_script_hex"] = info.RedeemScriptHex
+		}
+		if info.PKScriptHex != "" {
+			result["pk_script_hex"] = info.PKScriptHex
+		}
+		if info.CSVBlocksSet || info.CSVBlocks != 0 {
+			result["csv_blocks"] = info.CSVBlocks
+		}
+		if info.Status != "" {
+			result["status"] = info.Status
+		}
+		if info.ArchivedAt != 0 {
+			result["archived_at"] = info.ArchivedAt
+		}
+		return result, nil
+
+	case CTGetCurrentWaitingRoom:
+		roomID := ""
+		if cc.c != nil {
+			roomID = cc.c.CurrentWaitingRoomID()
+		}
+		return map[string]interface{}{"room_id": roomID}, nil
 
 	case CTValidateRefundSession:
 		var req struct {

@@ -68,6 +68,13 @@ type PongClient struct {
 	settlePrivHex    string
 	settlePubHex     string
 	activeEscrowInfo *EscrowInfo
+	// Wallet auth info (persisted with session key)
+	walletAddress         string
+	payoutAddressOrPubkey string
+
+	// Current waiting room ID for this client (cached in-memory so UIs can
+	// reattach to the same room across hot restarts).
+	currentWRID string
 }
 
 // LoadTLSCreds loads client TLS credentials using the configured cert path,
@@ -119,8 +126,9 @@ func NewPongClient(clientID string, cfg *PongClientCfg) (*PongClient, error) {
 	dialOpts := []grpc.DialOption{
 		grpc.WithTransportCredentials(creds),
 		grpc.WithKeepaliveParams(keepalive.ClientParameters{
-			Time:    30 * time.Second,
-			Timeout: 10 * time.Second,
+			Time:                30 * time.Second,
+			Timeout:             10 * time.Second,
+			PermitWithoutStream: true,
 		}),
 	}
 
@@ -175,6 +183,14 @@ func (pc *PongClient) SetID(newID string) {
 	pc.Lock()
 	defer pc.Unlock()
 	pc.id = newID
+}
+
+// CurrentWaitingRoomID returns the cached waiting-room ID (if any) that this
+// client most recently joined or created. Empty string means no active room.
+func (pc *PongClient) CurrentWaitingRoomID() string {
+	pc.RLock()
+	defer pc.RUnlock()
+	return strings.TrimSpace(pc.currentWRID)
 }
 
 func (pc *PongClient) IsReady() bool {
@@ -392,8 +408,10 @@ func (pc *PongClient) saveSettlementSessionKey() error {
 	}
 	pc.RLock()
 	data := SessionKeyData{
-		Priv: pc.settlePrivHex,
-		Pub:  pc.settlePubHex,
+		Priv:                  pc.settlePrivHex,
+		Pub:                   pc.settlePubHex,
+		WalletAddress:         pc.walletAddress,
+		PayoutAddressOrPubkey: pc.payoutAddressOrPubkey,
 	}
 	if pc.activeEscrowInfo != nil {
 		copyInfo := *pc.activeEscrowInfo
@@ -442,6 +460,8 @@ func (pc *PongClient) loadSettlementSessionKey() (bool, error) {
 	pc.Lock()
 	pc.settlePrivHex = data.Priv
 	pc.settlePubHex = data.Pub
+	pc.walletAddress = strings.TrimSpace(data.WalletAddress)
+	pc.payoutAddressOrPubkey = strings.TrimSpace(data.PayoutAddressOrPubkey)
 	if data.EscrowInfo != nil {
 		copyInfo := *data.EscrowInfo
 		pc.activeEscrowInfo = &copyInfo
@@ -480,6 +500,7 @@ func sanitize(matchID string) string {
 // EscrowInfo represents the data we need to store about an escrow for potential refund
 type EscrowInfo struct {
 	EscrowID        string `json:"escrow_id"`
+	DepositAddress  string `json:"deposit_address,omitempty"`
 	FundingTxid     string `json:"funding_txid"`
 	FundingVout     uint32 `json:"funding_vout"`
 	FundedAmount    uint64 `json:"funded_amount"`
@@ -497,9 +518,11 @@ type EscrowInfo struct {
 
 // SessionKeyData includes both the keypair and escrow info for archiving
 type SessionKeyData struct {
-	Priv       string      `json:"priv"`
-	Pub        string      `json:"pub"`
-	EscrowInfo *EscrowInfo `json:"escrow_info,omitempty"`
+	Priv                  string      `json:"priv"`
+	Pub                   string      `json:"pub"`
+	EscrowInfo            *EscrowInfo `json:"escrow_info,omitempty"`
+	WalletAddress         string      `json:"wallet_address,omitempty"`
+	PayoutAddressOrPubkey string      `json:"payout_address_or_pubkey,omitempty"`
 }
 
 // ArchiveSettlementSessionKeyWithEscrow moves the current session key file to a historical
@@ -759,12 +782,44 @@ func (pc *PongClient) CacheEscrowInfo(info *EscrowInfo) error {
 	return pc.snapshotActiveSession(name)
 }
 
+// CacheWalletAuthInfo saves wallet authentication information to the session key file.
+func (pc *PongClient) CacheWalletAuthInfo(walletAddress, payoutAddressOrPubkey string) error {
+	pc.Lock()
+	pc.walletAddress = strings.TrimSpace(walletAddress)
+	pc.payoutAddressOrPubkey = strings.TrimSpace(payoutAddressOrPubkey)
+	pc.Unlock()
+	return pc.saveSettlementSessionKey()
+}
+
+// GetWalletAuthInfo returns the cached wallet authentication information.
+func (pc *PongClient) GetWalletAuthInfo() (walletAddress, payoutAddressOrPubkey string) {
+	pc.RLock()
+	defer pc.RUnlock()
+	return pc.walletAddress, pc.payoutAddressOrPubkey
+}
+
+// GetActiveEscrowInfo returns a copy of the currently active escrow info, if any.
+// Returns nil if no active escrow is cached.
+func (pc *PongClient) GetActiveEscrowInfo() *EscrowInfo {
+	pc.RLock()
+	defer pc.RUnlock()
+	if pc.activeEscrowInfo == nil {
+		return nil
+	}
+	// Return a copy to avoid external modifications
+	copyInfo := *pc.activeEscrowInfo
+	return &copyInfo
+}
+
 func mergeEscrowInfo(dst, src *EscrowInfo) {
 	if dst == nil || src == nil {
 		return
 	}
 	if src.EscrowID != "" {
 		dst.EscrowID = src.EscrowID
+	}
+	if src.DepositAddress != "" {
+		dst.DepositAddress = src.DepositAddress
 	}
 	if src.FundingTxid != "" {
 		dst.FundingTxid = src.FundingTxid

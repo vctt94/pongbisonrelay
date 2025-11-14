@@ -3,6 +3,7 @@ package client
 import (
 	"context"
 	"fmt"
+	"strings"
 
 	"github.com/vctt94/pongbisonrelay/pongrpc/grpc/pong"
 )
@@ -40,6 +41,9 @@ func (pc *PongClient) RefCreateWaitingRoom(clientId string, betAmt int64, escrow
 	if err != nil {
 		return nil, fmt.Errorf("error creating wr: %w", err)
 	}
+	pc.Lock()
+	pc.currentWRID = res.Wr.Id
+	pc.Unlock()
 	return res.Wr, nil
 }
 
@@ -53,6 +57,9 @@ func (pc *PongClient) RefJoinWaitingRoom(roomID string, escrowID string) (*pong.
 	if err != nil {
 		return nil, fmt.Errorf("error joining wr: %w", err)
 	}
+	pc.Lock()
+	pc.currentWRID = res.Wr.Id
+	pc.Unlock()
 	return res, nil
 }
 
@@ -69,6 +76,12 @@ func (pc *PongClient) RefLeaveWaitingRoom(roomID string) error {
 	if !res.Success {
 		return fmt.Errorf("failed to leave waiting room: %s", res.Message)
 	}
+
+	pc.Lock()
+	if strings.TrimSpace(pc.currentWRID) == roomID {
+		pc.currentWRID = ""
+	}
+	pc.Unlock()
 
 	return nil
 }
