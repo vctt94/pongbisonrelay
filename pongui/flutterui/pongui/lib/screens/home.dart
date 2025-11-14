@@ -417,7 +417,7 @@ class _HomeScreenState extends State<HomeScreen> {
                                                 ? 'Join or create a room to presign'
                                                 : (pongModel.escrowConfirmed
                                                     ? ''
-                                                    : 'Wait for deposit confirmation');
+                                                    : 'Wait for 1 confirmation before presign');
                                             if (msg.isEmpty) {
                                               return button;
                                             }
@@ -431,6 +431,27 @@ class _HomeScreenState extends State<HomeScreen> {
                                     ),
                                   ],
                                 ),
+                                if (!pongModel.serverIsF2P &&
+                                    pongModel.escrowFunded &&
+                                    !pongModel.escrowConfirmed) ...[
+                                  const SizedBox(height: 8),
+                                  const Row(
+                                    children: [
+                                      Icon(Icons.info_outline,
+                                          color: Colors.amberAccent, size: 18),
+                                      SizedBox(width: 6),
+                                      Expanded(
+                                        child: Text(
+                                          'Presign becomes available after your deposit has at least 1 confirmation.',
+                                          style: TextStyle(
+                                            color: Colors.amberAccent,
+                                            fontSize: 12,
+                                          ),
+                                        ),
+                                      ),
+                                    ],
+                                  ),
+                                ],
                                 if (pongModel.serverIsF2P) ...[
                                   const SizedBox(height: 12),
                                   _buildServerModeBanner(pongModel),
@@ -743,7 +764,7 @@ class _HomeScreenState extends State<HomeScreen> {
       return 'Set a bet amount before creating a room';
     }
     if (model.escrowId.isEmpty) {
-      return 'Open an escrow in Settings → Settlement';
+      return 'Open an escrow using the "Open Escrow" button above';
     }
     if (!model.escrowFunded) {
       return 'Wait for escrow funding before creating a room';
