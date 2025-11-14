@@ -92,6 +92,9 @@ func (s *Server) StartNtfnStream(req *pong.StartNtfnStreamRequest, stream pong.P
 
 	// Block until the stream context ends; transport-level keepalives handle idleness.
 	<-ctx.Done()
+	// Treat notifier stream termination as a full disconnect for this
+	// client so they are cleanly removed from any waiting room.
+	s.handleDisconnect(clientID)
 	s.log.Debugf("Notifier stream ended for client %s, error: %v", clientID, ctx.Err())
 	return ctx.Err()
 }
