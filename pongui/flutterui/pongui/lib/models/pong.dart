@@ -639,7 +639,12 @@ class PongModel extends ChangeNotifier {
     if (rid.isEmpty) return;
     waitingRooms =
         waitingRooms.where((r) => r.id != rid).toList(growable: false);
-    if (currentWR?.id == rid) currentWR = null;
+    if (currentWR?.id == rid) {
+      currentWR = null;
+      _currentGameState = GameState.idle;
+      errorMessage = '';
+      _stopGameStreamAndRenderLoop();
+    }
     notifyListeners();
   }
 
