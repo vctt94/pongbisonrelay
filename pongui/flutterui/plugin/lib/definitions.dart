@@ -851,6 +851,32 @@ abstract class PluginPlatform {
     await asyncCall(CTCacheEscrowInfo, escrowInfo);
   }
 
+  /// Cache wallet authentication information (wallet address and payout address)
+  /// to persist it across hot reloads.
+  Future<void> cacheWalletAuthInfo({
+    required String walletAddress,
+    required String payoutAddressOrPubkey,
+  }) async {
+    await asyncCall(CTCacheWalletAuthInfo, {
+      'wallet_address': walletAddress,
+      'payout_address_or_pubkey': payoutAddressOrPubkey,
+    });
+  }
+
+  /// Get cached wallet authentication information.
+  /// Returns a map with 'wallet_address' and 'payout_address_or_pubkey' keys.
+  Future<Map<String, String>> getWalletAuthInfo() async {
+    final result = await asyncCall(CTGetWalletAuthInfo, {});
+    return Map<String, String>.from(result);
+  }
+
+  /// Get active escrow information from the cached session key file.
+  /// Returns a map with escrow metadata (escrow_id, funding_txid, etc.) or empty map if none.
+  Future<Map<String, dynamic>> getActiveEscrowInfo() async {
+    final result = await asyncCall(CTGetActiveEscrowInfo, {});
+    return Map<String, dynamic>.from(result);
+  }
+
   Future<void> updateHistoricEscrow(Map<String, dynamic> escrowInfo) async {
     await asyncCall(CTUpdateHistoricEscrow, escrowInfo);
   }
@@ -919,6 +945,9 @@ const int CTStartGameStream = 0x14;
 const int CTRefundEscrow = 0x15;
 const int CTListHistoricEscrows = 0x16;
 const int CTCacheEscrowInfo = 0x17;
+const int CTCacheWalletAuthInfo = 0x1d;
+const int CTGetWalletAuthInfo = 0x1e;
+const int CTGetActiveEscrowInfo = 0x1f;
 const int CTUpdateHistoricEscrow = 0x18;
 const int CTDeleteHistoricEscrow = 0x19;
 

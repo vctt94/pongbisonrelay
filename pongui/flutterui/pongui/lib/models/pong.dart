@@ -53,6 +53,10 @@ class PongModel extends ChangeNotifier {
   // Escrow funding flags derived from notifications
   bool escrowFunded = false; // true when deposit seen (0-conf OK)
   bool escrowConfirmed = false; // true when at least 1 confirmation
+  bool presignInProgress = false; // true while presign handshake is running
+  bool presignCompleted =
+      false; // true once presign completed for current match
+  String presignError = '';
   String errorMessage = '';
   List<LocalWaitingRoom> waitingRooms = [];
   LocalWaitingRoom? currentWR;
@@ -138,15 +142,19 @@ class PongModel extends ChangeNotifier {
     required int csvBlocks,
     required String pkScriptHex,
     required String redeemScriptHex,
+    String depositAddress = '',
   }) async {
-    final ok = await persistEscrowInfo({
+    final info = {
       'escrow_id': escrowId,
       'funded_amount': betAtoms,
       'pk_script_hex': pkScriptHex,
       'redeem_script_hex': redeemScriptHex,
       'csv_blocks': csvBlocks,
       'archived_at': DateTime.now().millisecondsSinceEpoch,
-    }, failureContext: 'Saving initial escrow metadata');
+      'deposit_address': depositAddress,
+    };
+    final ok = await persistEscrowInfo(info,
+        failureContext: 'Saving initial escrow metadata');
     if (!ok) {
       return false;
     }
@@ -353,6 +361,18 @@ class PongModel extends ChangeNotifier {
     }
     // Initialize the client with wallet-authenticated clientId
     await _initPongClient(cfg);
+    // Cache wallet auth info to persist across hot reloads
+    if (walletAddress.isNotEmpty || payoutAddressOrPubkey.isNotEmpty) {
+      try {
+        await Golib.cacheWalletAuthInfo(
+          walletAddress: walletAddress,
+          payoutAddressOrPubkey: payoutAddressOrPubkey,
+        );
+      } catch (e) {
+        developer.log('Failed to cache wallet auth info: $e', name: 'auth');
+        // Non-fatal: continue even if caching fails
+      }
+    }
     notifyListeners();
   }
 
@@ -364,6 +384,103 @@ class PongModel extends ChangeNotifier {
       await _initPongClient(cfg);
       if (clientId.isNotEmpty) {
         isWalletAuthenticated = true;
+        // Restore wallet auth info and escrow state from cached session key file
+        try {
+          final authInfo = await Golib.getWalletAuthInfo();
+          final cachedWalletAddr = authInfo['wallet_address'] ?? '';
+          final cachedPayoutAddr = authInfo['payout_address_or_pubkey'] ?? '';
+          if (cachedWalletAddr.isNotEmpty) {
+            walletAddress = cachedWalletAddr;
+          }
+          if (cachedPayoutAddr.isNotEmpty) {
+            payoutAddressOrPubkey = cachedPayoutAddr;
+          }
+
+          final escrowInfo = await Golib.getActiveEscrowInfo();
+          if (escrowInfo.isNotEmpty) {
+            final escrowIdFromCache = escrowInfo['escrow_id']?.toString() ?? '';
+            if (escrowIdFromCache.isNotEmpty) {
+              escrowId = escrowIdFromCache;
+
+              final depositAddr =
+                  escrowInfo['deposit_address']?.toString() ?? '';
+              if (depositAddr.isNotEmpty) {
+                escrowDepositAddress = depositAddr;
+              }
+
+              // Restore escrow metadata if available
+              final txid = escrowInfo['funding_txid']?.toString() ?? '';
+              if (txid.isNotEmpty) {
+                escrowFundingTxid = txid;
+              }
+
+              final vout = escrowInfo['funding_vout'];
+              if (vout is int) {
+                escrowFundingVout = vout;
+              } else if (vout is num) {
+                escrowFundingVout = vout.toInt();
+              }
+
+              final amount = escrowInfo['funded_amount'];
+              if (amount is int) {
+                escrowFundingValueAtoms = amount;
+                escrowBetAtoms = amount;
+                betAmt = amount;
+              } else if (amount is num) {
+                escrowFundingValueAtoms = amount.toInt();
+                escrowBetAtoms = amount.toInt();
+                betAmt = amount.toInt();
+              }
+
+              final redeem = escrowInfo['redeem_script_hex']?.toString() ?? '';
+              if (redeem.isNotEmpty) {
+                escrowRedeemScriptHex = redeem;
+              }
+
+              final pk = escrowInfo['pk_script_hex']?.toString() ?? '';
+              if (pk.isNotEmpty) {
+                escrowPkScriptHex = pk;
+              }
+
+              final csv = escrowInfo['csv_blocks'];
+              if (csv is int) {
+                escrowCsvBlocks = csv;
+              } else if (csv is num) {
+                escrowCsvBlocks = csv.toInt();
+              }
+
+              // Mark escrow info as persisted since it was loaded from cache
+              escrowInfoPersisted = true;
+              escrowInfoError = '';
+
+              // Re-validate refund session so we can decide whether it's safe
+              // to show the deposit address after a hot restart.
+              try {
+                final res = await Golib.validateRefundSession(escrowId);
+                final valid = res['ok'] == true;
+                escrowRefundSessionValid = valid;
+                escrowRefundSessionError = valid
+                    ? ''
+                    : (res['reason']?.toString() ?? 'unknown validation error');
+                if (!valid) {
+                  fundingStatus =
+                      'CRITICAL: escrow session backup invalid. Deposit address hidden.';
+                }
+              } catch (e) {
+                escrowRefundSessionValid = false;
+                escrowRefundSessionError = 'Validation error: $e';
+                fundingStatus =
+                    'CRITICAL: escrow session backup validation failed. Deposit address hidden.';
+              }
+
+              // Note: escrowConfs, escrowFunded, escrowConfirmed will be restored
+              // when the next bet_update notification arrives from the server
+            }
+          }
+        } catch (e) {
+          developer.log('Failed to restore auth/escrow info: $e', name: 'auth');
+          // Non-fatal: continue even if restoration fails
+        }
       }
       notifyListeners();
     } catch (e) {
@@ -402,6 +519,17 @@ class PongModel extends ChangeNotifier {
     walletAddress = '';
     authToken = '';
     payoutAddressOrPubkey = '';
+    // Clear cached wallet auth info
+    try {
+      await Golib.cacheWalletAuthInfo(
+        walletAddress: '',
+        payoutAddressOrPubkey: '',
+      );
+    } catch (e) {
+      developer.log('Failed to clear cached wallet auth info: $e',
+          name: 'auth');
+      // Non-fatal: continue even if clearing fails
+    }
     escrowId = '';
     escrowDepositAddress = '';
     escrowPkScriptHex = '';
@@ -415,6 +543,9 @@ class PongModel extends ChangeNotifier {
     escrowInfoError = '';
     escrowFunded = false;
     escrowConfirmed = false;
+    presignInProgress = false;
+    presignCompleted = false;
+    presignError = '';
     currentWR = null;
     _currentGameState = GameState.idle;
     serverIsF2P = false;
@@ -489,6 +620,9 @@ class PongModel extends ChangeNotifier {
         'csv_blocks': escrowCsvBlocks,
         'archived_at': DateTime.now().millisecondsSinceEpoch,
       };
+      if (escrowDepositAddress.isNotEmpty) {
+        info['deposit_address'] = escrowDepositAddress;
+      }
       if (escrowFundingTxid.isNotEmpty) {
         info['funding_txid'] = escrowFundingTxid;
       }
@@ -852,6 +986,9 @@ class PongModel extends ChangeNotifier {
     escrowConfirmed = false;
     escrowConfs = 0;
     fundingStatus = '';
+    presignInProgress = false;
+    presignCompleted = false;
+    presignError = '';
     lastMatchId = '';
     notifyListeners();
   }
@@ -901,6 +1038,9 @@ class PongModel extends ChangeNotifier {
       } else {
         waitingRooms[idx] = roomInfo;
       }
+      presignInProgress = false;
+      presignCompleted = false;
+      presignError = '';
       _currentGameState = GameState.inWaitingRoom;
       errorMessage = '';
       notifyListeners();
@@ -943,6 +1083,9 @@ class PongModel extends ChangeNotifier {
         waitingRooms[idx] = roomInfo;
       }
 
+      presignInProgress = false;
+      presignCompleted = false;
+      presignError = '';
       _currentGameState = GameState.inWaitingRoom;
       errorMessage = '';
       notifyListeners();
@@ -1004,7 +1147,10 @@ class PongModel extends ChangeNotifier {
       _currentGameState = GameState.idle;
       errorMessage = '';
       _stopGameStreamAndRenderLoop();
-      
+      presignInProgress = false;
+      presignCompleted = false;
+      presignError = '';
+
       // Refresh waiting rooms list to reflect updated player counts
       // (the player who left won't receive OPPONENT_DISCONNECTED notification)
       try {
@@ -1013,7 +1159,7 @@ class PongModel extends ChangeNotifier {
         developer.log("Failed to refresh waiting rooms after leaving: $e");
         // Non-fatal
       }
-      
+
       notifyListeners();
 
       notificationModel.showNotification("Left waiting room successfully");

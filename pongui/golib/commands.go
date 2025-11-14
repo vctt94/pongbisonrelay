@@ -60,6 +60,11 @@ const (
 	CTSaveClientConfig = 0x1b
 	// Refund session validation
 	CTValidateRefundSession = 0x1c
+	// Cache wallet auth info (wallet address and payout address)
+	CTCacheWalletAuthInfo = 0x1d
+	CTGetWalletAuthInfo   = 0x1e
+	// Get active escrow info
+	CTGetActiveEscrowInfo = 0x1f
 
 	CTCreateLockFile        = 0x60
 	CTCloseLockFile         = 0x61
