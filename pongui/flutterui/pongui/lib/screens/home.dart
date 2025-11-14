@@ -583,30 +583,6 @@ class _HomeScreenState extends State<HomeScreen> {
                                   ),
                                 ),
                                 const SizedBox(height: 8),
-                                Row(
-                                  mainAxisAlignment:
-                                      MainAxisAlignment.spaceBetween,
-                                  children: [
-                                    Text(
-                                      "Room ID: ${pongModel.currentWR?.id ?? ""}",
-                                      style: const TextStyle(
-                                        color: Colors.white,
-                                      ),
-                                    ),
-                                    Text(
-                                      pongModel.isReady ? "Ready" : "Not Ready",
-                                      style: TextStyle(
-                                        color: pongModel.isReady
-                                            ? Colors.green
-                                            : Colors.white,
-                                        fontWeight: pongModel.isReady
-                                            ? FontWeight.bold
-                                            : FontWeight.normal,
-                                      ),
-                                    ),
-                                  ],
-                                ),
-                                const SizedBox(height: 8),
                                 Builder(
                                   builder: (context) {
                                     final room = pongModel.currentWR;
@@ -622,20 +598,93 @@ class _HomeScreenState extends State<HomeScreen> {
                                       crossAxisAlignment:
                                           CrossAxisAlignment.start,
                                       children: [
-                                        Text(
-                                          "Players: $totalPlayers / 2",
-                                          style: const TextStyle(
-                                            color: Colors.white,
-                                          ),
+                                        // Room ID and Not Ready side by side
+                                        Row(
+                                          mainAxisAlignment:
+                                              MainAxisAlignment.spaceBetween,
+                                          children: [
+                                            Row(
+                                              children: [
+                                                const Icon(Icons.tag,
+                                                    size: 16,
+                                                    color: Colors.white54),
+                                                const SizedBox(width: 4),
+                                                Text(
+                                                  "Room ID: ${pongModel.currentWR?.id ?? ""}",
+                                                  style: const TextStyle(
+                                                    color: Colors.white,
+                                                  ),
+                                                ),
+                                              ],
+                                            ),
+                                            Row(
+                                              children: [
+                                                Icon(
+                                                  pongModel.isReady
+                                                      ? Icons.check_circle
+                                                      : Icons.cancel,
+                                                  size: 16,
+                                                  color: pongModel.isReady
+                                                      ? Colors.green
+                                                      : Colors.white70,
+                                                ),
+                                                const SizedBox(width: 4),
+                                                Text(
+                                                  pongModel.isReady
+                                                      ? "Ready"
+                                                      : "Not Ready",
+                                                  style: TextStyle(
+                                                    color: pongModel.isReady
+                                                        ? Colors.green
+                                                        : Colors.white70,
+                                                    fontWeight:
+                                                        pongModel.isReady
+                                                            ? FontWeight.bold
+                                                            : FontWeight.normal,
+                                                  ),
+                                                ),
+                                              ],
+                                            ),
+                                          ],
                                         ),
-                                        const SizedBox(height: 4),
-                                        Text(
-                                          "Ready: $readyPlayers / 2",
-                                          style: TextStyle(
-                                            color: readyPlayers == 2
-                                                ? Colors.greenAccent
-                                                : Colors.white70,
-                                          ),
+                                        const SizedBox(height: 8),
+                                        // Players and Ready count side by side
+                                        Row(
+                                          mainAxisAlignment:
+                                              MainAxisAlignment.spaceBetween,
+                                          children: [
+                                            Row(
+                                              children: [
+                                                const Icon(Icons.people,
+                                                    size: 16,
+                                                    color:
+                                                        Colors.lightBlueAccent),
+                                                const SizedBox(width: 4),
+                                                Text(
+                                                  "Players: $totalPlayers / 2",
+                                                  style: const TextStyle(
+                                                    color: Colors.white,
+                                                  ),
+                                                ),
+                                              ],
+                                            ),
+                                            Row(
+                                              children: [
+                                                const Icon(Icons.check_circle,
+                                                    size: 16,
+                                                    color: Colors.greenAccent),
+                                                const SizedBox(width: 4),
+                                                Text(
+                                                  "Ready: $readyPlayers / 2",
+                                                  style: TextStyle(
+                                                    color: readyPlayers == 2
+                                                        ? Colors.greenAccent
+                                                        : Colors.white70,
+                                                  ),
+                                                ),
+                                              ],
+                                            ),
+                                          ],
                                         ),
                                       ],
                                     );
