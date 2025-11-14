@@ -4,7 +4,6 @@ import (
 	"context"
 	"fmt"
 	"strings"
-	"time"
 
 	"github.com/companyzero/bisonrelay/zkidentity"
 
@@ -91,26 +90,13 @@ func (s *Server) StartNtfnStream(req *pong.StartNtfnStreamRequest, stream pong.P
 		})
 	}
 
-	// Escrow-first: remove legacy tips-based bet sync
-	// Wait for disconnection while sending periodic heartbeats to keep the
-	// stream active across load balancers and mobile networks.
-	heartbeatTicker := time.NewTicker(25 * time.Second)
-	defer heartbeatTicker.Stop()
-
-	for {
-		select {
-		case <-ctx.Done():
-			s.log.Debugf("Notifier stream ended for client %s, error: %v", clientID, ctx.Err())
-			return ctx.Err()
-		case <-heartbeatTicker.C:
-			if err := s.notify(player, &pong.NtfnStreamResponse{
-				NotificationType: pong.NotificationType_HEARTBEAT,
-			}); err != nil {
-				s.log.Debugf("Notifier heartbeat send failed for client %s: %v", clientID, err)
-				return err
-			}
-		}
-	}
+	// Block until the stream context ends; transport-level keepalives handle idleness.
+	<-ctx.Done()
+	// Treat notifier stream termination as a full disconnect for this
+	// client so they are cleanly removed from any waiting room.
+	s.handleDisconnect(clientID)
+	s.log.Debugf("Notifier stream ended for client %s, error: %v", clientID, ctx.Err())
+	return ctx.Err()
 }
 
 func (s *Server) StartGameStream(req *pong.StartGameStreamRequest, stream pong.PongGame_StartGameStreamServer) error {
@@ -178,6 +164,25 @@ func (s *Server) StartGameStream(req *pong.StartGameStreamRequest, stream pong.P
 
 	// Wait for context to end and handle disconnection
 	<-ctx.Done()
+	// On disconnect: mark player unready and clear game stream to avoid zombie readiness.
+	player.Lock()
+	player.Ready = false
+	player.GameStream = nil
+	player.Unlock()
+	// Notify other players in the waiting room (if any) that this player is not ready.
+	if player.WR != nil {
+		pwr := player.WR.Marshal()
+		for _, p := range player.WR.Players {
+			_ = s.notify(p, &pong.NtfnStreamResponse{
+				NotificationType: pong.NotificationType_ON_PLAYER_READY,
+				Message:          fmt.Sprintf("Player %s is not ready (stream closed)", player.Nick),
+				PlayerId:         player.ID.String(),
+				RoomId:           player.WR.ID,
+				Wr:               pwr,
+				Ready:            false,
+			})
+		}
+	}
 	s.log.Debugf("Client %s disconnected from game stream: %v", clientID, ctx.Err())
 	return nil
 }

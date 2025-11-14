@@ -158,6 +158,11 @@ type Server struct {
 
 	// In-memory auth/session state and HTTP auth server
 	auth authState
+
+	// wrManagers tracks which waiting rooms currently have an active
+	// manageWaitingRoom goroutine to avoid starting duplicates.
+	wrManagersMu sync.Mutex
+	wrManagers   map[string]struct{}
 }
 
 func NewServer(id *zkidentity.ShortID, cfg ServerConfig) (*Server, error) {
@@ -197,6 +202,7 @@ func NewServer(id *zkidentity.ShortID, cfg ServerConfig) (*Server, error) {
 			PlayerGameMap:  make(map[zkidentity.ShortID]*ponggame.GameInstance),
 		},
 		adaptorSecret: cfg.AdaptorSecret,
+		wrManagers:    make(map[string]struct{}),
 	}
 
 	if cfg.ReadyTimeoutSeconds <= 0 {
@@ -321,7 +327,7 @@ func (s *Server) cleanupEscrowSessionsForPlayers(players []*ponggame.Player) {
 }
 
 func (s *Server) handleDisconnect(clientID zkidentity.ShortID) {
-	// Cancel any active streams for this client
+	// Cancel any active streams for this client.
 	if cancel, ok := s.activeNtfnStreams.Load(clientID); ok {
 		if cancelFn, isCancel := cancel.(context.CancelFunc); isCancel {
 			cancelFn()
@@ -337,20 +343,104 @@ func (s *Server) handleDisconnect(clientID zkidentity.ShortID) {
 	delete(s.users, clientID)
 	s.usersMu.Unlock()
 
+	// Capture current waiting room (if any) before mutating game state.
+	wr := s.gameManager.GetWaitingRoomFromPlayer(clientID)
+
+	// Snapshot players in the waiting room, if any, so we can safely
+	// adjust their state even after the room is removed from the manager.
+	var wrPlayers []*ponggame.Player
+	if wr != nil {
+		wr.RLock()
+		wrPlayers = append([]*ponggame.Player(nil), wr.Players...)
+		wr.RUnlock()
+	}
+
+	// Get the player session, if it still exists.
 	player := s.gameManager.PlayerSessions.GetPlayer(clientID)
 	if player != nil {
-		// Clean up escrow sessions for this player
+		// Clean up escrow sessions for this player.
 		s.cleanupEscrowSessionsForPlayers([]*ponggame.Player{player})
+	}
+
+	// Remove player from waiting room (and possibly the room itself) before
+	// dropping the session, so we can send proper notifications.
+	isHost, _ := s.gameManager.RemovePlayerFromWaitingRoom(clientID)
+
+	// Now remove the player session from the manager.
+	if player != nil {
 		s.gameManager.PlayerSessions.RemovePlayer(clientID)
 	}
 
-	s.gameManager.RemovePlayerFromWaitingRoom(clientID)
+	// If the player wasn't in any waiting room, nothing else to do.
+	if wr == nil {
+		return
+	}
+
+	if isHost {
+		// Host disconnected: ensure all other players that were in this room
+		// are no longer considered ready and have their game streams cleaned
+		// up, so they don't stay \"ready\" after the room is closed.
+		for _, p := range wrPlayers {
+			if p == nil || p.ID == nil {
+				continue
+			}
+			// Skip the just-disconnected host (already cleaned up above).
+			if *p.ID == clientID {
+				continue
+			}
+
+			// Mark player not ready and clear any stale game stream reference.
+			p.Lock()
+			p.Ready = false
+			p.GameStream = nil
+			p.Unlock()
+
+			// Cancel any active game stream context to trigger StartGameStream
+			// cleanup on the client-specific goroutine, if still running.
+			if cancel, ok := s.activeGameStreams.Load(*p.ID); ok {
+				if cancelFn, isCancel := cancel.(context.CancelFunc); isCancel {
+					cancelFn()
+				}
+			}
+
+			// Clear presign artifacts for this player's escrow bound to this room.
+			if es := s.escrowForRoomPlayer(*p.ID, wr.ID); es != nil {
+				es.clearPreSigns()
+			}
+		}
+
+		// Host disconnected: cancel the room context and broadcast removal so
+		// UIs drop it from their lists.
+		if wr.Cancel != nil {
+			wr.Cancel()
+		}
+		s.notifyallusers(&pong.NtfnStreamResponse{
+			NotificationType: pong.NotificationType_ON_WR_REMOVED,
+			Message:          "host left the waiting room so the room was closed",
+			RoomId:           wr.ID,
+		})
+		return
+	}
+
+	// Non-host disconnected: notify remaining players in the room.
+	wr.RLock()
+	wrSnapshot := wr.Marshal()
+	wr.RUnlock()
+
+	remainingPlayers := ponggame.GetRemainingPlayersInWaitingRoom(wr, clientID)
+	for _, remainingPlayer := range remainingPlayers {
+		_ = s.notify(remainingPlayer, &pong.NtfnStreamResponse{
+			NotificationType: pong.NotificationType_OPPONENT_DISCONNECTED,
+			Message:          "player left the waiting room",
+			Wr:               wrSnapshot,
+		})
+	}
 }
 
 func (s *Server) Run(ctx context.Context) error {
 	for {
 		select {
-		case <-ctx.Done():
+	case <-ctx.Done():
 			ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
 			defer cancel()
 
@@ -365,10 +455,21 @@ func (s *Server) Run(ctx context.Context) error {
 			s.log.Debugf("New waiting room created")
 
 			for _, wr := range s.gameManager.WaitingRoomsSnapshot() {
-				if wr.Ctx.Err() == nil { // Only manage rooms with active contexts
-					s.log.Debugf("Managing waiting room: %s", wr.ID)
-					go s.manageWaitingRoom(wr.Ctx, wr)
+				if wr == nil || wr.Ctx.Err() != nil {
+					continue
 				}
+
+				// Ensure we only start a single manager goroutine per waiting room.
+				s.wrManagersMu.Lock()
+				if _, exists := s.wrManagers[wr.ID]; exists {
+					s.wrManagersMu.Unlock()
+					continue
+				}
+				s.wrManagers[wr.ID] = struct{}{}
+				s.wrManagersMu.Unlock()
+
+				s.log.Debugf("Managing waiting room: %s", wr.ID)
+				go s.manageWaitingRoom(wr.Ctx, wr)
 			}
 		}
 	}
@@ -662,6 +763,14 @@ func (s *Server) manageWaitingRoom(ctx context.Context, wr *ponggame.WaitingRoom
 	ticker := time.NewTicker(time.Second)
 	defer ticker.Stop()
 
+	// When this manager exits, allow future managers for this WR ID if it
+	// somehow reappears.
+	defer func() {
+		s.wrManagersMu.Lock()
+		delete(s.wrManagers, wr.ID)
+		s.wrManagersMu.Unlock()
+	}()
+
 	for {
 		select {
 		case <-ctx.Done():
@@ -740,6 +849,21 @@ func (s *Server) manageWaitingRoom(ctx context.Context, wr *ponggame.WaitingRoom
 
 			s.log.Infof("Game starting with players: %s and %s", players[0].ID, players[1].ID)
 
+			// Require an active game stream for all ready players before starting.
+			streamsOK := true
+			for _, p := range players {
+				if p == nil || p.GameStream == nil {
+					streamsOK = false
+					// Inform the player via notifier stream if available.
+					_ = s.notify(p, &pong.NtfnStreamResponse{
+						NotificationType: pong.NotificationType_MESSAGE,
+						Message:          "Waiting: your game stream is not active. Please toggle ready or reconnect.",
+					})
+				}
+			}
+			if !streamsOK {
+				continue
+			}
 			go s.handleGameLifecycle(ctx, wr)
 			return nil
 		}

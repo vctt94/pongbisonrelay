@@ -194,7 +194,8 @@ func realMain() error {
 	grpcServer := grpc.NewServer(
 		grpc.Creds(creds),
 		grpc.KeepaliveEnforcementPolicy(keepalive.EnforcementPolicy{
-			MinTime: 30 * time.Second, // If a client sends pings more often than this, the server will send a GOAWAY
+			MinTime:             20 * time.Second, // Allow client pings >= 20s
+			PermitWithoutStream: true,             // allow pings even with no active RPC
 		}),
 		grpc.KeepaliveParams(keepalive.ServerParameters{
 			Time:              30 * time.Second, // Send keepalive pings every X interval
