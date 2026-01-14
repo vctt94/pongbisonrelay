@@ -123,11 +123,18 @@ func (s *Server) CreateWaitingRoom(ctx context.Context, req *pong.CreateWaitingR
 		return nil, fmt.Errorf("require funded escrow to create room (0-conf ok): %w", err)
 	}
 
+	currentHeight, err := s.refreshBestBlockHeight(ctx)
+	if err != nil {
+		return nil, fmt.Errorf("failed to fetch current block height: %w", err)
+	}
+
 	// Create room; bet uses host escrow's betAtoms.
 	wr, err := ponggame.NewWaitingRoom(hostPlayer, int64(es.betAtoms))
 	if err != nil {
 		return nil, fmt.Errorf("failed to create waiting room: %v", err)
 	}
+	wr.OpenedHeight = currentHeight
+	wr.CSVBlocks = es.csvBlocks
 	hostPlayer.WR = wr
 
 	// Bind host escrow to room.

@@ -122,6 +122,10 @@ type WaitingRoom struct {
 	HostID    *clientintf.UserID
 	Players   []*Player
 	BetAmount int64
+	// Chain height when the room was opened (used for CSV expiry checks).
+	OpenedHeight int64
+	// CSV lock duration inherited from the host escrow at room creation.
+	CSVBlocks uint32
 }
 
 func (wr *WaitingRoom) Marshal() *pong.WaitingRoom {

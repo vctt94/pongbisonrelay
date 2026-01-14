@@ -10,6 +10,7 @@ import (
 	"os"
 	"path/filepath"
 	"sync"
+	"sync/atomic"
 	"time"
 
 	"github.com/companyzero/bisonrelay/zkidentity"
@@ -97,6 +98,7 @@ type escrowSession struct {
 	csvBlocks       uint32
 	redeemScriptHex string
 	pkScriptHex     string
+	openedHeight    int64
 
 	// ----------------- runtime state (protected by mu) -------------
 	mu        sync.RWMutex
@@ -140,6 +142,9 @@ type Server struct {
 
 	// chain watcher for tip + mempool
 	watcher *chainwatcher.ChainWatcher
+
+	// Cached best block height updated from dcrd notifications.
+	bestBlockHeight atomic.Int64
 
 	// Escrow-first funding state
 	escrowsMu sync.RWMutex
@@ -204,6 +209,7 @@ func NewServer(id *zkidentity.ShortID, cfg ServerConfig) (*Server, error) {
 		adaptorSecret: cfg.AdaptorSecret,
 		wrManagers:    make(map[string]struct{}),
 	}
+	s.bestBlockHeight.Store(-1)
 
 	if cfg.ReadyTimeoutSeconds <= 0 {
 		return nil, fmt.Errorf("readytimeoutseconds cfg param must be greater than 0")
@@ -257,6 +263,11 @@ func NewServer(id *zkidentity.ShortID, cfg ServerConfig) (*Server, error) {
 				ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
 				go func() { defer cancel(); s.watcher.ProcessBlockConnected(ctx) }()
 			}
+			go func() {
+				if _, err := s.refreshBestBlockHeight(context.Background()); err != nil {
+					s.log.Warnf("refresh best block height: %v", err)
+				}
+			}()
 		},
 	}
 
@@ -266,6 +277,10 @@ func NewServer(id *zkidentity.ShortID, cfg ServerConfig) (*Server, error) {
 	}
 	s.dcrd = c
 	s.log.Infof("Connected to dcrd at %s", cfg.DcrdHostPort)
+
+	if _, err := s.refreshBestBlockHeight(context.Background()); err != nil {
+		s.log.Warnf("initial block height fetch failed: %v", err)
+	}
 
 	// Start chain watcher to keep tip and mempool for watched scripts
 	s.watcher = chainwatcher.NewChainWatcher(s.log, s.dcrd)
@@ -737,6 +752,82 @@ func (s *Server) removeWaitingRoom(wr *ponggame.WaitingRoom, msg string) {
 	s.log.Debugf("Waiting room %s removed (%s)", wr.ID, msg)
 }
 
+func (s *Server) refreshBestBlockHeight(parent context.Context) (int64, error) {
+	if s.dcrd == nil {
+		return 0, fmt.Errorf("dcrd rpc client not configured")
+	}
+	if parent == nil {
+		parent = context.Background()
+	}
+	ctx, cancel := context.WithTimeout(parent, 5*time.Second)
+	defer cancel()
+	height, err := s.dcrd.GetBlockCount(ctx)
+	if err != nil {
+		return 0, err
+	}
+	s.bestBlockHeight.Store(height)
+	return height, nil
+}
+
+func (s *Server) currentBestBlockHeight(parent context.Context) (int64, error) {
+	if h := s.bestBlockHeight.Load(); h >= 0 {
+		return h, nil
+	}
+	return s.refreshBestBlockHeight(parent)
+}
+
+func (s *Server) waitingRoomExpired(parent context.Context, wr *ponggame.WaitingRoom) (bool, int64, int64, uint32, error) {
+	if wr == nil {
+		return false, 0, 0, 0, fmt.Errorf("waiting room is nil")
+	}
+	wr.RLock()
+	opened := wr.OpenedHeight
+	csv := wr.CSVBlocks
+	wr.RUnlock()
+	if opened == 0 || csv == 0 {
+		return false, 0, 0, csv, nil
+	}
+	currentHeight, err := s.currentBestBlockHeight(parent)
+	if err != nil {
+		return false, 0, 0, csv, err
+	}
+	expiryHeight := opened + int64(csv)
+	return currentHeight > expiryHeight, currentHeight, expiryHeight, csv, nil
+}
+
+func (s *Server) removeEscrowFromRooms(escrowID string) {
+	if escrowID == "" {
+		return
+	}
+	s.roomEscrowsMu.Lock()
+	defer s.roomEscrowsMu.Unlock()
+	for uid, rooms := range s.roomEscrows {
+		for roomID, eid := range rooms {
+			if eid == escrowID {
+				delete(rooms, roomID)
+			}
+		}
+		if len(rooms) == 0 {
+			delete(s.roomEscrows, uid)
+		}
+	}
+}
+
+func (s *Server) escrowExpired(parent context.Context, es *escrowSession) (bool, int64, int64, uint32, error) {
+	if es == nil {
+		return false, 0, 0, 0, fmt.Errorf("escrow session is nil")
+	}
+	if es.openedHeight == 0 || es.csvBlocks == 0 {
+		return false, 0, 0, es.csvBlocks, nil
+	}
+	currentHeight, err := s.currentBestBlockHeight(parent)
+	if err != nil {
+		return false, 0, 0, es.csvBlocks, err
+	}
+	expiryHeight := es.openedHeight + int64(es.csvBlocks)
+	return currentHeight > expiryHeight, currentHeight, expiryHeight, es.csvBlocks, nil
+}
+
 // preSignSnapshot returns a consistent snapshot of the presign state while
 // holding a read lock only once. It includes the bound input id, the list of
 // input ids present in presign contexts, whether all contexts agree on the
@@ -781,6 +872,20 @@ func (s *Server) manageWaitingRoom(ctx context.Context, wr *ponggame.WaitingRoom
 			return ctx.Err()
 
 		case <-ticker.C:
+			if !s.isF2P {
+				expired, currentHeight, expiryHeight, csv, err := s.waitingRoomExpired(ctx, wr)
+				if err != nil {
+					s.log.Warnf("waiting room %s expiry check failed: %v", wr.ID, err)
+				} else if expired {
+					wr.RLock()
+					opened := wr.OpenedHeight
+					wr.RUnlock()
+					msg := fmt.Sprintf("waiting room expired (csv=%d, opened_height=%d, expiry_height=%d, current_height=%d)", csv, opened, expiryHeight, currentHeight)
+					s.removeWaitingRoom(wr, msg)
+					return nil
+				}
+			}
+
 			players := wr.ReadyPlayers()
 			if len(players) < 2 {
 				continue
